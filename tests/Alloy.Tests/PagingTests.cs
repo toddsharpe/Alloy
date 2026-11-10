@@ -5,22 +5,22 @@ using Alloy.Arch.X64;
 namespace Alloy.Tests;
 
 // Runs the page table builder against a fake physical memory buffer; tests in a class run sequentially, so the statics are safe
-public unsafe class PagingTests : IDisposable
+public class PagingTests : IDisposable
 {
 	private const ulong MemorySize = 256 * PageTableBuilder.PageSize;
 
-	private static byte* s_memory;
+	private static unsafe byte* s_memory;
 	private static ulong s_next;
 	private static ulong s_limit;
 
-	public PagingTests()
+	public unsafe PagingTests()
 	{
 		s_memory = (byte*)NativeMemory.AllocZeroed((nuint)MemorySize);
 		s_next = PageTableBuilder.PageSize;
 		s_limit = MemorySize;
 	}
 
-	public void Dispose() => NativeMemory.Free(s_memory);
+	public unsafe void Dispose() => NativeMemory.Free(s_memory);
 
 	// Physical 0 means failure, so allocation starts at the second page
 	private static ulong AllocateTable()
@@ -32,7 +32,7 @@ public unsafe class PagingTests : IDisposable
 		return page;
 	}
 
-	private static PageTableBuilder Create(bool hugePages) => new(&AllocateTable, (ulong)s_memory, hugePages);
+	private static unsafe PageTableBuilder Create(bool hugePages) => new(&AllocateTable, (ulong)s_memory, hugePages);
 
 	[Fact]
 	public void TranslatesSmallPagesWithFlags()
@@ -76,7 +76,7 @@ public unsafe class PagingTests : IDisposable
 	}
 
 	[Fact]
-	public void KeepsTheKernelInOnePml4Slot()
+	public unsafe void KeepsTheKernelInOnePml4Slot()
 	{
 		PageTableBuilder tables = Create(hugePages: true);
 		Assert.True(tables.Map(MemoryLayout.KernelBase, 0x100000, PageTableBuilder.PageSize, PageFlags.None));

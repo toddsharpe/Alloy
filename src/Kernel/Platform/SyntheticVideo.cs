@@ -6,7 +6,7 @@ using Alloy.Text;
 namespace Alloy.Kernel.Platform
 {
 	// Hyper-V synthetic video (MetalOS HyperVVideoDriver): the GOP framebuffer as VRAM, set to the largest mode the host lists
-	internal sealed unsafe class SyntheticVideo : VmBusChannel
+	internal sealed class SyntheticVideo : VmBusChannel
 	{
 		private const int RingPages = 10;
 		private const uint PipeData = 1;
@@ -24,7 +24,7 @@ namespace Alloy.Kernel.Platform
 		private const int AnswerSize = 512;
 
 		private readonly KEvent _answered = new KEvent(false);
-		private byte* _answer;
+		private unsafe byte* _answer;
 		private volatile uint _awaiting;
 		private ulong _situation;
 		private ulong _vramSize;
@@ -39,7 +39,7 @@ namespace Alloy.Kernel.Platform
 		public uint Height { get; private set; }
 
 		// Negotiates once, the first time the window server asks for the screen; false leaves the boot GOP mode in charge
-		public static bool Start(BootInfo* boot)
+		public static unsafe bool Start(BootInfo* boot)
 		{
 			if (Active != null)
 				return true;
@@ -76,7 +76,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Tells the host the whole screen changed; once synthvid is connected the host only redraws what it is told
-		public void Flush()
+		public unsafe void Flush()
 		{
 			byte* message = stackalloc byte[34];
 			new Span<byte>(message, 34).Clear();
@@ -88,7 +88,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Version (newest first, as hyperv_fb), the resolution list, the VRAM location, then the mode
-		private bool Negotiate(uint bootPitch)
+		private unsafe bool Negotiate(uint bootPitch)
 		{
 			byte* message = stackalloc byte[48];
 			uint version = 0;
@@ -134,7 +134,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// The largest listed mode that fits the VRAM; the host's own default is its boot mode, not its best
-		private void Largest(out uint width, out uint height)
+		private unsafe void Largest(out uint width, out uint height)
 		{
 			width = Width;
 			height = Height;
@@ -151,7 +151,7 @@ namespace Alloy.Kernel.Platform
 			}
 		}
 
-		private bool SetMode(uint width, uint height, uint pitchBytes = 0)
+		private unsafe bool SetMode(uint width, uint height, uint pitchBytes = 0)
 		{
 			if (pitchBytes == 0)
 				pitchBytes = width * 4;
@@ -175,7 +175,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Every message is |pipe type, size|synthvid type, size|body|, both sizes counting from the synthvid header
-		private static void Header(byte* message, uint type, int bodySize)
+		private static unsafe void Header(byte* message, uint type, int bodySize)
 		{
 			*(uint*)message = PipeData;
 			*(uint*)(message + 4) = (uint)(8 + bodySize);
@@ -184,7 +184,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Arms before sending, then waits up to 2 s; an answer that arrives after its wait ended can't satisfy the next request
-		private bool Request(byte* message, int size, uint answer)
+		private unsafe bool Request(byte* message, int size, uint answer)
 		{
 			ulong flags = Scheduler.Lock();
 			_answered.Reset();
@@ -195,7 +195,7 @@ namespace Alloy.Kernel.Platform
 			return answered;
 		}
 
-		protected override void OnPacket(VmBusPacket* packet, byte* payload, uint size)
+		protected override unsafe void OnPacket(VmBusPacket* packet, byte* payload, uint size)
 		{
 			if (packet->Type != PacketInband || size < 16 || *(uint*)payload != PipeData)
 				return;

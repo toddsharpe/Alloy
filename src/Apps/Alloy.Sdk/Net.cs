@@ -4,15 +4,15 @@ using Alloy.Abi;
 namespace Alloy.Sdk
 {
 	// Sockets and interface configuration through NetSvr (MetalOS-NET.dll); calls are synchronous request and reply, addresses host order
-	public static unsafe class Net
+	public static class Net
 	{
 		private static long s_server;
 		private static long s_reply;
 		private static ulong s_client;
-		private static byte* s_buffer;
+		private static unsafe byte* s_buffer;
 
 		// Interface enumeration is a kernel syscall; the address configuration belongs to NetSvr
-		public static int GetInterfaces(Span<InterfaceInfo> interfaces)
+		public static unsafe int GetInterfaces(Span<InterfaceInfo> interfaces)
 		{
 			fixed (InterfaceInfo* pointer = interfaces)
 				return (int)SystemCall.Invoke(Syscall.GetInterfaces, (ulong)pointer, (ulong)interfaces.Length);
@@ -22,7 +22,7 @@ namespace Alloy.Sdk
 
 		public static long Bind(long socket, ushort port) => Call(NetProtocol.Bind, (ulong)socket, port, out _);
 
-		public static long SendTo(long socket, ReadOnlySpan<byte> data, uint ip, ushort port)
+		public static unsafe long SendTo(long socket, ReadOnlySpan<byte> data, uint ip, ushort port)
 		{
 			if (!Connect() || data.Length > NetProtocol.MaxPayload)
 				return SystemCall.Error(SyscallError.InvalidArgument);
@@ -31,7 +31,7 @@ namespace Alloy.Sdk
 		}
 
 		// The next datagram's length, retrying every few milliseconds until one arrives or the timeout passes
-		public static long ReceiveFrom(long socket, Span<byte> buffer, out uint ip, out ushort port, ulong timeoutMs)
+		public static unsafe long ReceiveFrom(long socket, Span<byte> buffer, out uint ip, out ushort port, ulong timeoutMs)
 		{
 			ulong start = Kernel.TickCount;
 			while (true)
@@ -129,7 +129,7 @@ namespace Alloy.Sdk
 		}
 
 		// Once per process: the reply port with Connect, then the shared page datagrams travel in
-		private static bool Connect()
+		private static unsafe bool Connect()
 		{
 			if (s_buffer != null)
 				return true;

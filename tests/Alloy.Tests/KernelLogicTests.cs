@@ -6,10 +6,10 @@ using Alloy.Tools;
 
 namespace Alloy.Tests;
 
-public unsafe class BitmapAllocatorTests
+public class BitmapAllocatorTests
 {
 	[Fact]
-	public void StartsFullAndHandsOutFreedRuns()
+	public unsafe void StartsFullAndHandsOutFreedRuns()
 	{
 		byte* bits = (byte*)NativeMemory.Alloc(16);
 		try
@@ -35,7 +35,7 @@ public unsafe class BitmapAllocatorTests
 	}
 
 	[Fact]
-	public void MarkingIsIdempotentAndClampedToTheCount()
+	public unsafe void MarkingIsIdempotentAndClampedToTheCount()
 	{
 		byte* bits = (byte*)NativeMemory.Alloc(2);
 		try
@@ -57,7 +57,7 @@ public unsafe class BitmapAllocatorTests
 	}
 
 	[Fact]
-	public void WrapsAroundToFindRunsBeforeTheHint()
+	public unsafe void WrapsAroundToFindRunsBeforeTheHint()
 	{
 		byte* bits = (byte*)NativeMemory.Alloc(8);
 		try

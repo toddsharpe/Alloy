@@ -13,7 +13,7 @@ namespace Alloy.Arch.X64
 	}
 
 	// Ring-0 instructions, implemented in Cpu.asm and bound by symbol with no transition frame
-	public static unsafe class Cpu
+	public static class Cpu
 	{
 		[RuntimeImport("*", "PhxInByte")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -93,7 +93,7 @@ namespace Alloy.Arch.X64
 
 		[RuntimeImport("*", "PhxInvalidatePage")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		public static extern void InvalidatePage(void* address);
+		public static extern unsafe void InvalidatePage(void* address);
 
 		[RuntimeImport("*", "PhxReadTsc")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -101,14 +101,14 @@ namespace Alloy.Arch.X64
 
 		[RuntimeImport("*", "PhxCpuId")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void CpuIdRaw(uint leaf, uint subleaf, CpuIdResult* result);
+		private static extern unsafe void CpuIdRaw(uint leaf, uint subleaf, CpuIdResult* result);
 
 		[RuntimeImport("*", "PhxHaltForever")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		[DoesNotReturn]
 		public static extern void HaltForever();
 
-		public static CpuIdResult CpuId(uint leaf, uint subleaf = 0)
+		public static unsafe CpuIdResult CpuId(uint leaf, uint subleaf = 0)
 		{
 			CpuIdResult result;
 			CpuIdRaw(leaf, subleaf, &result);

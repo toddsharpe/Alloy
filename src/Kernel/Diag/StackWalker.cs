@@ -4,12 +4,12 @@ using Alloy.Abi;
 namespace Alloy.Kernel.Diag
 {
 	// Register state for unwinding; Gpr is indexed by the x64 unwind register numbers (0 rax ... 4 rsp, 5 rbp ... 15 r15)
-	internal unsafe struct UnwindContext
+	internal struct UnwindContext
 	{
 		public ulong Rip;
-		public fixed ulong Gpr[16];
+		public unsafe fixed ulong Gpr[16];
 
-		public ulong Rsp
+		public unsafe ulong Rsp
 		{
 			readonly get => Gpr[4];
 			set => Gpr[4] = value;
@@ -17,7 +17,7 @@ namespace Alloy.Kernel.Diag
 	}
 
 	// A diagnostics-only virtual unwinder over the kernel's .pdata/.xdata (the Windows x64 unwind format)
-	internal static unsafe class StackWalker
+	internal static class StackWalker
 	{
 		private const int UwopPushNonvol = 0;
 		private const int UwopAllocLarge = 1;
@@ -33,10 +33,10 @@ namespace Alloy.Kernel.Diag
 
 		private static ulong s_imageBase;
 		private static uint s_imageSize;
-		private static uint* s_functions;
+		private static unsafe uint* s_functions;
 		private static int s_functionCount;
 
-		public static void Initialize(ulong imageBase)
+		public static unsafe void Initialize(ulong imageBase)
 		{
 			uint size = *(uint*)(imageBase + *(uint*)(imageBase + 0x3C) + 24 + 56);
 			if (!PeImage.TryParseLoaded(new ReadOnlySpan<byte>((void*)imageBase, (int)size), out PeImage pe))
@@ -51,7 +51,7 @@ namespace Alloy.Kernel.Diag
 		public static bool InKernelImage(ulong address) => s_imageBase != 0 && address - s_imageBase < s_imageSize;
 
 		// Steps to the caller's frame; false when the walk leaves the kernel image or the stack looks wrong
-		public static bool Unwind(ref UnwindContext context)
+		public static unsafe bool Unwind(ref UnwindContext context)
 		{
 			if (!InKernelImage(context.Rip))
 				return false;
@@ -127,7 +127,7 @@ namespace Alloy.Kernel.Diag
 			return machineFrame || PopReturn(ref context);
 		}
 
-		private static bool PopReturn(ref UnwindContext context)
+		private static unsafe bool PopReturn(ref UnwindContext context)
 		{
 			if ((context.Rsp & 7) != 0 || context.Rsp < 0xFFFF800000000000)
 				return false;
@@ -136,7 +136,7 @@ namespace Alloy.Kernel.Diag
 			return true;
 		}
 
-		private static bool FrameEstablished(ushort* codes, int count, uint offset)
+		private static unsafe bool FrameEstablished(ushort* codes, int count, uint offset)
 		{
 			for (int i = 0; i < count; i += Slots((codes[i] >> 8) & 0xF, codes[i] >> 12))
 			{
@@ -157,7 +157,7 @@ namespace Alloy.Kernel.Diag
 			_ => 1,
 		};
 
-		private static uint* Lookup(uint rva)
+		private static unsafe uint* Lookup(uint rva)
 		{
 			int low = 0;
 			int high = s_functionCount - 1;

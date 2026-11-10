@@ -1,7 +1,7 @@
 namespace Alloy.Abi
 {
 	// Kernel <-> NetSvr raw-frame device (MetalOS NetDevice): frames come up a shared ring, NetSend sends one
-	public unsafe struct NetFrame
+	public struct NetFrame
 	{
 		public const int Mtu = 1514;
 		public const string RxEndpoint = "net.rx";
@@ -16,9 +16,9 @@ namespace Alloy.Abi
 		public FrameBytes Data;
 
 		// The ring's header holds the free-running write and read counters, like the input ring
-		public static uint* Counters(byte* ring) => (uint*)ring;
+		public static unsafe uint* Counters(byte* ring) => (uint*)ring;
 
-		public static NetFrame* At(byte* ring, uint counter) => (NetFrame*)(ring + HeaderSize + counter % RxCapacity * RecordSize);
+		public static unsafe NetFrame* At(byte* ring, uint counter) => (NetFrame*)(ring + HeaderSize + counter % RxCapacity * RecordSize);
 	}
 
 	// One frame's bytes, up to the MTU

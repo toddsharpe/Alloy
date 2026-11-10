@@ -7,7 +7,7 @@ using Alloy.Abi;
 namespace Alloy.Runtime
 {
 	// The raw kernel interface; Alloy.Runtime wraps it in typed calls
-	public static unsafe class SystemCall
+	public static class SystemCall
 	{
 		[RuntimeImport("*", "PhxSyscall")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -17,7 +17,7 @@ namespace Alloy.Runtime
 			PhxSyscall((ulong)number, a0, a1, a2, a3, a4, a5);
 
 		// Prints one line to the kernel log (COM1 and the console); non-ASCII becomes '?'
-		public static void DebugPrint(ReadOnlySpan<char> text)
+		public static unsafe void DebugPrint(ReadOnlySpan<char> text)
 		{
 			byte* bytes = stackalloc byte[200];
 			int count = Math.Min(text.Length, 200);
@@ -38,19 +38,19 @@ namespace Alloy.Runtime
 
 namespace Internal.Runtime.CompilerHelpers
 {
-	internal static unsafe class UserStartup
+	internal static class UserStartup
 	{
 		[RuntimeImport("*", "PhxTeb")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern byte* PhxTeb();
+		private static extern unsafe byte* PhxTeb();
 
 		[RuntimeImport("*", "__managed__Main")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern int ManagedMain(int argc, char** argv);
+		private static extern unsafe int ManagedMain(int argc, char** argv);
 
 		// The process entry point: rcx carries the argument CreateProcess passed
 		[RuntimeExport("PhxUserStart")]
-		private static void PhxUserStart(ulong argument)
+		private static unsafe void PhxUserStart(ulong argument)
 		{
 			Environment.ProcessArgument = argument;
 			Environment.SetFailFastWriter(&WriteFailFast);
@@ -66,15 +66,15 @@ namespace Internal.Runtime.CompilerHelpers
 namespace System.Runtime
 {
 	// Bump allocation from 1 MB VirtualAlloc chunks; nothing is freed until the process exits
-	internal static unsafe partial class Allocator
+	internal static partial class Allocator
 	{
 		private const nuint ChunkSize = 1024 * 1024;
 
-		private static byte* s_chunk;
+		private static unsafe byte* s_chunk;
 		private static nuint s_used;
 		private static nuint s_size;
 
-		private static partial void* AllocateZeroed(nuint size)
+		private static unsafe partial void* AllocateZeroed(nuint size)
 		{
 			if (size > ChunkSize / 4)
 				return Reserve(size);
@@ -93,7 +93,7 @@ namespace System.Runtime
 		}
 
 		// Fresh pages from the kernel are already zero
-		private static void* Reserve(nuint size)
+		private static unsafe void* Reserve(nuint size)
 		{
 			long address = Alloy.Runtime.SystemCall.Invoke(Syscall.VirtualAlloc, 0, size, Memory.Commit | Memory.Reserve, Memory.ReadWrite);
 			return address <= 0 ? null : (void*)address;

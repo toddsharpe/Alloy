@@ -26,7 +26,7 @@ namespace Alloy.Kernel.Ob
 	}
 
 	// One message in a port: a fixed payload plus at most one object handed to the receiver
-	internal sealed unsafe class KMessage
+	internal sealed class KMessage
 	{
 		public IpcMessage Payload;
 		public KObject Transfer;

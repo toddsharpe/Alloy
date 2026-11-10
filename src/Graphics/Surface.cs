@@ -3,18 +3,18 @@ using System;
 namespace Alloy.Graphics
 {
 	// A 32-bit BGRX pixel buffer: the framebuffer, a back buffer or a window
-	public unsafe struct Surface
+	public struct Surface
 	{
 		// Text advances on MetalOS's 10 pixel grid (Draw2D PixelScale)
 		public const int CharWidth = 10;
 		public const int LineHeight = 10;
 
-		public uint* Pixels;
+		public unsafe uint* Pixels;
 		public int Width;
 		public int Height;
 		public int Stride;
 
-		public Surface(uint* pixels, int width, int height, int stride)
+		public unsafe Surface(uint* pixels, int width, int height, int stride)
 		{
 			Pixels = pixels;
 			Width = width;
@@ -23,11 +23,11 @@ namespace Alloy.Graphics
 		}
 
 		// One row of pixels, for code that computes pixels itself without touching the pointer
-		public readonly Span<uint> Row(int y) => new Span<uint>(Pixels + y * Stride, Width);
+		public readonly unsafe Span<uint> Row(int y) => new Span<uint>(Pixels + y * Stride, Width);
 
 		public readonly void Fill(uint color) => FillRectangle(0, 0, Width, Height, color);
 
-		public readonly void FillRectangle(int x, int y, int width, int height, uint color)
+		public readonly unsafe void FillRectangle(int x, int y, int width, int height, uint color)
 		{
 			int x0 = Math.Max(x, 0);
 			int y0 = Math.Max(y, 0);
@@ -47,7 +47,7 @@ namespace Alloy.Graphics
 			FillRectangle(x + width - thickness, y, thickness, height, color);
 		}
 
-		public readonly void DrawCharacter(int x, int y, char c, uint color)
+		public readonly unsafe void DrawCharacter(int x, int y, char c, uint color)
 		{
 			ReadOnlySpan<byte> glyph = Font8x8.Glyph(c);
 			for (int row = 0; row < Font8x8.GlyphSize; row++)
@@ -144,7 +144,7 @@ namespace Alloy.Graphics
 		}
 
 		// Darkens what is already drawn to keep/256 (shadows, dimmed areas)
-		public readonly void Darken(int x, int y, int width, int height, uint keep)
+		public readonly unsafe void Darken(int x, int y, int width, int height, uint keep)
 		{
 			int x0 = Math.Max(x, 0);
 			int y0 = Math.Max(y, 0);
@@ -175,7 +175,7 @@ namespace Alloy.Graphics
 		public static int TextWidth(int length, int scale) => length * 8 * scale;
 
 		// Copies another surface in, clipped to this one
-		public readonly void Blit(int x, int y, in Surface source)
+		public readonly unsafe void Blit(int x, int y, in Surface source)
 		{
 			int x0 = Math.Max(x, 0);
 			int y0 = Math.Max(y, 0);
@@ -191,7 +191,7 @@ namespace Alloy.Graphics
 		}
 
 		// Like Blit, with every pixel darkened to keep/256
-		public readonly void BlitDimmed(int x, int y, in Surface source, uint keep)
+		public readonly unsafe void BlitDimmed(int x, int y, in Surface source, uint keep)
 		{
 			int x0 = Math.Max(x, 0);
 			int y0 = Math.Max(y, 0);
@@ -207,7 +207,7 @@ namespace Alloy.Graphics
 		}
 
 		// The source stretched to fill the rectangle, nearest pixel (MetalOS WriteFrameScaled)
-		public readonly void BlitScaled(int x, int y, int width, int height, in Surface source)
+		public readonly unsafe void BlitScaled(int x, int y, int width, int height, in Surface source)
 		{
 			if (width <= 0 || height <= 0)
 				return;
@@ -239,7 +239,7 @@ namespace Alloy.Graphics
 		}
 
 		// Moves rows [top + lines, Height) up to top, then clears the freed rows
-		public readonly void ScrollUp(int top, int lines, uint background)
+		public readonly unsafe void ScrollUp(int top, int lines, uint background)
 		{
 			int rows = Height - top - lines;
 			for (int row = 0; row < rows; row++)

@@ -9,7 +9,7 @@ using Alloy.Text;
 namespace Alloy.Kernel
 {
 	// Boot-time checks of the phase 2 machinery: heap, exception dispatch, fault fixups and the dropped identity map
-	internal static unsafe class SelfTest
+	internal static class SelfTest
 	{
 		private static int s_passed;
 		private static int s_failed;
@@ -55,7 +55,7 @@ namespace Alloy.Kernel
 			return HeapPattern() && PhysicalMemory.FreePages == freeAfterFirst && Heap.LargePages == 0;
 		}
 
-		private static bool HeapPattern()
+		private static unsafe bool HeapPattern()
 		{
 			const int Count = 256;
 			byte** blocks = stackalloc byte*[Count];
@@ -108,7 +108,7 @@ namespace Alloy.Kernel
 		private static Ke.KEvent s_pong;
 		private static int s_rounds;
 
-		private static bool PingPong()
+		private static unsafe bool PingPong()
 		{
 			s_ping = new Ke.KEvent(false);
 			s_pong = new Ke.KEvent(false);
@@ -123,7 +123,7 @@ namespace Alloy.Kernel
 			return s_rounds == 1000;
 		}
 
-		private static void PongLoop(void* argument)
+		private static unsafe void PongLoop(void* argument)
 		{
 			for (int i = 0; i < 1000; i++)
 			{
@@ -137,7 +137,7 @@ namespace Alloy.Kernel
 		private static volatile bool s_spin;
 		private static volatile int s_spins;
 
-		private static bool Preemption()
+		private static unsafe bool Preemption()
 		{
 			s_spin = true;
 			Ke.Scheduler.Start("spinner", &SpinLoop, null);
@@ -149,7 +149,7 @@ namespace Alloy.Kernel
 		}
 
 		// Never yields: the sleeping main thread only gets back if the timer preempts this loop
-		private static void SpinLoop(void* argument)
+		private static unsafe void SpinLoop(void* argument)
 		{
 			while (s_spin)
 				s_spins++;
@@ -174,7 +174,7 @@ namespace Alloy.Kernel
 
 		private static bool ProbeRecovers() => Probe(MemoryLayout.KernelBase) && !Probe(0xFFFF_8000_0000_0000);
 
-		private static bool Probe(ulong address)
+		private static unsafe bool Probe(ulong address)
 		{
 			byte value;
 			return PhxProbeRead((byte*)address, &value) != 0;
@@ -186,6 +186,6 @@ namespace Alloy.Kernel
 
 		[RuntimeImport("*", "PhxProbeRead")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern int PhxProbeRead(byte* address, byte* value);
+		private static extern unsafe int PhxProbeRead(byte* address, byte* value);
 	}
 }

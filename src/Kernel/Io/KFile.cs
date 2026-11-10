@@ -5,13 +5,13 @@ using Alloy.Kernel.Ob;
 namespace Alloy.Kernel.Io
 {
 	// A read-only view of one initrd file with a seek position
-	internal sealed unsafe class KFile : KObject
+	internal sealed class KFile : KObject
 	{
-		private readonly byte* _data;
+		private readonly unsafe byte* _data;
 		private readonly long _size;
 		private long _position;
 
-		private KFile(byte* data, long size)
+		private unsafe KFile(byte* data, long size)
 		{
 			_data = data;
 			_size = size;
@@ -19,14 +19,14 @@ namespace Alloy.Kernel.Io
 
 		public long Size => _size;
 
-		public static KFile Open(ReadOnlySpan<char> path)
+		public static unsafe KFile Open(ReadOnlySpan<char> path)
 		{
 			if (!Initrd.TryFind(path, out byte* data, out long size))
 				return null;
 			return new KFile(data, size);
 		}
 
-		public ReadOnlySpan<byte> Remaining => new ReadOnlySpan<byte>(_data + _position, (int)(_size - _position));
+		public unsafe ReadOnlySpan<byte> Remaining => new ReadOnlySpan<byte>(_data + _position, (int)(_size - _position));
 
 		public void Advance(long count) => _position += count;
 
@@ -46,18 +46,18 @@ namespace Alloy.Kernel.Io
 	}
 
 	// The initrd the loader handed over, reached through the physical window
-	internal static unsafe class Initrd
+	internal static class Initrd
 	{
-		private static byte* s_image;
+		private static unsafe byte* s_image;
 		private static int s_size;
 
-		public static void Initialize(BootInfo* info)
+		public static unsafe void Initialize(BootInfo* info)
 		{
 			s_image = (byte*)BootInfo.ToVirtual(info->Initrd);
 			s_size = (int)info->InitrdSize;
 		}
 
-		public static bool TryFind(ReadOnlySpan<char> path, out byte* data, out long size)
+		public static unsafe bool TryFind(ReadOnlySpan<char> path, out byte* data, out long size)
 		{
 			data = null;
 			size = 0;

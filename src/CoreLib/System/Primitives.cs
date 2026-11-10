@@ -140,29 +140,29 @@ namespace System
 	}
 
 	// RuntimeFeature.NumericIntPtr makes nint/nuint and IntPtr/UIntPtr the same type, so arithmetic is built in
-	public unsafe struct IntPtr
+	public struct IntPtr
 	{
-		private void* _value;
+		private unsafe void* _value;
 
 		public static readonly nint Zero;
-		public static int Size => sizeof(nint);
+		public static unsafe int Size => sizeof(nint);
 		public static nint MaxValue => unchecked((nint)0x7FFFFFFFFFFFFFFF);
 		public static nint MinValue => unchecked((nint)0x8000000000000000);
 
-		public override string ToString() => Number.ToString((long)(nint)_value);
-		public override int GetHashCode() => (int)(nint)_value ^ (int)((nint)_value >> 32);
+		public override unsafe string ToString() => Number.ToString((long)(nint)_value);
+		public override unsafe int GetHashCode() => (int)(nint)_value ^ (int)((nint)_value >> 32);
 	}
 
-	public unsafe struct UIntPtr
+	public struct UIntPtr
 	{
-		private void* _value;
+		private unsafe void* _value;
 
 		public static readonly nuint Zero;
-		public static int Size => sizeof(nuint);
+		public static unsafe int Size => sizeof(nuint);
 		public static nuint MaxValue => unchecked((nuint)0xFFFFFFFFFFFFFFFF);
 		public static nuint MinValue => 0;
 
-		public override string ToString() => Number.ToString((ulong)(nuint)_value);
-		public override int GetHashCode() => (int)(nuint)_value ^ (int)((nuint)_value >> 32);
+		public override unsafe string ToString() => Number.ToString((ulong)(nuint)_value);
+		public override unsafe int GetHashCode() => (int)(nuint)_value ^ (int)((nuint)_value >> 32);
 	}
 }

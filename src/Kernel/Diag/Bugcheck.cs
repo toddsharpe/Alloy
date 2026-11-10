@@ -10,14 +10,14 @@ using Alloy.Text;
 namespace Alloy.Kernel.Diag
 {
 	// Fatal errors and breakpoints: registers plus a symbolized stack trace on COM1 and the console
-	internal static unsafe class Bugcheck
+	internal static class Bugcheck
 	{
 		private const int MaxFrames = 24;
 
-		private static byte* s_symbolData;
+		private static unsafe byte* s_symbolData;
 		private static int s_symbolSize;
 
-		public static void Initialize(BootInfo* info)
+		public static unsafe void Initialize(BootInfo* info)
 		{
 			if (info->Symbols != 0)
 			{
@@ -50,13 +50,13 @@ namespace Alloy.Kernel.Diag
 		};
 
 		[DoesNotReturn]
-		public static void Fatal(InterruptFrame* frame, string reason)
+		public static unsafe void Fatal(InterruptFrame* frame, string reason)
 		{
 			Report(frame, reason);
 			Cpu.HaltForever();
 		}
 
-		public static void Report(InterruptFrame* frame, string reason)
+		public static unsafe void Report(InterruptFrame* frame, string reason)
 		{
 			bool fatal = frame->Vector != Interrupts.Breakpoint;
 			SpanWriter line = new SpanWriter(stackalloc char[160]);
@@ -102,7 +102,7 @@ namespace Alloy.Kernel.Diag
 
 		// Prints the trace of whoever called this, for FailFast
 		[MethodImpl(MethodImplOptions.NoInlining)]
-		public static void TraceCaller()
+		public static unsafe void TraceCaller()
 		{
 			ulong* captured = stackalloc ulong[10];
 			PhxCaptureContext(captured);
@@ -137,7 +137,7 @@ namespace Alloy.Kernel.Diag
 			}
 		}
 
-		private static void AppendSymbol(ref SpanWriter line, ulong address)
+		private static unsafe void AppendSymbol(ref SpanWriter line, ulong address)
 		{
 			line.Append("0x");
 			line.AppendHex(address, 16);
@@ -180,6 +180,6 @@ namespace Alloy.Kernel.Diag
 
 		[RuntimeImport("*", "PhxCaptureContext")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void PhxCaptureContext(ulong* context);
+		private static extern unsafe void PhxCaptureContext(ulong* context);
 	}
 }

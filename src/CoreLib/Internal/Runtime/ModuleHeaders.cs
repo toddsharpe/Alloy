@@ -16,16 +16,16 @@ namespace Internal.Runtime
 		// ModuleInfoRow[NumberOfSections] follows
 	}
 
-	internal unsafe struct ModuleInfoRow
+	internal struct ModuleInfoRow
 	{
 		private const int HasEndPointerFlag = 0x1;
 
 		public int SectionId;
 		public int Flags;
-		public void* Start;
-		public void* End;
+		public unsafe void* Start;
+		public unsafe void* End;
 
-		public int Length => (Flags & HasEndPointerFlag) != 0 ? (int)((byte*)End - (byte*)Start) : sizeof(void*);
+		public unsafe int Length => (Flags & HasEndPointerFlag) != 0 ? (int)((byte*)End - (byte*)Start) : sizeof(void*);
 	}
 
 	internal enum ReadyToRunSectionType

@@ -6,19 +6,19 @@ using Alloy.Abi;
 namespace Alloy.Kernel.Ps
 {
 	// The only way the kernel touches user memory: range checks, then a copy that SMAP allows and the fixup table recovers
-	internal static unsafe class UserMemory
+	internal static class UserMemory
 	{
 		public static bool IsUserRange(ulong address, ulong length) =>
 			address >= MemoryLayout.UserStart && length <= MemoryLayout.UserEnd && address <= MemoryLayout.UserEnd - length;
 
-		public static bool CopyFrom(void* destination, ulong userSource, ulong length) =>
+		public static unsafe bool CopyFrom(void* destination, ulong userSource, ulong length) =>
 			IsUserRange(userSource, length) && (length == 0 || PhxCopyUser(destination, (void*)userSource, (nuint)length) != 0);
 
-		public static bool CopyTo(ulong userDestination, void* source, ulong length) =>
+		public static unsafe bool CopyTo(ulong userDestination, void* source, ulong length) =>
 			IsUserRange(userDestination, length) && (length == 0 || PhxCopyUser((void*)userDestination, source, (nuint)length) != 0);
 
 		// Reads an ASCII path of at most 255 bytes into chars
-		public static bool ReadPath(ulong address, ulong length, Span<char> destination, out int written)
+		public static unsafe bool ReadPath(ulong address, ulong length, Span<char> destination, out int written)
 		{
 			written = 0;
 			if (length == 0 || length > 255 || (ulong)destination.Length < length)
@@ -34,6 +34,6 @@ namespace Alloy.Kernel.Ps
 
 		[RuntimeImport("*", "PhxCopyUser")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern int PhxCopyUser(void* destination, void* source, nuint count);
+		private static extern unsafe int PhxCopyUser(void* destination, void* source, nuint count);
 	}
 }

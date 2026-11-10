@@ -4,7 +4,7 @@ using Alloy.Abi;
 namespace Alloy.Sdk
 {
 	// Processes, time, memory and handles: the kernel calls that aren't IPC, networking or windows
-	public static unsafe class Kernel
+	public static class Kernel
 	{
 		public static int ProcessId => (int)SystemCall.Invoke(Syscall.GetProcessId);
 
@@ -15,7 +15,7 @@ namespace Alloy.Sdk
 		public static ulong TickCount => (ulong)SystemCall.Invoke(Syscall.GetTickCount);
 
 		// Wall-clock time from the RTC, in the host's local time
-		public static SystemTime Time
+		public static unsafe SystemTime Time
 		{
 			get
 			{
@@ -32,7 +32,7 @@ namespace Alloy.Sdk
 		// Starts an initrd image named by the command line's first word (bin/ and .exe are tried); a handle to the process, or a negative error
 		public static long CreateProcess(string commandLine, ulong argument = 0) => CreateProcess(commandLine, argument, null);
 
-		public static long CreateProcess(string commandLine, ulong argument, StartInfo? startInfo)
+		public static unsafe long CreateProcess(string commandLine, ulong argument, StartInfo? startInfo)
 		{
 			byte* bytes = stackalloc byte[256];
 			int length = SystemCall.Ascii(commandLine, bytes, 255);
@@ -52,14 +52,14 @@ namespace Alloy.Sdk
 		public static long ExitCode(long handle) => SystemCall.Invoke(Syscall.GetExitCode, (ulong)handle);
 
 		// The running processes, up to the span's length; returns how many
-		public static int ListProcesses(Span<ProcessEntry> entries)
+		public static unsafe int ListProcesses(Span<ProcessEntry> entries)
 		{
 			fixed (ProcessEntry* pointer = entries)
 				return (int)SystemCall.Invoke(Syscall.GetProcesses, (ulong)pointer, (ulong)entries.Length);
 		}
 
 		// Hands one Ethernet frame to the NIC; false when it couldn't take it right now
-		public static bool NetSend(ReadOnlySpan<byte> frame)
+		public static unsafe bool NetSend(ReadOnlySpan<byte> frame)
 		{
 			fixed (byte* pointer = frame)
 				return SystemCall.Invoke(Syscall.NetSend, (ulong)pointer, (ulong)frame.Length) == 0;
@@ -74,9 +74,9 @@ namespace Alloy.Sdk
 	}
 
 	// Anonymous pipes: a 4 KB kernel ring with a read end and a write end, the terminal's way of collecting a program's output
-	public static unsafe class Pipe
+	public static class Pipe
 	{
-		public static bool Create(out long read, out long write)
+		public static unsafe bool Create(out long read, out long write)
 		{
 			long* ends = stackalloc long[2];
 			bool created = SystemCall.Invoke(Syscall.CreatePipe, (ulong)ends) == 0;
@@ -89,13 +89,13 @@ namespace Alloy.Sdk
 		public static long Available(long read) => SystemCall.Invoke(Syscall.PeekPipe, (ulong)read);
 
 		// Blocks while the pipe is empty and still has a writer; 0 is end of file
-		public static long Read(long read, Span<byte> buffer)
+		public static unsafe long Read(long read, Span<byte> buffer)
 		{
 			fixed (byte* pointer = buffer)
 				return SystemCall.Invoke(Syscall.ReadFile, (ulong)read, (ulong)pointer, (ulong)buffer.Length);
 		}
 
-		public static long Write(long write, ReadOnlySpan<byte> data)
+		public static unsafe long Write(long write, ReadOnlySpan<byte> data)
 		{
 			fixed (byte* pointer = data)
 				return SystemCall.Invoke(Syscall.WriteFile, (ulong)write, (ulong)pointer, (ulong)data.Length);

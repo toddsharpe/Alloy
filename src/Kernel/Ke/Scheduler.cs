@@ -9,7 +9,7 @@ using Alloy.Kernel.Ps;
 namespace Alloy.Kernel.Ke
 {
 	// Uniprocessor round robin: a ready queue, a sorted timer list, and preemption on every timer tick
-	internal static unsafe class Scheduler
+	internal static class Scheduler
 	{
 		public const ulong TickHz = 1000;
 
@@ -31,7 +31,7 @@ namespace Alloy.Kernel.Ke
 		// Milliseconds since the partition started, from the reference TSC rather than the tick count
 		public static ulong UptimeMs => HyperV.ReferenceTime() / 10_000;
 
-		public static void Initialize()
+		public static unsafe void Initialize()
 		{
 			s_current = KThread.ForCurrent("boot");
 			ThreadCount = 1;
@@ -43,7 +43,7 @@ namespace Alloy.Kernel.Ke
 			Cpu.EnableInterrupts();
 		}
 
-		public static KThread Start(string name, delegate*<void*, void> entry, void* argument)
+		public static unsafe KThread Start(string name, delegate*<void*, void> entry, void* argument)
 		{
 			KThread thread = KThread.Create(name, entry, argument);
 			ulong flags = Lock();
@@ -146,7 +146,7 @@ namespace Alloy.Kernel.Ke
 				Cpu.EnableInterrupts();
 		}
 
-		private static void TimerInterrupt(InterruptFrame* frame)
+		private static unsafe void TimerInterrupt(InterruptFrame* frame)
 		{
 			// Acknowledge first: switching away below would otherwise leave the timer in service until this thread runs again
 			HyperV.EndOfInterrupt();
@@ -186,7 +186,7 @@ namespace Alloy.Kernel.Ke
 		}
 
 		// Interrupts must be off; resumes whichever thread is next, possibly the current one
-		private static void Switch()
+		private static unsafe void Switch()
 		{
 			KThread next = s_readyHead;
 			if (next != null)
@@ -263,14 +263,14 @@ namespace Alloy.Kernel.Ke
 			}
 		}
 
-		private static void IdleLoop(void* argument)
+		private static unsafe void IdleLoop(void* argument)
 		{
 			while (true)
 				PhxHalt();
 		}
 
 		// Frees dead threads' stacks from a thread context, never from the timer interrupt (MetalOS's reaper)
-		private static void ReaperLoop(void* argument)
+		private static unsafe void ReaperLoop(void* argument)
 		{
 			while (true)
 			{
@@ -294,7 +294,7 @@ namespace Alloy.Kernel.Ke
 
 		[RuntimeImport("*", "PhxSwitchContext")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void PhxSwitchContext(ulong* saveRsp, ulong loadRsp);
+		private static extern unsafe void PhxSwitchContext(ulong* saveRsp, ulong loadRsp);
 
 		[RuntimeImport("*", "PhxHalt")]
 		[MethodImpl(MethodImplOptions.InternalCall)]

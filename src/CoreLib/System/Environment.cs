@@ -2,15 +2,15 @@ using System.Diagnostics;
 
 namespace System
 {
-	public static unsafe partial class Environment
+	public static partial class Environment
 	{
 		// Set by the image at startup so a fatal error reaches its log (COM1 for the loader and kernel)
-		internal static delegate*<string, void> s_failFastWriter;
+		internal static unsafe delegate*<string, void> s_failFastWriter;
 
-		public static void SetFailFastWriter(delegate*<string, void> writer) => s_failFastWriter = writer;
+		public static unsafe void SetFailFastWriter(delegate*<string, void> writer) => s_failFastWriter = writer;
 
 		[DoesNotReturn]
-		public static void FailFast(string message)
+		public static unsafe void FailFast(string message)
 		{
 			// Guard against a failure inside the writer recursing forever
 			delegate*<string, void> writer = s_failFastWriter;

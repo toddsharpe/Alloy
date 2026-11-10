@@ -5,9 +5,9 @@ using Internal.Runtime;
 namespace System
 {
 	// Contract with the compiler: one field (the MethodTable pointer), and the finalizer is the first virtual slot
-	public unsafe class Object
+	public class Object
 	{
-		internal MethodTable* m_pMethodTable;
+		internal unsafe MethodTable* m_pMethodTable;
 
 		public Object()
 		{
@@ -31,7 +31,7 @@ namespace System
 
 		public static bool ReferenceEquals(object objA, object objB) => objA == objB;
 
-		internal MethodTable* GetMethodTable() => m_pMethodTable;
+		internal unsafe MethodTable* GetMethodTable() => m_pMethodTable;
 
 		[StructLayout(LayoutKind.Sequential)]
 		private class RawData
@@ -42,7 +42,7 @@ namespace System
 		// The data after the MethodTable pointer; for arrays and strings this starts with the length
 		internal ref byte GetRawData() => ref Unsafe.As<RawData>(this).Data;
 
-		internal uint GetRawObjectDataSize() => m_pMethodTable->BaseSize - (uint)sizeof(ObjHeader) - (uint)sizeof(MethodTable*);
+		internal unsafe uint GetRawObjectDataSize() => m_pMethodTable->BaseSize - (uint)sizeof(ObjHeader) - (uint)sizeof(MethodTable*);
 	}
 
 	// Precedes every object; unused until there is locking or hashing state to keep

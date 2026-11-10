@@ -27,7 +27,7 @@ namespace Alloy.Abi
 	}
 
 	// The shared ring the kernel's input drivers fill and the window server drains; free-running counters, one producer, one consumer
-	public unsafe struct InputRing
+	public struct InputRing
 	{
 		public const string Endpoint = "input";
 		public const string ReadyEndpoint = "input.ready";
@@ -38,7 +38,7 @@ namespace Alloy.Abi
 		public volatile uint Write;
 		public volatile uint Read;
 
-		public static InputEvent* At(InputRing* ring, uint counter) => (InputEvent*)((byte*)ring + HeaderSize) + counter % Capacity;
+		public static unsafe InputEvent* At(InputRing* ring, uint counter) => (InputEvent*)((byte*)ring + HeaderSize) + counter % Capacity;
 	}
 
 	// Windows virtual-key codes, as MetalOS.Keys.h has them; letters and digits are their ASCII capitals

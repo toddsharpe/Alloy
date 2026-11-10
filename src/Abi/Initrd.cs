@@ -16,7 +16,7 @@ namespace Alloy.Abi
 		public ulong ImageSize;
 	}
 
-	public unsafe struct InitrdEntry
+	public struct InitrdEntry
 	{
 		public const int MaxNameLength = 104;
 		public const int DataAlignment = 4096;
@@ -29,7 +29,7 @@ namespace Alloy.Abi
 		public ushort Reserved0;
 		public uint Reserved1;
 		// ASCII, '/' separated, no leading slash
-		public fixed byte Name[MaxNameLength];
+		public unsafe fixed byte Name[MaxNameLength];
 	}
 
 	public readonly ref struct InitrdReader

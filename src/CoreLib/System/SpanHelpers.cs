@@ -4,24 +4,24 @@ using System.Runtime.CompilerServices;
 namespace System
 {
 	// The JIT lowers block copies and zeroing to these by name (JitHelper.cs); they forward to rep movsb/stosb
-	internal static unsafe class SpanHelpers
+	internal static class SpanHelpers
 	{
-		internal static void Memmove(ref byte destination, ref byte source, nuint length) =>
+		internal static unsafe void Memmove(ref byte destination, ref byte source, nuint length) =>
 			memmove(Unsafe.AsPointer(ref destination), Unsafe.AsPointer(ref source), length);
 
-		internal static void Fill(ref byte destination, byte value, nuint length) =>
+		internal static unsafe void Fill(ref byte destination, byte value, nuint length) =>
 			memset(Unsafe.AsPointer(ref destination), value, length);
 
-		internal static void ClearWithoutReferences(ref byte destination, nuint length) =>
+		internal static unsafe void ClearWithoutReferences(ref byte destination, nuint length) =>
 			memset(Unsafe.AsPointer(ref destination), 0, length);
 
 		[RuntimeImport("*", "memmove")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void* memmove(void* destination, void* source, nuint length);
+		private static extern unsafe void* memmove(void* destination, void* source, nuint length);
 
 		[RuntimeImport("*", "memset")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void* memset(void* destination, int value, nuint length);
+		private static extern unsafe void* memset(void* destination, int value, nuint length);
 	}
 
 	public static class Buffer

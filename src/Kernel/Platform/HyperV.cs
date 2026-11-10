@@ -10,7 +10,7 @@ using Alloy.Kernel.Mm;
 namespace Alloy.Kernel.Platform
 {
 	// Hyper-V enlightenments (TLFS): guest identity, hypercall page, reference TSC and synthetic timer 0 in direct mode
-	internal static unsafe class HyperV
+	internal static class HyperV
 	{
 		public const int TimerVector = 0x80;
 		public const ulong TicksPerSecond = 10_000_000;
@@ -49,15 +49,15 @@ namespace Alloy.Kernel.Platform
 			public long Offset;
 		}
 
-		private static ReferenceTscPage* s_tsc;
-		private static void* s_hypercallPage;
+		private static unsafe ReferenceTscPage* s_tsc;
+		private static unsafe void* s_hypercallPage;
 		private static ulong s_postPage;
-		private static byte* s_messages;
-		private static byte* s_events;
+		private static unsafe byte* s_messages;
+		private static unsafe byte* s_events;
 
 		public static bool Present { get; private set; }
 
-		public static void Initialize()
+		public static unsafe void Initialize()
 		{
 			CpuIdResult vendor = Cpu.CpuId(0x40000000);
 			CpuIdResult iface = Cpu.CpuId(0x40000001);
@@ -79,7 +79,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Time since the partition started, in 100 ns units
-		public static ulong ReferenceTime()
+		public static unsafe ulong ReferenceTime()
 		{
 			while (true)
 			{
@@ -95,7 +95,7 @@ namespace Alloy.Kernel.Platform
 			}
 		}
 
-		public static void StartTimer(ulong periodTicks, delegate*<InterruptFrame*, void> handler)
+		public static unsafe void StartTimer(ulong periodTicks, delegate*<InterruptFrame*, void> handler)
 		{
 			Interrupts.Register(TimerVector, handler);
 			Cpu.WriteMsr(MsrStimer0Count, periodTicks);
@@ -106,7 +106,7 @@ namespace Alloy.Kernel.Platform
 		public static void EndOfInterrupt() => Cpu.WriteMsr(MsrEoi, 0);
 
 		// The synthetic interrupt controller: one 256-byte message slot and one 256-byte event flag block per SINT (TLFS 11)
-		public static void InitializeSynic()
+		public static unsafe void InitializeSynic()
 		{
 			ulong events = PhysicalMemory.Allocate(1);
 			ulong messages = PhysicalMemory.Allocate(1);
@@ -126,12 +126,12 @@ namespace Alloy.Kernel.Platform
 			Cpu.WriteMsr(msr, (Cpu.ReadMsr(msr) & ~(Masked | AutoEoi | 0xFF)) | (uint)vector);
 		}
 
-		public static byte* MessageSlot(int sint) => s_messages + sint * MessageSlotSize;
+		public static unsafe byte* MessageSlot(int sint) => s_messages + sint * MessageSlotSize;
 
-		public static uint* EventFlags(int sint) => (uint*)(s_events + sint * EventFlagsSize);
+		public static unsafe uint* EventFlags(int sint) => (uint*)(s_events + sint * EventFlagsSize);
 
 		// Frees the slot after reading it; the hypervisor then delivers the next queued message, if it flagged one
-		public static void CompleteMessage(int sint)
+		public static unsafe void CompleteMessage(int sint)
 		{
 			byte* slot = MessageSlot(sint);
 			Volatile.Write(ref *(uint*)slot, 0);
@@ -141,7 +141,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// HvPostMessage through the one page-aligned input page, so interrupts stay off while it is in use
-		public static ushort PostMessage(uint connectionId, uint messageType, void* payload, int size)
+		public static unsafe ushort PostMessage(uint connectionId, uint messageType, void* payload, int size)
 		{
 			if (size > MessagePayloadSize)
 				return StatusInsufficientBuffers;
@@ -158,7 +158,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Retries while the host's message buffers are full, as MetalOS's PostChannelMessage does
-		public static bool PostMessageRetry(uint connectionId, uint messageType, void* payload, int size)
+		public static unsafe bool PostMessageRetry(uint connectionId, uint messageType, void* payload, int size)
 		{
 			while (true)
 			{
@@ -172,7 +172,7 @@ namespace Alloy.Kernel.Platform
 		// HvSignalEvent as a fast call: the connection id and flag number travel in a register
 		public static ushort SignalEvent(uint connectionId, ushort flag) => (ushort)Hypercall(CallSignalEvent | FastCall, connectionId | ((ulong)flag << 32), 0);
 
-		public static ulong Hypercall(ulong control, ulong input, ulong output) => PhxHypercall(control, input, output, s_hypercallPage);
+		public static unsafe ulong Hypercall(ulong control, ulong input, ulong output) => PhxHypercall(control, input, output, s_hypercallPage);
 
 		private static ulong MultiplyHigh(ulong a, ulong b)
 		{
@@ -185,6 +185,6 @@ namespace Alloy.Kernel.Platform
 
 		[RuntimeImport("*", "PhxHypercall")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern ulong PhxHypercall(ulong control, ulong input, ulong output, void* page);
+		private static extern unsafe ulong PhxHypercall(ulong control, ulong input, ulong output, void* page);
 	}
 }

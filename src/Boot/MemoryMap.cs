@@ -6,7 +6,7 @@ using Alloy.Text;
 namespace Alloy.Boot
 {
 	// The UEFI memory map in a buffer sized once up front, so the final read before ExitBootServices needs no allocation
-	internal unsafe struct MemoryMap
+	internal struct MemoryMap
 	{
 		private const int SlackDescriptors = 64;
 
@@ -19,9 +19,9 @@ namespace Alloy.Boot
 
 		public readonly int Count => DescriptorSize == 0 ? 0 : (int)(Size / DescriptorSize);
 
-		public readonly MemoryDescriptor* this[int index] => (MemoryDescriptor*)(Buffer + (ulong)index * DescriptorSize);
+		public readonly unsafe MemoryDescriptor* this[int index] => (MemoryDescriptor*)(Buffer + (ulong)index * DescriptorSize);
 
-		public static MemoryMap Allocate()
+		public static unsafe MemoryMap Allocate()
 		{
 			nuint size = 0;
 			nuint key;
@@ -37,7 +37,7 @@ namespace Alloy.Boot
 			return map;
 		}
 
-		public void Refresh()
+		public unsafe void Refresh()
 		{
 			nuint size = (nuint)Capacity;
 			nuint key;
@@ -51,7 +51,7 @@ namespace Alloy.Boot
 		}
 
 		// End of the highest RAM-backed range; MMIO is left out so a high device window can't inflate the physical window
-		public readonly ulong HighestRamAddress()
+		public readonly unsafe ulong HighestRamAddress()
 		{
 			ulong highest = 0;
 			for (int i = 0; i < Count; i++)
@@ -64,7 +64,7 @@ namespace Alloy.Boot
 		}
 
 		// The key goes stale whenever firmware touches the map, so on a mismatch read it again and retry once
-		public void ExitBootServices()
+		public unsafe void ExitBootServices()
 		{
 			EfiBootServices* bootServices = EfiApplication.SystemTable->BootServices;
 			Refresh();
@@ -78,7 +78,7 @@ namespace Alloy.Boot
 		}
 
 		// Moves runtime services into the kernel's UEFI window, where BootPageTables already mapped them
-		public void SetVirtualAddressMap(BootInfo* info)
+		public unsafe void SetVirtualAddressMap(BootInfo* info)
 		{
 			for (int i = 0; i < Count; i++)
 			{

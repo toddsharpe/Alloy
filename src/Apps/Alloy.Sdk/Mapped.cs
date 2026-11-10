@@ -7,20 +7,20 @@ using Alloy.Graphics;
 namespace Alloy.Sdk
 {
 	// Memory the kernel mapped into this process, as Memory<T>: it never moves and is never unmapped, so it is pinned by nature
-	internal sealed unsafe class MappedMemory<T> : MemoryManager<T> where T : unmanaged
+	internal sealed class MappedMemory<T> : MemoryManager<T> where T : unmanaged
 	{
-		private readonly T* _address;
+		private readonly unsafe T* _address;
 		private readonly int _length;
 
-		public MappedMemory(void* address, int length)
+		public unsafe MappedMemory(void* address, int length)
 		{
 			_address = (T*)address;
 			_length = length;
 		}
 
-		public override Span<T> GetSpan() => new Span<T>(_address, _length);
+		public override unsafe Span<T> GetSpan() => new Span<T>(_address, _length);
 
-		public override MemoryHandle Pin(int elementIndex = 0) => new MemoryHandle(_address + elementIndex);
+		public override unsafe MemoryHandle Pin(int elementIndex = 0) => new MemoryHandle(_address + elementIndex);
 
 		public override void Unpin()
 		{
@@ -32,11 +32,11 @@ namespace Alloy.Sdk
 	}
 
 	// The kernel's input ring (Abi InputRing), drained by the window server; one consumer
-	public sealed unsafe class InputQueue
+	public sealed class InputQueue
 	{
-		private readonly InputRing* _ring;
+		private readonly unsafe InputRing* _ring;
 
-		private InputQueue(InputRing* ring, long ready)
+		private unsafe InputQueue(InputRing* ring, long ready)
 		{
 			_ring = ring;
 			ReadyEvent = ready;
@@ -46,7 +46,7 @@ namespace Alloy.Sdk
 		public long ReadyEvent { get; }
 
 		// The kernel publishes the ring before init starts; without VMBus input there is none
-		public static InputQueue Open()
+		public static unsafe InputQueue Open()
 		{
 			long input = Endpoint.Connect(InputRing.Endpoint);
 			long ready = Endpoint.Connect(InputRing.ReadyEndpoint);
@@ -54,7 +54,7 @@ namespace Alloy.Sdk
 			return address > 0 ? new InputQueue((InputRing*)address, ready) : null;
 		}
 
-		public bool TryRead(out InputEvent input)
+		public unsafe bool TryRead(out InputEvent input)
 		{
 			if (_ring->Read == _ring->Write)
 			{
@@ -68,11 +68,11 @@ namespace Alloy.Sdk
 	}
 
 	// The kernel's received-frame ring (Abi NetFrame), drained by the network stack; one consumer
-	public sealed unsafe class NetFrameRing
+	public sealed class NetFrameRing
 	{
-		private readonly byte* _ring;
+		private readonly unsafe byte* _ring;
 
-		private NetFrameRing(byte* ring, long ready)
+		private unsafe NetFrameRing(byte* ring, long ready)
 		{
 			_ring = ring;
 			ReadyEvent = ready;
@@ -80,7 +80,7 @@ namespace Alloy.Sdk
 
 		public long ReadyEvent { get; }
 
-		public static NetFrameRing Open()
+		public static unsafe NetFrameRing Open()
 		{
 			long ring = Endpoint.Connect(NetFrame.RxEndpoint);
 			long ready = Endpoint.Connect(NetFrame.RxReadyEndpoint);
@@ -89,7 +89,7 @@ namespace Alloy.Sdk
 		}
 
 		// The oldest frame still in the ring, or empty; it stays valid until Advance
-		public ReadOnlySpan<byte> Peek()
+		public unsafe ReadOnlySpan<byte> Peek()
 		{
 			uint* counters = NetFrame.Counters(_ring);
 			if (counters[1] == counters[0])
@@ -99,7 +99,7 @@ namespace Alloy.Sdk
 			return new ReadOnlySpan<byte>(&frame->Data, length);
 		}
 
-		public void Advance()
+		public unsafe void Advance()
 		{
 			uint* counters = NetFrame.Counters(_ring);
 			counters[1] = counters[1] + 1;
@@ -107,14 +107,14 @@ namespace Alloy.Sdk
 	}
 
 	// Surfaces over memory other than a window's: the screen, back buffers, and windows as the server maps them
-	public static unsafe class Surfaces
+	public static class Surfaces
 	{
 		// Zeroed memory of this process's own, never freed; for back buffers that live as long as the program
-		public static Surface Allocate(int width, int height) =>
+		public static unsafe Surface Allocate(int width, int height) =>
 			new Surface((uint*)NativeMemory.AllocZeroed((nuint)width * (nuint)height * 4), width, height, width);
 
 		// The screen at the kernel's largest mode, once per system (the window server's); false if another process has it
-		public static bool TryMapFramebuffer(out Surface screen, out FramebufferInfo info)
+		public static unsafe bool TryMapFramebuffer(out Surface screen, out FramebufferInfo info)
 		{
 			FramebufferInfo result;
 			long framebuffer = SystemCall.Invoke(Syscall.MapFramebuffer, (ulong)&result);
@@ -129,7 +129,7 @@ namespace Alloy.Sdk
 		}
 
 		// A window's shared section as the server sees it: the header copied out, the pixels after it as a surface
-		public static bool TryMapWindow(long section, out WindowHeader header, out Surface surface)
+		public static unsafe bool TryMapWindow(long section, out WindowHeader header, out Surface surface)
 		{
 			long address = section > 0 ? SharedMemory.MapAddress(section) : 0;
 			if (address <= 0)

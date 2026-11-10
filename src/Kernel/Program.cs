@@ -12,7 +12,7 @@ using Alloy.Text;
 
 namespace Alloy.Kernel
 {
-	internal static unsafe class Program
+	internal static class Program
 	{
 		private const ulong Cr0WriteProtect = 1 << 16;
 		private const ulong Cr4Smep = 1 << 20;
@@ -21,7 +21,7 @@ namespace Alloy.Kernel
 		// A static, so the compiler can't turn the deliberate fault into a null-reference throw helper
 		private static ulong s_faultAddress;
 
-		private static void Main()
+		private static unsafe void Main()
 		{
 			Log.Initialize();
 			BootInfo* info = KernelEnvironment.BootInfo;
@@ -106,7 +106,7 @@ namespace Alloy.Kernel
 				test.Wait();
 		}
 
-		private static void SpuriousInterrupt(InterruptFrame* frame)
+		private static unsafe void SpuriousInterrupt(InterruptFrame* frame)
 		{
 		}
 
@@ -134,7 +134,7 @@ namespace Alloy.Kernel
 		}
 
 		// Redraws uptime, ticks and threads in the title bar ten times a second, so a screenshot shows the scheduler running
-		private static void StatusLoop(void* argument)
+		private static unsafe void StatusLoop(void* argument)
 		{
 			Span<char> buffer = stackalloc char[80];
 			while (true)
@@ -174,7 +174,7 @@ namespace Alloy.Kernel
 			Log.WriteLine(ref line);
 		}
 
-		private static bool HasArgument(BootInfo* info, string argument)
+		private static unsafe bool HasArgument(BootInfo* info, string argument)
 		{
 			if (info->CommandLine == 0)
 				return false;

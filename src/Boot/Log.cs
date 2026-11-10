@@ -6,11 +6,11 @@ using Alloy.Text;
 namespace Alloy.Boot
 {
 	// Loader output goes to COM1 (what boot tests read) and to the UEFI console (what the Hyper-V window shows)
-	internal static unsafe class Log
+	internal static class Log
 	{
 		private static Uart16550 s_serial;
 
-		public static void Initialize()
+		public static unsafe void Initialize()
 		{
 			s_serial = Uart16550.Com1;
 			s_serial.Initialize();

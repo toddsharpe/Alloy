@@ -3,13 +3,13 @@ using System.Runtime.CompilerServices;
 namespace Internal.Runtime
 {
 	// The .NET 10 NativeAOT MethodTable layout (dotnet/runtime MethodTable.cs); revisit on every ILC upgrade
-	internal unsafe struct MethodTable
+	internal struct MethodTable
 	{
 		// Upper 16 bits: EETypeFlags. Lower 16 bits: component size (arrays, strings) or EETypeFlagsEx
 		private uint _uFlags;
 		private uint _uBaseSize;
 		// Base type for canonical types; element type for arrays and pointers
-		private MethodTable* _relatedType;
+		private unsafe MethodTable* _relatedType;
 		private ushort _usNumVtableSlots;
 		private ushort _usNumInterfaces;
 		private uint _uHashCode;
@@ -34,7 +34,7 @@ namespace Internal.Runtime
 		internal const uint SzArrayBaseSize = 24;
 
 		[Intrinsic]
-		internal static extern MethodTable* Of<T>();
+		internal static extern unsafe MethodTable* Of<T>();
 
 		// Whether the compiler emitted 32-bit relative pointers in its static data tables (true on 64-bit)
 		internal static bool SupportsRelativePointers
@@ -78,18 +78,18 @@ namespace Internal.Runtime
 		internal bool IsIDynamicInterfaceCastable => !HasComponentSize && (_uFlags & IDynamicInterfaceCastableFlag) != 0;
 
 		// Base type of a canonical type; null for interfaces and System.Object
-		internal MethodTable* BaseType => IsCanonical ? _relatedType : (IsArray ? Of<System.Array>() : null);
+		internal unsafe MethodTable* BaseType => IsCanonical ? _relatedType : (IsArray ? Of<System.Array>() : null);
 
 		// Element type of an array or pointer
-		internal MethodTable* RelatedParameterType => IsParameterizedType ? _relatedType : null;
+		internal unsafe MethodTable* RelatedParameterType => IsParameterizedType ? _relatedType : null;
 
 		internal ushort NumInterfaces => _usNumInterfaces;
 
-		internal MethodTable** InterfaceMap =>
+		internal unsafe MethodTable** InterfaceMap =>
 			(MethodTable**)((byte*)Unsafe.AsPointer(ref this) + sizeof(MethodTable) + sizeof(void*) * _usNumVtableSlots);
 
 		// Size of a boxed value's payload: the instance size minus the object header, MethodTable pointer and tail padding
-		internal uint ValueTypeSize => _uBaseSize - (uint)(sizeof(nint) * 2) - ((_uFlags & ValueTypeFieldPaddingMask) >> ValueTypeFieldPaddingShift);
+		internal unsafe uint ValueTypeSize => _uBaseSize - (uint)(sizeof(nint) * 2) - ((_uFlags & ValueTypeFieldPaddingMask) >> ValueTypeFieldPaddingShift);
 	}
 
 	internal enum EETypeElementType

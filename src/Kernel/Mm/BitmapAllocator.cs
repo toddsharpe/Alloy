@@ -1,13 +1,13 @@
 namespace Alloy.Kernel.Mm
 {
 	// One bit per page, set when used; hardware-free so the host tests run it directly
-	public unsafe struct BitmapAllocator
+	public struct BitmapAllocator
 	{
-		private readonly byte* _bits;
+		private readonly unsafe byte* _bits;
 		private readonly ulong _count;
 		private ulong _hint;
 
-		public BitmapAllocator(byte* bits, ulong count)
+		public unsafe BitmapAllocator(byte* bits, ulong count)
 		{
 			_bits = bits;
 			_count = count;
@@ -20,9 +20,9 @@ namespace Alloy.Kernel.Mm
 
 		public ulong FreeCount { get; private set; }
 
-		public readonly bool IsUsed(ulong index) => index >= _count || (_bits[index >> 3] & (1 << (int)(index & 7))) != 0;
+		public readonly unsafe bool IsUsed(ulong index) => index >= _count || (_bits[index >> 3] & (1 << (int)(index & 7))) != 0;
 
-		public void MarkFree(ulong start, ulong count)
+		public unsafe void MarkFree(ulong start, ulong count)
 		{
 			for (ulong i = start; i < start + count && i < _count; i++)
 			{
@@ -34,7 +34,7 @@ namespace Alloy.Kernel.Mm
 			}
 		}
 
-		public void MarkUsed(ulong start, ulong count)
+		public unsafe void MarkUsed(ulong start, ulong count)
 		{
 			for (ulong i = start; i < start + count && i < _count; i++)
 			{

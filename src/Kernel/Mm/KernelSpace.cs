@@ -5,14 +5,14 @@ using Alloy.Arch.X64;
 namespace Alloy.Kernel.Mm
 {
 	// The kernel's own page tables: the loader's layout minus the identity map, with the kernel image W^X and global
-	internal static unsafe class KernelSpace
+	internal static class KernelSpace
 	{
 		private static PageTableBuilder s_tables;
 		private static ulong s_nextVirtual = MemoryLayout.KernelAlloc;
 
 		public static ulong Root => s_tables.Root;
 
-		public static void Initialize(BootInfo* info)
+		public static unsafe void Initialize(BootInfo* info)
 		{
 			bool hugePages = (Cpu.CpuId(0x80000001).Edx & (1u << 26)) != 0;
 			s_tables = new PageTableBuilder(&PhysicalMemory.AllocatePageTable, MemoryLayout.KernelPhysicalWindow, hugePages);

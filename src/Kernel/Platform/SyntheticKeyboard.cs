@@ -6,7 +6,7 @@ using Alloy.Kernel.Ke;
 namespace Alloy.Kernel.Platform
 {
 	// The Hyper-V synthetic keyboard (MetalOS HyperVKeyboardDriver): scan code set 1 in, virtual keys out to the input ring
-	internal sealed unsafe class SyntheticKeyboard : VmBusChannel
+	internal sealed class SyntheticKeyboard : VmBusChannel
 	{
 		private const int RingPages = 10;
 		private const uint Version = 1 << 16;
@@ -39,7 +39,7 @@ namespace Alloy.Kernel.Platform
 			0x7B,
 		};
 
-		public static bool Start(in VmBusOffer offer)
+		public static unsafe bool Start(in VmBusOffer offer)
 		{
 			SyntheticKeyboard keyboard = new SyntheticKeyboard();
 			if (!keyboard.Open(in offer, RingPages, RingPages))
@@ -50,7 +50,7 @@ namespace Alloy.Kernel.Platform
 			return keyboard._response.Wait(2000) && (keyboard._status & ProtocolAccepted) != 0;
 		}
 
-		protected override void OnPacket(VmBusPacket* packet, byte* payload, uint size)
+		protected override unsafe void OnPacket(VmBusPacket* packet, byte* payload, uint size)
 		{
 			if (packet->Type != PacketInband || size < 8)
 				return;

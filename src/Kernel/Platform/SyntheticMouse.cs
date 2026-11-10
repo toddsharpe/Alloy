@@ -6,7 +6,7 @@ using Alloy.Kernel.Ke;
 namespace Alloy.Kernel.Platform
 {
 	// The Hyper-V synthetic HID mouse (MetalOS HyperVMouseDriver): pipe messages wrapping synthhid messages, absolute positions
-	internal sealed unsafe class SyntheticMouse : VmBusChannel
+	internal sealed class SyntheticMouse : VmBusChannel
 	{
 		private const int RingPages = 10;
 		private const uint PipeData = 1;
@@ -21,7 +21,7 @@ namespace Alloy.Kernel.Platform
 		private readonly KEvent _deviceInfo = new KEvent(false);
 		private bool _approved;
 
-		public static bool Start(in VmBusOffer offer)
+		public static unsafe bool Start(in VmBusOffer offer)
 		{
 			SyntheticMouse mouse = new SyntheticMouse();
 			if (!mouse.Open(in offer, RingPages, RingPages))
@@ -38,7 +38,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Each message is |pipe type, size|synthhid type, size|data|
-		protected override void OnPacket(VmBusPacket* packet, byte* payload, uint size)
+		protected override unsafe void OnPacket(VmBusPacket* packet, byte* payload, uint size)
 		{
 			if (packet->Type != PacketInband || size < 16 || *(uint*)payload != PipeData)
 				return;

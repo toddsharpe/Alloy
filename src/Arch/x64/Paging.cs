@@ -19,7 +19,7 @@ namespace Alloy.Arch.X64
 	}
 
 	// Builds 4-level page tables; a table at physical address P is accessed at P + physicalOffset
-	public unsafe struct PageTableBuilder
+	public struct PageTableBuilder
 	{
 		public const ulong PageSize = 0x1000;
 		public const ulong LargePageSize = 0x200000;
@@ -28,12 +28,12 @@ namespace Alloy.Arch.X64
 		private const ulong AddressMask = 0x000FFFFFFFFFF000;
 		private const ulong LeafFlagsMask = 0x80000000000001FF;
 
-		private readonly delegate*<ulong> _allocateTable;
+		private readonly unsafe delegate*<ulong> _allocateTable;
 		private readonly ulong _physicalOffset;
 		private readonly bool _hugePages;
 
 		// allocateTable returns the physical address of a zeroed page, or 0 when out of memory
-		public PageTableBuilder(delegate*<ulong> allocateTable, ulong physicalOffset, bool hugePages)
+		public unsafe PageTableBuilder(delegate*<ulong> allocateTable, ulong physicalOffset, bool hugePages)
 		{
 			_allocateTable = allocateTable;
 			_physicalOffset = physicalOffset;
@@ -74,7 +74,7 @@ namespace Alloy.Arch.X64
 			return true;
 		}
 
-		public bool TryTranslate(ulong virtualAddress, out ulong physicalAddress, out PageFlags flags)
+		public unsafe bool TryTranslate(ulong virtualAddress, out ulong physicalAddress, out PageFlags flags)
 		{
 			physicalAddress = 0;
 			flags = PageFlags.None;
@@ -97,7 +97,7 @@ namespace Alloy.Arch.X64
 			return false;
 		}
 
-		private bool MapOne(ulong virtualAddress, ulong physicalAddress, PageFlags flags, int leafLevel)
+		private unsafe bool MapOne(ulong virtualAddress, ulong physicalAddress, PageFlags flags, int leafLevel)
 		{
 			// Intermediate entries allow everything; the leaf decides, and User must be set at every level to reach ring 3
 			ulong directoryFlags = (ulong)(PageFlags.Present | PageFlags.Writable | (flags & PageFlags.User));
@@ -132,7 +132,7 @@ namespace Alloy.Arch.X64
 			return true;
 		}
 
-		private ulong* Table(ulong physical) => (ulong*)(physical + _physicalOffset);
+		private unsafe ulong* Table(ulong physical) => (ulong*)(physical + _physicalOffset);
 
 		private static int Index(ulong virtualAddress, int level) => (int)((virtualAddress >> (12 + 9 * (level - 1))) & 0x1FF);
 

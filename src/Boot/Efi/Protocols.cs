@@ -9,27 +9,27 @@ namespace Alloy.Efi
 		public static readonly EfiGuid Acpi20Table = new EfiGuid(0x8868E871, 0xE4F1, 0x11D3, 0xBC, 0x22, 0x00, 0x80, 0xC7, 0x3C, 0x88, 0x81);
 	}
 
-	public unsafe struct EfiLoadedImageProtocol
+	public struct EfiLoadedImageProtocol
 	{
 		public uint Revision;
-		public void* ParentHandle;
-		public EfiSystemTable* SystemTable;
-		public void* DeviceHandle;
-		public void* FilePath;
-		public void* Reserved;
+		public unsafe void* ParentHandle;
+		public unsafe EfiSystemTable* SystemTable;
+		public unsafe void* DeviceHandle;
+		public unsafe void* FilePath;
+		public unsafe void* Reserved;
 		public uint LoadOptionsSize;
-		public void* LoadOptions;
-		public void* ImageBase;
+		public unsafe void* LoadOptions;
+		public unsafe void* ImageBase;
 		public ulong ImageSize;
 		public EfiMemoryType ImageCodeType;
 		public EfiMemoryType ImageDataType;
-		public void* Unload;
+		public unsafe void* Unload;
 	}
 
-	public unsafe struct EfiSimpleFileSystemProtocol
+	public struct EfiSimpleFileSystemProtocol
 	{
 		public ulong Revision;
-		public delegate* unmanaged<EfiSimpleFileSystemProtocol*, EfiFileProtocol**, ulong> OpenVolume;
+		public unsafe delegate* unmanaged<EfiSimpleFileSystemProtocol*, EfiFileProtocol**, ulong> OpenVolume;
 	}
 
 	public unsafe struct EfiFileProtocol
@@ -81,11 +81,11 @@ namespace Alloy.Efi
 		public uint PixelsPerScanLine;
 	}
 
-	public unsafe struct EfiGraphicsOutputMode
+	public struct EfiGraphicsOutputMode
 	{
 		public uint MaxMode;
 		public uint Mode;
-		public EfiGraphicsOutputModeInformation* Info;
+		public unsafe EfiGraphicsOutputModeInformation* Info;
 		public nuint SizeOfInfo;
 		public ulong FrameBufferBase;
 		public nuint FrameBufferSize;

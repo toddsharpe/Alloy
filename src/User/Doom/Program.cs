@@ -8,7 +8,7 @@ using Alloy.Runtime;
 namespace Alloy.User.Doom
 {
 	// doomgeneric on Alloy: the game is C (external/MetalOS.Doom), its platform layer and C runtime are these C# exports
-	internal static unsafe class Program
+	internal static class Program
 	{
 		private const int ResX = 1024;
 		private const int ResY = 768;
@@ -26,7 +26,7 @@ namespace Alloy.User.Doom
 
 		[RuntimeImport("*", "doomgeneric_Create")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void DoomCreate(int argc, byte** argv);
+		private static extern unsafe void DoomCreate(int argc, byte** argv);
 
 		[RuntimeImport("*", "doomgeneric_Tick")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -34,9 +34,9 @@ namespace Alloy.User.Doom
 
 		[RuntimeImport("*", "PhxDoomScreen")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern uint* DoomScreen();
+		private static extern unsafe uint* DoomScreen();
 
-		private static int Main()
+		private static unsafe int Main()
 		{
 			byte** argv = (byte**)Process.Allocate(4 * 8);
 			argv[0] = CString("doom");
@@ -48,7 +48,7 @@ namespace Alloy.User.Doom
 				DoomTick();
 		}
 
-		private static byte* CString(string text)
+		private static unsafe byte* CString(string text)
 		{
 			byte* bytes = (byte*)Process.Allocate((ulong)text.Length + 1);
 			for (int i = 0; i < text.Length; i++)
@@ -65,7 +65,7 @@ namespace Alloy.User.Doom
 		}
 
 		[RuntimeExport("DG_DrawFrame")]
-		private static void DrawFrame()
+		private static unsafe void DrawFrame()
 		{
 			uint* screen = DoomScreen();
 			Surface surface = s_window.Surface;
@@ -82,16 +82,16 @@ namespace Alloy.User.Doom
 		private static uint GetTicksMs() => (uint)Process.TickCount;
 
 		[RuntimeExport("DG_GetKey")]
-		private static int GetKey(int* pressed, byte* key) => Keyboard.TryGet(pressed, key) ? 1 : 0;
+		private static unsafe int GetKey(int* pressed, byte* key) => Keyboard.TryGet(pressed, key) ? 1 : 0;
 
 		[RuntimeExport("DG_SetWindowTitle")]
-		private static void SetWindowTitle(byte* title)
+		private static unsafe void SetWindowTitle(byte* title)
 		{
 		}
 
 		// The C runtime's file layer: read-only initrd files; handles are offset past the stdio streams 0-2
 		[RuntimeExport("fopen")]
-		private static void* FileOpen(byte* name, byte* mode)
+		private static unsafe void* FileOpen(byte* name, byte* mode)
 		{
 			for (byte* m = mode; *m != 0; m++)
 			{
@@ -115,7 +115,7 @@ namespace Alloy.User.Doom
 		}
 
 		[RuntimeExport("fread")]
-		private static nuint FileRead(void* buffer, nuint size, nuint count, void* file)
+		private static unsafe nuint FileRead(void* buffer, nuint size, nuint count, void* file)
 		{
 			long handle = (long)file - HandleOffset;
 			if (size == 0 || handle <= 0)
@@ -125,7 +125,7 @@ namespace Alloy.User.Doom
 		}
 
 		[RuntimeExport("fwrite")]
-		private static nuint FileWrite(void* buffer, nuint size, nuint count, void* file)
+		private static unsafe nuint FileWrite(void* buffer, nuint size, nuint count, void* file)
 		{
 			if ((long)file < StdHandles)
 			{
@@ -136,33 +136,33 @@ namespace Alloy.User.Doom
 		}
 
 		[RuntimeExport("fseek")]
-		private static int FileSeek(void* file, int offset, int origin) => File.Seek((long)file - HandleOffset, offset, (SeekOrigin)origin) < 0 ? -1 : 0;
+		private static unsafe int FileSeek(void* file, int offset, int origin) => File.Seek((long)file - HandleOffset, offset, (SeekOrigin)origin) < 0 ? -1 : 0;
 
 		[RuntimeExport("ftell")]
-		private static int FileTell(void* file) => (int)File.Seek((long)file - HandleOffset, 0, SeekOrigin.Current);
+		private static unsafe int FileTell(void* file) => (int)File.Seek((long)file - HandleOffset, 0, SeekOrigin.Current);
 
 		[RuntimeExport("fclose")]
-		private static int FileClose(void* file) => (long)file < HandleOffset ? 0 : (int)File.Close((long)file - HandleOffset);
+		private static unsafe int FileClose(void* file) => (long)file < HandleOffset ? 0 : (int)File.Close((long)file - HandleOffset);
 
 		[RuntimeExport("fflush")]
-		private static int FileFlush(void* file) => 0;
+		private static unsafe int FileFlush(void* file) => 0;
 
 		[RuntimeExport("remove")]
-		private static int Remove(byte* name) => -1;
+		private static unsafe int Remove(byte* name) => -1;
 
 		[RuntimeExport("rename")]
-		private static int Rename(byte* from, byte* to) => -1;
+		private static unsafe int Rename(byte* from, byte* to) => -1;
 
 		[RuntimeExport("exit")]
 		private static void Exit(int code) => Process.Exit(code);
 
 		// The C heap: bump allocation from 16 MB chunks with a size header; Doom manages its own zone inside one big block
 		private const ulong ChunkSize = 16 * 1024 * 1024;
-		private static byte* s_heap;
+		private static unsafe byte* s_heap;
 		private static ulong s_heapUsed = ChunkSize;
 
 		[RuntimeExport("malloc")]
-		private static void* Malloc(nuint size)
+		private static unsafe void* Malloc(nuint size)
 		{
 			ulong needed = ((ulong)size + 16 + 15) & ~15UL;
 			if (needed > ChunkSize / 2)
@@ -187,12 +187,12 @@ namespace Alloy.User.Doom
 		}
 
 		[RuntimeExport("free")]
-		private static void Free(void* block)
+		private static unsafe void Free(void* block)
 		{
 		}
 
 		[RuntimeExport("realloc")]
-		private static void* Realloc(void* block, nuint size)
+		private static unsafe void* Realloc(void* block, nuint size)
 		{
 			if (block == null)
 				return Malloc(size);
@@ -205,12 +205,12 @@ namespace Alloy.User.Doom
 			return moved;
 		}
 
-		private static byte* s_line;
+		private static unsafe byte* s_line;
 		private static int s_lineLength;
 
 		// Collects printf output into lines for the kernel log
 		[RuntimeExport("PhxWrite")]
-		private static void PhxWrite(byte* text, nuint length)
+		private static unsafe void PhxWrite(byte* text, nuint length)
 		{
 			if (s_line == null)
 				s_line = (byte*)Process.Allocate(200);
@@ -234,10 +234,10 @@ namespace Alloy.User.Doom
 	}
 
 	// Keys from the window server, translated to Doom's codes (doomkeys.h) and queued for DG_GetKey
-	internal static unsafe class Keyboard
+	internal static class Keyboard
 	{
 		private const int Capacity = 64;
-		private static ushort* s_queue;
+		private static unsafe ushort* s_queue;
 		private static int s_read;
 		private static int s_write;
 
@@ -255,7 +255,7 @@ namespace Alloy.User.Doom
 			}
 		}
 
-		public static bool TryGet(int* pressed, byte* key)
+		public static unsafe bool TryGet(int* pressed, byte* key)
 		{
 			if (s_queue == null || s_read == s_write)
 				return false;
@@ -315,7 +315,7 @@ namespace Alloy.User.Doom
 			return 0;
 		}
 
-		private static void Push(bool pressed, byte key)
+		private static unsafe void Push(bool pressed, byte key)
 		{
 			if (s_queue == null)
 				s_queue = (ushort*)Process.Allocate(Capacity * 2);

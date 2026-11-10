@@ -6,9 +6,9 @@ using Alloy.Text;
 namespace Alloy.Boot
 {
 	// Boot services wrappers for the loader; every failure is fatal since there is nothing to fall back to
-	internal static unsafe class Uefi
+	internal static class Uefi
 	{
-		private static EfiBootServices* BootServices => EfiApplication.SystemTable->BootServices;
+		private static unsafe EfiBootServices* BootServices => EfiApplication.SystemTable->BootServices;
 
 		public static void Check(ulong status, string what)
 		{
@@ -25,14 +25,14 @@ namespace Alloy.Boot
 			Environment.FailFast("FAILFAST: UEFI call failed");
 		}
 
-		public static ulong AllocatePages(ulong pages)
+		public static unsafe ulong AllocatePages(ulong pages)
 		{
 			ulong address;
 			Check(BootServices->AllocatePages(EfiAllocateType.AnyPages, EfiMemoryType.LoaderData, (nuint)pages, &address), "AllocatePages");
 			return address;
 		}
 
-		public static ulong AllocateZeroedPages(ulong pages)
+		public static unsafe ulong AllocateZeroedPages(ulong pages)
 		{
 			ulong address = AllocatePages(pages);
 			new Span<byte>((void*)address, (int)(pages * MemoryLayout.PageSize)).Clear();
@@ -42,14 +42,14 @@ namespace Alloy.Boot
 		// Page table allocator for PageTableBuilder; firmware memory is identity mapped, so physical is directly usable
 		public static ulong AllocatePageTable() => AllocateZeroedPages(1);
 
-		public static T* OpenProtocol<T>(void* handle, EfiGuid guid, string what) where T : unmanaged
+		public static unsafe T* OpenProtocol<T>(void* handle, EfiGuid guid, string what) where T : unmanaged
 		{
 			void* protocol;
 			Check(BootServices->HandleProtocol(handle, &guid, &protocol), what);
 			return (T*)protocol;
 		}
 
-		public static EfiFileProtocol* OpenBootVolume()
+		public static unsafe EfiFileProtocol* OpenBootVolume()
 		{
 			EfiLoadedImageProtocol* image = OpenProtocol<EfiLoadedImageProtocol>(EfiApplication.ImageHandle, EfiGuids.LoadedImageProtocol, "LoadedImage");
 			EfiSimpleFileSystemProtocol* fileSystem = OpenProtocol<EfiSimpleFileSystemProtocol>(image->DeviceHandle, EfiGuids.SimpleFileSystemProtocol, "SimpleFileSystem");
@@ -59,7 +59,7 @@ namespace Alloy.Boot
 		}
 
 		// Reads a whole file into fresh pages; returns false only when the file is optional and missing
-		public static bool ReadFile(EfiFileProtocol* root, string path, bool optional, out ulong address, out ulong size)
+		public static unsafe bool ReadFile(EfiFileProtocol* root, string path, bool optional, out ulong address, out ulong size)
 		{
 			address = 0;
 			size = 0;
@@ -87,7 +87,7 @@ namespace Alloy.Boot
 			return true;
 		}
 
-		public static void* FindConfigurationTable(EfiGuid guid)
+		public static unsafe void* FindConfigurationTable(EfiGuid guid)
 		{
 			EfiSystemTable* st = EfiApplication.SystemTable;
 			for (nuint i = 0; i < st->NumberOfTableEntries; i++)
