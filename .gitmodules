@@ -1,0 +1,3 @@
+[submodule "external/MetalOS.Doom"]
+	path = external/MetalOS.Doom
+	url = https://github.com/toddsharpe/MetalOS.Doom.git

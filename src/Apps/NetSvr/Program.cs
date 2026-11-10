@@ -1,0 +1,243 @@
+using System;
+using System.Buffers.Binary;
+using Alloy.Abi;
+using Alloy.Sdk;
+
+namespace Alloy.Apps.NetSvr
+{
+	internal sealed class Connection
+	{
+		public long Reply;
+		public long Process;
+		public Memory<byte> Buffer;
+	}
+
+	// MetalOS-NetSvr: claims the kernel's frame ring and the NIC, runs the IPv4 stack, and serves sockets on "net"
+	internal static class Program
+	{
+		private const int MaxConnections = 16;
+		private const ulong TickMs = 10;
+		private const ulong ReapMs = 500;
+
+		private static readonly Connection[] s_connections = new Connection[MaxConnections];
+		private static Memory<byte> s_address;
+
+		private static int Main()
+		{
+			Span<InterfaceInfo> interfaces = stackalloc InterfaceInfo[1];
+			if (Net.GetInterfaces(interfaces) < 1)
+			{
+				Console.WriteLine("netsvr: no network interface");
+				return 1;
+			}
+			NetFrameRing frames = NetFrameRing.Open();
+			if (frames == null)
+			{
+				Console.WriteLine("netsvr: the kernel's frame ring is missing");
+				return 1;
+			}
+			ReadOnlySpan<byte> mac = interfaces[0].Mac;
+			Stack.Initialize(mac);
+			for (int i = 0; i < Stack.MaxSockets; i++)
+				Stack.Sockets[i] = new Socket();
+
+			// The interface's address in a page anyone can map, so the taskbar shows it (MetalOS "net.addr")
+			long address = SharedMemory.Create(4096);
+			s_address = SharedMemory.Map(address, 4096);
+			Endpoint.Register(NetProtocol.AddressEndpoint, address);
+
+			long port = Port.Create();
+			Endpoint.Register(NetProtocol.Endpoint, port);
+			Console.WriteLine($"netsvr: up, mac {Net.FormatMac(mac)}");
+
+			ReadOnlySpan<long> waits = stackalloc long[] { port, frames.ReadyEvent };
+			ulong lastReap = 0;
+			while (true)
+			{
+				Event.WaitAny(waits, TickMs);
+				for (ReadOnlySpan<byte> frame = frames.Peek(); !frame.IsEmpty; frame = frames.Peek())
+				{
+					Stack.Receive(frame);
+					frames.Advance();
+				}
+				long transferred;
+				while ((transferred = Port.Receive(port, out IpcMessage message, 0)) >= 0)
+					Handle(in message, transferred);
+				Stack.Dispatch();
+				if (Kernel.TickCount - lastReap >= ReapMs)
+				{
+					ReapDeadConnections();
+					lastReap = Kernel.TickCount;
+				}
+			}
+		}
+
+		private static void Handle(in IpcMessage message, long transferred)
+		{
+			if (message.Type == NetProtocol.Connect)
+			{
+				Accept(in message, transferred);
+				return;
+			}
+			int client = (int)message.Data[6];
+			Connection connection = client >= 0 && client < MaxConnections ? s_connections[client] : null;
+			if (connection == null)
+			{
+				if (transferred > 0)
+					Kernel.Close(transferred);
+				return;
+			}
+			if (message.Type == NetProtocol.Attach)
+			{
+				connection.Buffer = transferred > 0 ? SharedMemory.Map(transferred, (int)NetProtocol.BufferSize) : Memory<byte>.Empty;
+				Reply(connection, message.Type, !connection.Buffer.IsEmpty ? 0 : Error(SyscallError.InvalidHandle));
+				return;
+			}
+
+			IpcMessage reply = default;
+			reply.Type = message.Type + NetProtocol.Reply;
+			reply.Data[0] = (ulong)Serve(connection, client, in message, ref reply);
+			Port.Send(connection.Reply, reply);
+		}
+
+		// The connection's reply port comes with Connect, and its process id lets dead apps' sockets be closed
+		private static void Accept(in IpcMessage message, long reply)
+		{
+			IpcMessage answer = default;
+			answer.Type = NetProtocol.Connect + NetProtocol.Reply;
+			answer.Data[0] = (ulong)Error(SyscallError.Busy);
+			for (int i = 0; i < MaxConnections; i++)
+			{
+				if (s_connections[i] == null)
+				{
+					s_connections[i] = new Connection { Reply = reply, Process = Kernel.OpenProcess((int)message.Data[0]) };
+					answer.Data[0] = (ulong)i;
+					break;
+				}
+			}
+			Port.Send(reply, answer);
+		}
+
+		private static long Serve(Connection connection, int client, in IpcMessage message, ref IpcMessage reply)
+		{
+			switch (message.Type)
+			{
+				case NetProtocol.Create:
+				{
+					SocketProtocol protocol = message.Data[1] == NetProtocol.ProtocolUdp || (message.Data[1] == 0 && message.Data[0] == NetProtocol.SocketDatagram) ? SocketProtocol.Udp
+						: message.Data[1] == NetProtocol.ProtocolIcmp || (message.Data[1] == 0 && message.Data[0] == NetProtocol.SocketRaw) ? SocketProtocol.Icmp
+						: SocketProtocol.None;
+					if (protocol == SocketProtocol.None)
+						return Error(SyscallError.InvalidArgument);
+					for (int i = 0; i < Stack.MaxSockets; i++)
+					{
+						Socket socket = Stack.Sockets[i];
+						if (socket.Protocol == SocketProtocol.None)
+						{
+							socket.Protocol = protocol;
+							socket.Port = 0;
+							socket.Owner = client;
+							socket.Head = socket.Count = 0;
+							return i;
+						}
+					}
+					return Error(SyscallError.Busy);
+				}
+
+				case NetProtocol.GetInterfaceIp:
+					reply.Data[1] = Stack.Ip;
+					reply.Data[2] = Stack.Mask;
+					return 0;
+
+				case NetProtocol.SetInterfaceIp:
+					Stack.Ip = (uint)message.Data[1];
+					Stack.Mask = (uint)message.Data[2];
+					BinaryPrimitives.WriteUInt32LittleEndian(s_address.Span, Stack.Ip);
+					return 0;
+
+				case NetProtocol.GetGateway:
+					reply.Data[1] = Stack.Gateway;
+					return 0;
+
+				case NetProtocol.SetGateway:
+					Stack.Gateway = (uint)message.Data[1];
+					return 0;
+			}
+
+			Socket target = message.Data[0] < Stack.MaxSockets ? Stack.Sockets[(int)message.Data[0]] : null;
+			if (target == null || target.Protocol == SocketProtocol.None || target.Owner != client)
+				return message.Type == NetProtocol.Close ? 0 : Error(SyscallError.InvalidHandle);
+			switch (message.Type)
+			{
+				case NetProtocol.Bind:
+					target.Port = (ushort)message.Data[1];
+					return 0;
+
+				case NetProtocol.SendTo:
+				{
+					if (connection.Buffer.IsEmpty)
+						return Error(SyscallError.InvalidPointer);
+					int length = (int)Math.Min(message.Data[3], NetProtocol.MaxPayload);
+					ReadOnlySpan<byte> data = connection.Buffer.Span.Slice(0, length);
+					bool sent = target.Protocol == SocketProtocol.Udp
+						? Stack.SendUdp(target, (uint)message.Data[1], (ushort)message.Data[2], data)
+						: Stack.SendIcmp(target, (uint)message.Data[1], data);
+					return sent ? 0 : Error(SyscallError.Busy);
+				}
+
+				case NetProtocol.RecvFrom:
+				{
+					// Empty answers Timeout at once; the client retries until its own timeout, as MetalOS's does
+					if (target.Count == 0 || connection.Buffer.IsEmpty)
+						return Error(SyscallError.Timeout);
+					int slot = target.Head;
+					int length = Math.Min(target.Length[slot], (int)Math.Min(message.Data[1], NetProtocol.MaxPayload));
+					target.Data.AsSpan(slot * NetProtocol.MaxPayload, length).CopyTo(connection.Buffer.Span);
+					reply.Data[1] = target.FromIp[slot];
+					reply.Data[2] = target.FromPort[slot];
+					target.Head = (target.Head + 1) % Socket.QueueDepth;
+					target.Count--;
+					return length;
+				}
+
+				case NetProtocol.Close:
+					target.Protocol = SocketProtocol.None;
+					target.Port = 0;
+					return 0;
+
+				default:
+					return Error(SyscallError.NotImplemented);
+			}
+		}
+
+		private static void Reply(Connection connection, ulong type, long result)
+		{
+			IpcMessage reply = default;
+			reply.Type = type + NetProtocol.Reply;
+			reply.Data[0] = (ulong)result;
+			Port.Send(connection.Reply, reply);
+		}
+
+		// Closes the sockets and connection of an app that has exited, cleanly or by crashing
+		private static void ReapDeadConnections()
+		{
+			for (int i = 0; i < MaxConnections; i++)
+			{
+				Connection connection = s_connections[i];
+				if (connection == null || (connection.Process > 0 && Kernel.Wait(connection.Process, 0) < 0))
+					continue;
+				foreach (Socket socket in Stack.Sockets)
+				{
+					if (socket.Owner == i && socket.Protocol != SocketProtocol.None)
+						socket.Protocol = SocketProtocol.None;
+				}
+				if (connection.Process > 0)
+					Kernel.Close(connection.Process);
+				Kernel.Close(connection.Reply);
+				s_connections[i] = null;
+			}
+		}
+
+		private static long Error(SyscallError error) => -(long)error;
+	}
+}

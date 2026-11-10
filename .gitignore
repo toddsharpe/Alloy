@@ -1,0 +1,12 @@
+# Build output
+build/
+bin/
+obj/
+TestResults/
+
+# VS
+.vs/
+*.user
+
+# VS Code
+.vscode/

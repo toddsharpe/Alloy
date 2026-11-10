@@ -1,0 +1,22 @@
+{
+  "solution": {
+    "path": "..\\..\\Alloy.sln",
+    "projects": [
+      "src\\Apps\\Calc\\Calc.csproj",
+      "src\\Apps\\Crash\\Crash.csproj",
+      "src\\Apps\\Dhcp\\Dhcp.csproj",
+      "src\\Apps\\Fire\\Fire.csproj",
+      "src\\Apps\\Hello\\Hello.csproj",
+      "src\\Apps\\Init\\Init.csproj",
+      "src\\Apps\\IpcTest\\IpcTest.csproj",
+      "src\\Apps\\NetSvr\\NetSvr.csproj",
+      "src\\Apps\\NetTest\\NetTest.csproj",
+      "src\\Apps\\Alloy.Sdk\\Alloy.Sdk.csproj",
+      "src\\Apps\\Ping\\Ping.csproj",
+      "src\\Apps\\Ps\\Ps.csproj",
+      "src\\Apps\\Terminal\\Terminal.csproj",
+      "src\\Apps\\Time\\Time.csproj",
+      "src\\Apps\\WMSvr\\WMSvr.csproj"
+    ]
+  }
+}

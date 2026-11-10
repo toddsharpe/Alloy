@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!-- The kernel: \EFI\ALLOY\kernel.exe, linked at KernelBase (0xFFFF800001000000) -->
+	<PropertyGroup>
+		<AlloyKind>Kernel</AlloyKind>
+		<AssemblyName>kernel</AssemblyName>
+	</PropertyGroup>
+
+</Project>

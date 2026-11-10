@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!-- Alloy's SDK for .NET apps: the kernel's syscalls, ports and shared memory, NetSvr sockets, windows on the window server and a small UI toolkit -->
+	<PropertyGroup>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<AssemblyName>Alloy.Sdk</AssemblyName>
+		<RootNamespace>Alloy.Sdk</RootNamespace>
+		<OutputType>Library</OutputType>
+		<PublishAot>false</PublishAot>
+		<SelfContained>false</SelfContained>
+		<RuntimeIdentifier />
+	</PropertyGroup>
+
+	<!-- The ABI contracts and the graphics code are the kernel's own sources, so the two sides can't drift -->
+	<ItemGroup>
+		<Compile Include="$(AlloySrc)Abi\Syscalls.cs" Link="Abi\Syscalls.cs" />
+		<Compile Include="$(AlloySrc)Abi\Windows.cs" Link="Abi\Windows.cs" />
+		<Compile Include="$(AlloySrc)Abi\Ipc.cs" Link="Abi\Ipc.cs" />
+		<Compile Include="$(AlloySrc)Abi\Wm.cs" Link="Abi\Wm.cs" />
+		<Compile Include="$(AlloySrc)Abi\Input.cs" Link="Abi\Input.cs" />
+		<Compile Include="$(AlloySrc)Abi\Net.cs" Link="Abi\Net.cs" />
+		<Compile Include="$(AlloySrc)Graphics\*.cs" Link="Graphics\%(Filename)%(Extension)" />
+	</ItemGroup>
+
+</Project>

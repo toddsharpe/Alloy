@@ -1,0 +1,109 @@
+<Project>
+	<Import Project="$(MSBuildThisFileDirectory)Msvc.targets" />
+	<!-- Builds a freestanding PE when AlloyKind is Efi, Kernel or User: csc -> ilc -> ml64 -> link -->
+
+	<PropertyGroup Condition="'$(AlloyKind)' != ''">
+		<AlloyPrivileged Condition="'$(AlloyKind)' == 'Efi' or '$(AlloyKind)' == 'Kernel'">true</AlloyPrivileged>
+		<DefineConstants Condition="'$(AlloyKind)' == 'Efi'">$(DefineConstants);ALLOY_EFI</DefineConstants>
+		<DefineConstants Condition="'$(AlloyKind)' == 'Kernel'">$(DefineConstants);ALLOY_KERNEL</DefineConstants>
+		<DefineConstants Condition="'$(AlloyKind)' == 'User'">$(DefineConstants);ALLOY_USER</DefineConstants>
+
+		<AlloyImageName Condition="'$(AlloyImageName)' == ''">$(AssemblyName).exe</AlloyImageName>
+		<AlloyNativeDir>$(MSBuildProjectDirectory)\$(IntermediateOutputPath)native\</AlloyNativeDir>
+		<AlloyIlc>$(NuGetPackageRoot)runtime.win-x64.microsoft.dotnet.ilcompiler\$(AlloyIlcVersion)\tools\ilc.exe</AlloyIlc>
+
+		<!-- Always -O: the IL scanner changes which runtime helpers the CoreLib must provide, so Debug and Release share one contract -->
+		<AlloyIlcArgs>--targetos:windows;--targetarch:x64;--instruction-set:x86-64-v2;-O;-g</AlloyIlcArgs>
+
+		<AlloyLinkArgs>-nologo -nodefaultlib -incremental:no -debug -opt:ref -opt:icf</AlloyLinkArgs>
+		<AlloyLinkArgs Condition="'$(AlloyKind)' == 'Efi'">$(AlloyLinkArgs) -subsystem:EFI_APPLICATION -entry:EfiMain</AlloyLinkArgs>
+		<AlloyLinkArgs Condition="'$(AlloyKind)' == 'Kernel'">$(AlloyLinkArgs) -subsystem:NATIVE -entry:KiSystemStartup -base:0xFFFF800001000000</AlloyLinkArgs>
+		<AlloyLinkArgs Condition="'$(AlloyKind)' == 'User'">$(AlloyLinkArgs) -subsystem:CONSOLE -entry:PhxUserStart -base:0x140000000</AlloyLinkArgs>
+	</PropertyGroup>
+
+	<!-- Shared sources compiled into every image: the CoreLib (system module), its platform layer, and the ABI contracts -->
+	<ItemGroup Condition="'$(AlloyKind)' != ''">
+		<Compile Include="$(AlloySrc)CoreLib\**\*.cs" Exclude="$(AlloySrc)CoreLib\Platform\**" Link="CoreLib\%(RecursiveDir)%(Filename)%(Extension)" />
+		<Compile Include="$(AlloySrc)CoreLib\Platform\$(AlloyKind)\**\*.cs" Link="CoreLib\Platform\$(AlloyKind)\%(RecursiveDir)%(Filename)%(Extension)" />
+		<Compile Include="$(AlloySrc)Abi\**\*.cs" Link="Abi\%(RecursiveDir)%(Filename)%(Extension)" />
+		<Compile Include="$(AlloySrc)Graphics\**\*.cs" Link="Graphics\%(RecursiveDir)%(Filename)%(Extension)" />
+
+		<AlloyAsm Include="$(AlloySrc)CoreLib\**\*.asm" Exclude="$(AlloySrc)CoreLib\Platform\**" />
+		<AlloyAsm Include="$(AlloySrc)CoreLib\Platform\$(AlloyKind)\**\*.asm" />
+		<AlloyAsm Include="$(MSBuildProjectDirectory)\**\*.asm" Exclude="$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\bin\**" />
+
+		<PackageDownload Include="runtime.win-x64.Microsoft.DotNet.ILCompiler" Version="[$(AlloyIlcVersion)]" />
+	</ItemGroup>
+
+	<!-- Ring-0 images (loader and kernel) also get CPU intrinsics and the device code they share -->
+	<ItemGroup Condition="'$(AlloyPrivileged)' == 'true'">
+		<Compile Include="$(AlloySrc)Arch\x64\**\*.cs" Link="Arch\x64\%(RecursiveDir)%(Filename)%(Extension)" />
+		<Compile Include="$(AlloySrc)Shared\**\*.cs" Link="Shared\%(RecursiveDir)%(Filename)%(Extension)" />
+		<AlloyAsm Include="$(AlloySrc)Arch\x64\**\*.asm" />
+	</ItemGroup>
+
+	<!-- Ring-3 images also get the user runtime: syscall wrappers, files, processes -->
+	<ItemGroup Condition="'$(AlloyKind)' == 'User'">
+		<Compile Include="$(AlloySrc)User\Runtime\**\*.cs" Link="Runtime\%(RecursiveDir)%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<ItemGroup Condition="'$(AlloyKind)' != ''">
+		<None Include="@(AlloyAsm)" Link="Asm\%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<!-- The SDK still adds reference assemblies in some paths; the image must see only its own CoreLib -->
+	<Target Name="AlloyRemoveReferences" AfterTargets="FindReferenceAssembliesForReferences" BeforeTargets="CoreCompile" Condition="'$(AlloyKind)' != ''">
+		<ItemGroup>
+			<ReferencePathWithRefAssemblies Remove="@(ReferencePathWithRefAssemblies)" />
+			<ReferencePath Remove="@(ReferencePath)" />
+		</ItemGroup>
+	</Target>
+
+	<Target Name="AlloyNativeImage" AfterTargets="Build" DependsOnTargets="AlloyFindMsvc" Condition="'$(AlloyKind)' != ''"
+			Inputs="@(IntermediateAssembly);@(AlloyAsm);@(AlloyC);@(AlloyCpp);$(MSBuildThisFileFullPath);$(MSBuildProjectFullPath)"
+			Outputs="$(AlloyNativeDir)$(AlloyImageName)">
+		<Error Condition="!Exists('$(AlloyIlc)')" Text="ILC $(AlloyIlcVersion) not found at '$(AlloyIlc)'; run a restore." />
+		<MakeDir Directories="$(AlloyNativeDir);$(AlloyBin)" />
+
+		<ItemGroup>
+			<_AlloyIlcArg Include="@(IntermediateAssembly->'%(FullPath)')" />
+			<_AlloyIlcArg Include="-o:$(AlloyNativeDir)$(AssemblyName).obj" />
+			<_AlloyIlcArg Include="--systemmodule:$(AssemblyName)" />
+			<_AlloyIlcArg Include="--map:$(AlloyNativeDir)$(AssemblyName).ilc.map.xml" />
+			<_AlloyIlcArg Include="$(AlloyIlcArgs)" />
+		</ItemGroup>
+		<WriteLinesToFile File="$(AlloyNativeDir)ilc.rsp" Overwrite="true" WriteOnlyWhenDifferent="true" Lines="@(_AlloyIlcArg)" />
+		<Exec Command="&quot;$(AlloyIlc)&quot; @&quot;$(AlloyNativeDir)ilc.rsp&quot;" />
+
+		<Exec Command="&quot;$(AlloyMsvcBin)ml64.exe&quot; -nologo -c -Zi -W3 -Fo&quot;$(AlloyNativeDir)%(AlloyAsm.Filename).asm.obj&quot; &quot;%(AlloyAsm.FullPath)&quot;" StandardOutputImportance="low" />
+
+		<!-- C sources (Doom) build freestanding like MetalOS's: no security cookie, no stack probes, no default libs, no SDK headers -->
+		<ItemGroup>
+			<_AlloyCInclude Include="$(AlloyCIncludes)" />
+		</ItemGroup>
+		<MakeDir Directories="$(AlloyNativeDir)c" Condition="'@(AlloyC)@(AlloyCpp)' != ''" />
+		<Exec Condition="'@(AlloyC)' != ''" StandardOutputImportance="low"
+			Command="&quot;$(AlloyMsvcBin)cl.exe&quot; /nologo /c /X /O2 /Oi /GS- /Gs2147483647 /Gy /Zl /W0 /TC /U_WIN32 /D_CRT_SECURE_NO_WARNINGS @(_AlloyCInclude->'/I&quot;%(Identity)&quot;', ' ') /Fo$(AlloyNativeDir)c\ @(AlloyC->'&quot;%(FullPath)&quot;', ' ')" />
+
+		<Exec Condition="'@(AlloyCpp)' != ''" StandardOutputImportance="low"
+			Command="&quot;$(AlloyMsvcBin)cl.exe&quot; /nologo /c /X /O2 /Oi /GS- /Gs2147483647 /Gy /Zl /W0 /TP /EHs-c- /GR- /U_WIN32 @(_AlloyCInclude->'/I&quot;%(Identity)&quot;', ' ') /Fo$(AlloyNativeDir)c\ @(AlloyCpp->'&quot;%(FullPath)&quot;', ' ')" />
+
+		<ItemGroup>
+			<_AlloyObj Include="$(AlloyNativeDir)$(AssemblyName).obj" />
+			<_AlloyObj Include="@(AlloyAsm->'$(AlloyNativeDir)%(Filename).asm.obj')" />
+			<_AlloyObj Include="@(AlloyC->'$(AlloyNativeDir)c\%(Filename).obj')" />
+			<_AlloyObj Include="@(AlloyCpp->'$(AlloyNativeDir)c\%(Filename).obj')" />
+		</ItemGroup>
+		<Exec Command="&quot;$(AlloyMsvcBin)link.exe&quot; $(AlloyLinkArgs) -out:&quot;$(AlloyNativeDir)$(AlloyImageName)&quot; -pdb:&quot;$(AlloyNativeDir)$(AssemblyName).pdb&quot; -map:&quot;$(AlloyNativeDir)$(AssemblyName).map&quot; @(_AlloyObj->'&quot;%(FullPath)&quot;', ' ')" />
+	</Target>
+
+	<!-- Runs even when the link was up to date, so build\bin always holds the configuration just built -->
+	<Target Name="AlloyCopyImage" AfterTargets="AlloyNativeImage" Condition="'$(AlloyKind)' != ''">
+		<Copy SourceFiles="$(AlloyNativeDir)$(AlloyImageName);$(AlloyNativeDir)$(AssemblyName).pdb;$(AlloyNativeDir)$(AssemblyName).map" DestinationFolder="$(AlloyBin)" />
+		<Message Importance="high" Text="$(MSBuildProjectName) -> $(AlloyBin)$(AlloyImageName)" />
+	</Target>
+
+	<Target Name="AlloyCleanNative" AfterTargets="Clean" Condition="'$(AlloyKind)' != ''">
+		<RemoveDir Directories="$(AlloyNativeDir)" />
+	</Target>
+</Project>

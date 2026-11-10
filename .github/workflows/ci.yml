@@ -1,0 +1,41 @@
+name: CI
+
+# Build on pull requests to master and on merges (pushes) to master
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: true
+
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        global-json-file: global.json
+
+    # build.ps1 builds Alloy.sln (loader, kernel, tools, host tests) and the VHDX; Release last, so the disk below is Release
+    - name: Build Debug
+      shell: pwsh
+      run: scripts\build.ps1 -Configuration Debug
+
+    - name: Build Release
+      shell: pwsh
+      run: scripts\build.ps1 -Configuration Release
+
+    - name: Host tests
+      run: dotnet test tests\Alloy.Tests -c Release --no-build -nologo
+
+    - name: Upload VHDX
+      uses: actions/upload-artifact@v7
+      with:
+        name: Alloy-vhdx
+        path: build/Alloy.vhdx
+        if-no-files-found: error

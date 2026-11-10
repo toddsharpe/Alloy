@@ -1,0 +1,38 @@
+<Project>
+	<!-- The built-in apps: ordinary .NET programs published with the stock NativeAOT toolchain, linked against Alloy's Win32 layer -->
+
+	<PropertyGroup>
+		<AlloyRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)..\..'))</AlloyRoot>
+		<AlloySrc>$(AlloyRoot)src\</AlloySrc>
+		<AlloyBin>$(AlloyRoot)build\bin\</AlloyBin>
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<OutputType>Exe</OutputType>
+		<LangVersion>latest</LangVersion>
+		<Nullable>disable</Nullable>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<!-- Unsafe code is the SDK's (the syscall boundary and mapped memory) and crash's (a fault on purpose); every other app is safe code -->
+		<AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+		<GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+		<!-- The same runtime pack version as the pinned ILC (src/Directory.Build.props) -->
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<RuntimeFrameworkVersion>10.0.9</RuntimeFrameworkVersion>
+		<PublishAot>true</PublishAot>
+		<SelfContained>true</SelfContained>
+		<InvariantGlobalization>true</InvariantGlobalization>
+		<UseSystemResourceKeys>true</UseSystemResourceKeys>
+		<EventSourceSupport>false</EventSourceSupport>
+		<CETCompat>false</CETCompat>
+
+		<!-- Workstation GC with background collection, as desktop apps get it -->
+		<ServerGarbageCollection>false</ServerGarbageCollection>
+		<ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+
+		<!-- Alloy links these itself (Directory.Build.targets): its own entry point, no vcvarsall lookup -->
+		<EntryPointSymbol>PhxWin32Start</EntryPointSymbol>
+		<IlcUseEnvironmentalTools>true</IlcUseEnvironmentalTools>
+	</PropertyGroup>
+</Project>

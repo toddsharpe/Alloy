@@ -1,0 +1,193 @@
+using System;
+using Alloy.Abi;
+using Alloy.Arch.X64;
+using Alloy.Kernel.Arch;
+using Alloy.Kernel.Diag;
+using Alloy.Kernel.Io;
+using Alloy.Kernel.Ke;
+using Alloy.Kernel.Mm;
+using Alloy.Kernel.Platform;
+using Alloy.Kernel.Ps;
+using Alloy.Text;
+
+namespace Alloy.Kernel
+{
+	internal static unsafe class Program
+	{
+		private const ulong Cr0WriteProtect = 1 << 16;
+		private const ulong Cr4Smep = 1 << 20;
+		private const ulong Cr4Smap = 1 << 21;
+
+		// A static, so the compiler can't turn the deliberate fault into a null-reference throw helper
+		private static ulong s_faultAddress;
+
+		private static void Main()
+		{
+			Log.Initialize();
+			BootInfo* info = KernelEnvironment.BootInfo;
+			if (!info->IsValid)
+				Environment.FailFast("FAILFAST: BootInfo is missing or from a different loader version");
+
+			Console.Initialize(info);
+			Bugcheck.Initialize(info);
+			StackWalker.Initialize(info->KernelVirtual);
+			Log.WriteLine("Alloy Kernel");
+
+			SpanWriter line = new SpanWriter(stackalloc char[128]);
+			line.Append("Kernel 0x");
+			line.AppendHex(info->KernelVirtual, 16);
+			line.Append(", ");
+			line.Append(info->FramebufferWidth);
+			line.Append('x');
+			line.Append(info->FramebufferHeight);
+			line.Append(", symbols ");
+			line.Append(info->SymbolsSize / 1024);
+			line.Append(" KB");
+			Log.WriteLine(ref line);
+
+			Descriptors.Initialize();
+			Log.WriteLine("Arch: GDT, TSS and IDT loaded");
+
+			PhysicalMemory.Initialize(info);
+			KernelSpace.Initialize(info);
+			Heap.Initialize();
+			KernelEnvironment.HeapAllocate = &Heap.Allocate;
+			Interrupts.Initialize();
+			EnableProtection();
+
+			line = new SpanWriter(stackalloc char[128]);
+			line.Append("Mm: ");
+			line.Append(PhysicalMemory.FreePages * MemoryLayout.PageSize >> 20);
+			line.Append(" MB free of ");
+			line.Append(PhysicalMemory.TotalPages * MemoryLayout.PageSize >> 20);
+			line.Append(" MB, kernel tables at 0x");
+			line.AppendHex(KernelSpace.Root, 8);
+			Log.WriteLine(ref line);
+
+			HyperV.Initialize();
+			Interrupts.Register(0xFF, &SpuriousInterrupt);
+			SystemCalls.Initialize();
+			Scheduler.Initialize();
+			line = new SpanWriter(stackalloc char[96]);
+			line.Append("Ke: Hyper-V reference time ");
+			line.Append(Scheduler.UptimeMs);
+			line.Append(" ms, ");
+			line.Append(Scheduler.TickHz);
+			line.Append(" Hz STIMER0 tick");
+			Log.WriteLine(ref line);
+
+			bool passed = SelfTest.Run();
+			if (HasArgument(info, "bugcheck-test"))
+			{
+				Log.WriteLine("Command line asked for a bugcheck: writing through a null pointer");
+				*(int*)s_faultAddress = 1;
+			}
+
+			Log.WriteLine(passed ? "Alloy Kernel: ready" : "Alloy Kernel: SELFTEST FAILED");
+			Scheduler.Start("status", &StatusLoop, null);
+			StartDevices();
+
+			Initrd.Initialize(info);
+			if (HasArgument(info, "usertest"))
+				RunUserTest("bin/ktest.exe");
+			if (KProcess.Create("bin/init.exe", 0) == null)
+				Environment.FailFast("FAILFAST: cannot start bin/init.exe from the initrd");
+			while (true)
+				Scheduler.Sleep(1000);
+		}
+
+		// boot_test's -KernelArgs usertest: a ring-3 test program runs to completion before init starts
+		private static void RunUserTest(string path)
+		{
+			KProcess test = KProcess.Create(path, 0);
+			if (test == null)
+				Log.WriteLine("usertest: could not start the test program");
+			else
+				test.Wait();
+		}
+
+		private static void SpuriousInterrupt(InterruptFrame* frame)
+		{
+		}
+
+		// Keyboard, mouse and NIC arrive over VMBus; without them the system still boots, just without input or network
+		private static void StartDevices()
+		{
+			Input.Initialize();
+			Net.Initialize();
+			if (!VmBus.Initialize())
+				return;
+			bool keyboard = VmBus.TryFind(VmBus.KeyboardLow, VmBus.KeyboardHigh, out VmBusOffer offer) && SyntheticKeyboard.Start(in offer);
+			bool mouse = VmBus.TryFind(VmBus.MouseLow, VmBus.MouseHigh, out offer) && SyntheticMouse.Start(in offer);
+			bool nic = VmBus.TryFind(VmBus.NetworkLow, VmBus.NetworkHigh, out offer) && SyntheticNic.Start(in offer);
+
+			SpanWriter line = new SpanWriter(stackalloc char[128]);
+			line.Append("VmBus: ");
+			line.Append(VmBus.OfferCount);
+			line.Append(" channels offered, keyboard ");
+			line.Append(keyboard ? "ready" : "missing");
+			line.Append(", mouse ");
+			line.Append(mouse ? "ready" : "missing");
+			line.Append(", network ");
+			line.Append(nic ? "ready" : "missing");
+			Log.WriteLine(ref line);
+		}
+
+		// Redraws uptime, ticks and threads in the title bar ten times a second, so a screenshot shows the scheduler running
+		private static void StatusLoop(void* argument)
+		{
+			Span<char> buffer = stackalloc char[80];
+			while (true)
+			{
+				SpanWriter line = new SpanWriter(buffer);
+				line.Append("uptime ");
+				line.Append(Scheduler.UptimeMs / 1000);
+				line.Append('.');
+				line.Append(Scheduler.UptimeMs / 100 % 10);
+				line.Append("s  ticks ");
+				line.Append(Scheduler.Ticks);
+				line.Append("  threads ");
+				line.Append(Scheduler.ThreadCount);
+				Diag.Console.Status(line.Written);
+				Scheduler.Sleep(100);
+			}
+		}
+
+		// Write protection always; SMEP and SMAP when the CPU has them, so ring 0 can't run or touch user pages by accident
+		private static void EnableProtection()
+		{
+			Cpu.WriteCr0(Cpu.ReadCr0() | Cr0WriteProtect);
+			CpuIdResult features = Cpu.CpuId(7);
+			ulong cr4 = Cpu.ReadCr4();
+			bool smep = (features.Ebx & (1u << 7)) != 0;
+			bool smap = (features.Ebx & (1u << 20)) != 0;
+			if (smep)
+				cr4 |= Cr4Smep;
+			if (smap)
+				cr4 |= Cr4Smap;
+			Cpu.WriteCr4(cr4);
+
+			SpanWriter line = new SpanWriter(stackalloc char[96]);
+			line.Append("Protection: WP, NX");
+			line.Append(smep ? ", SMEP" : "");
+			line.Append(smap ? ", SMAP" : "");
+			Log.WriteLine(ref line);
+		}
+
+		private static bool HasArgument(BootInfo* info, string argument)
+		{
+			if (info->CommandLine == 0)
+				return false;
+			ReadOnlySpan<byte> commandLine = new ReadOnlySpan<byte>((void*)BootInfo.ToVirtual(info->CommandLine), (int)info->CommandLineSize);
+			for (int start = 0; start + argument.Length <= commandLine.Length; start++)
+			{
+				int i = 0;
+				while (i < argument.Length && commandLine[start + i] == argument[i])
+					i++;
+				if (i == argument.Length)
+					return true;
+			}
+			return false;
+		}
+	}
+}

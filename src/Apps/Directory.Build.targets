@@ -1,0 +1,49 @@
+<Project>
+	<Import Project="$(AlloySrc)Msvc.targets" />
+
+	<PropertyGroup>
+		<AlloyWin32Dir>$(IntermediateOutputPath)win32\</AlloyWin32Dir>
+		<AlloyWin32Lib>$(AlloyWin32Dir)phxwin32.lib</AlloyWin32Lib>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<AlloyWin32C Include="$(AlloySrc)Win32\*.c" />
+		<AlloyWin32Asm Include="$(AlloySrc)Win32\*.asm" />
+		<AlloyWin32Header Include="$(AlloySrc)Win32\*.h" />
+	</ItemGroup>
+
+	<!-- The Win32 layer (src/Win32), compiled freestanding like Doom's C runtime and archived for this app's link -->
+	<Target Name="AlloyWin32Library" DependsOnTargets="AlloyFindMsvc"
+			Inputs="@(AlloyWin32C);@(AlloyWin32Asm);@(AlloyWin32Header);$(MSBuildThisFileFullPath)" Outputs="$(AlloyWin32Lib)">
+		<MakeDir Directories="$(AlloyWin32Dir)" />
+		<Exec Command="&quot;$(AlloyMsvcBin)cl.exe&quot; /nologo /c /X /O2 /Oi /GS- /Gs2147483647 /Gy /Zl /W3 /WX /TC /I&quot;$(AlloySrc)Win32&quot; /Fo$(AlloyWin32Dir) @(AlloyWin32C->'&quot;%(FullPath)&quot;', ' ')" />
+		<Exec Condition="'@(AlloyWin32Asm)' != ''" Command="&quot;$(AlloyMsvcBin)ml64.exe&quot; -nologo -c -Zi -W3 -Fo&quot;$(AlloyWin32Dir)%(AlloyWin32Asm.Filename).asm.obj&quot; &quot;%(AlloyWin32Asm.FullPath)&quot;" StandardOutputImportance="low" />
+		<ItemGroup>
+			<_AlloyWin32Obj Include="$(AlloyWin32Dir)*.obj" />
+		</ItemGroup>
+		<Exec Command="&quot;$(AlloyMsvcBin)lib.exe&quot; /nologo /OUT:&quot;$(AlloyWin32Lib)&quot; @(_AlloyWin32Obj->'&quot;%(FullPath)&quot;', ' ')" />
+	</Target>
+
+	<!-- Instead of Windows' import libraries: no default libraries at all, MSVC's static startup and support, and the Win32 layer; a missing function is a link error, never a Windows import -->
+	<Target Name="AlloyWin32Link" BeforeTargets="LinkNative" DependsOnTargets="SetupOSSpecificProps;AlloyWin32Library" Condition="'$(OutputType)' == 'Exe'">
+		<ItemGroup>
+			<LinkerArg Remove="@(SdkNativeLibrary->'&quot;%(Identity)&quot;')" />
+			<SdkNativeLibrary Remove="@(SdkNativeLibrary)" />
+			<LinkerArg Remove="/NODEFAULTLIB:libucrt.lib" />
+			<LinkerArg Remove="/DEFAULTLIB:ucrt.lib" />
+			<LinkerArg Include="/NODEFAULTLIB" />
+			<LinkerArg Include="&quot;$(AlloyWin32Lib)&quot;" />
+			<LinkerArg Include="&quot;$(AlloyMsvcLib)libcmt.lib&quot;" />
+			<LinkerArg Include="&quot;$(AlloyMsvcLib)libvcruntime.lib&quot;" />
+		</ItemGroup>
+		<PropertyGroup>
+			<CppLinker>$(AlloyMsvcBin)link.exe</CppLinker>
+			<CppLibCreator>$(AlloyMsvcBin)lib.exe</CppLibCreator>
+		</PropertyGroup>
+	</Target>
+
+	<!-- build.ps1 packs build\bin into the initrd -->
+	<Target Name="AlloyCopyApp" AfterTargets="Publish" Condition="'$(OutputType)' == 'Exe'">
+		<Copy SourceFiles="$(PublishDir)$(AssemblyName).exe" DestinationFolder="$(AlloyBin)" />
+	</Target>
+</Project>
