@@ -5,7 +5,7 @@ using Alloy.Graphics;
 namespace Alloy.Kernel.Diag
 {
 	// The boot console, laid out like MetalOS's LoadingScreen: black, a blue border and title bar, white text
-	internal static unsafe class Console
+	internal static class Console
 	{
 		private const uint Foreground = 0x00FFFFFF;
 		private const uint Background = 0x00000000;
@@ -19,7 +19,7 @@ namespace Alloy.Kernel.Diag
 		private static int s_y;
 		private static bool s_ready;
 
-		public static void Initialize(BootInfo* info)
+		public static unsafe void Initialize(BootInfo* info)
 		{
 			uint* pixels = (uint*)(MemoryLayout.KernelFramebuffer + (info->Framebuffer & (MemoryLayout.PageSize - 1)));
 			s_screen = new Surface(pixels, (int)info->FramebufferWidth, (int)info->FramebufferHeight, (int)info->FramebufferPixelsPerScanLine);

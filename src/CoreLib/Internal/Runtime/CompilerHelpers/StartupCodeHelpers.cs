@@ -5,9 +5,9 @@ using System.Runtime.CompilerServices;
 namespace Internal.Runtime.CompilerHelpers
 {
 	// Stands in for the native runtime's module startup (modeled on dotnet/runtime StartupCodeHelpers.cs, MIT)
-	internal static unsafe class StartupCodeHelpers
+	internal static class StartupCodeHelpers
 	{
-		internal static void InitializeModules()
+		internal static unsafe void InitializeModules()
 		{
 			void** start = PhxModulesStart();
 			void** end = PhxModulesEnd();
@@ -28,7 +28,7 @@ namespace Internal.Runtime.CompilerHelpers
 			}
 		}
 
-		internal static void RunModuleInitializers()
+		internal static unsafe void RunModuleInitializers()
 		{
 			for (void** current = PhxModulesStart(); current < PhxModulesEnd(); current++)
 			{
@@ -37,7 +37,7 @@ namespace Internal.Runtime.CompilerHelpers
 			}
 		}
 
-		private static void InitializeModule(ReadyToRunHeader* header, int moduleIndex)
+		private static unsafe void InitializeModule(ReadyToRunHeader* header, int moduleIndex)
 		{
 			// Statics and code below assume this exact format; a new ILC that changes it must fail here, not later
 			if (header->Signature != ReadyToRunHeader.ExpectedSignature || header->MajorVersion != ReadyToRunHeader.ExpectedMajorVersion || header->EntrySize != sizeof(ModuleInfoRow))
@@ -62,7 +62,7 @@ namespace Internal.Runtime.CompilerHelpers
 		}
 
 		// Replaces each tagged MethodTable slot with a statics object, copying in preinitialized values if any
-		private static void InitializeStatics(byte* region, int length)
+		private static unsafe void InitializeStatics(byte* region, int length)
 		{
 			int stride = MethodTable.SupportsRelativePointers ? sizeof(int) : sizeof(nint);
 			for (byte* block = region; block < region + length; block += stride)
@@ -83,7 +83,7 @@ namespace Internal.Runtime.CompilerHelpers
 			}
 		}
 
-		private static void RunInitializers(ReadyToRunHeader* header, ReadyToRunSectionType section)
+		private static unsafe void RunInitializers(ReadyToRunHeader* header, ReadyToRunSectionType section)
 		{
 			byte* initializers = (byte*)GetSection(header, section, out int length);
 			int stride = MethodTable.SupportsRelativePointers ? sizeof(int) : sizeof(nint);
@@ -94,7 +94,7 @@ namespace Internal.Runtime.CompilerHelpers
 			}
 		}
 
-		private static void* GetSection(ReadyToRunHeader* header, ReadyToRunSectionType id, out int length)
+		private static unsafe void* GetSection(ReadyToRunHeader* header, ReadyToRunSectionType id, out int length)
 		{
 			ModuleInfoRow* rows = (ModuleInfoRow*)(header + 1);
 			for (int i = 0; i < header->NumberOfSections; i++)
@@ -109,22 +109,22 @@ namespace Internal.Runtime.CompilerHelpers
 			return null;
 		}
 
-		private static void* ReadRelPtr32(void* address) => (byte*)address + *(int*)address;
+		private static unsafe void* ReadRelPtr32(void* address) => (byte*)address + *(int*)address;
 
 		private struct TypeManagerSlot
 		{
-			public void* TypeManager;
+			public unsafe void* TypeManager;
 			public int ModuleIndex;
 		}
 
 		// Bracket symbols around .modules$I, defined in Runtime.asm
 		[RuntimeImport("*", "PhxModulesStart")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void** PhxModulesStart();
+		private static extern unsafe void** PhxModulesStart();
 
 		[RuntimeImport("*", "PhxModulesEnd")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void** PhxModulesEnd();
+		private static extern unsafe void** PhxModulesEnd();
 
 		// Transitions between managed and native code. There is no GC to coordinate with, so they are no-ops.
 		[RuntimeExport("RhpReversePInvoke")]

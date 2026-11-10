@@ -113,13 +113,13 @@ namespace Alloy.Efi
 		public char UnicodeChar;
 	}
 
-	public unsafe struct EfiConfigurationTable
+	public struct EfiConfigurationTable
 	{
 		public EfiGuid VendorGuid;
-		public void* VendorTable;
+		public unsafe void* VendorTable;
 	}
 
-	public unsafe struct EfiSimpleTextOutputMode
+	public struct EfiSimpleTextOutputMode
 	{
 		public int MaxMode;
 		public int Mode;

@@ -6,14 +6,14 @@ using Alloy.Kernel.Ps;
 namespace Alloy.Kernel.Arch
 {
 	// Converts between a thread's saved user frame and a Windows CONTEXT, for GetThreadContext, SetThreadContext and exceptions
-	internal static unsafe class UserContext
+	internal static class UserContext
 	{
 		private const int MxcsrOffset = 24;
 
 		// Flags ring 3 may change: CF PF AF ZF SF TF DF OF; IF and the reserved bit 1 always stay set
 		private const ulong UserFlags = 0xDD5;
 
-		public static void ToContext(InterruptFrame* frame, WindowsContext* context, uint flags)
+		public static unsafe void ToContext(InterruptFrame* frame, WindowsContext* context, uint flags)
 		{
 			new Span<byte>(context, WindowsContext.Size).Clear();
 			context->ContextFlags = flags;
@@ -45,7 +45,7 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// Applies the parts ContextFlags names; segments and privileged flags stay as ring 3 requires
-		public static void FromContext(WindowsContext* context, InterruptFrame* frame)
+		public static unsafe void FromContext(WindowsContext* context, InterruptFrame* frame)
 		{
 			uint flags = context->ContextFlags;
 			if ((flags & (WindowsContext.Control & 0xFF)) != 0)
@@ -80,7 +80,7 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// A fresh thread's frame: the entry point with its argument in rcx, as Windows starts a thread, and the default FPU state
-		public static void Initialize(InterruptFrame* frame, ulong rip, ulong rsp, ulong argument)
+		public static unsafe void Initialize(InterruptFrame* frame, ulong rip, ulong rsp, ulong argument)
 		{
 			new Span<byte>(frame, InterruptFrame.Size).Clear();
 			*(ushort*)frame->FxSave = 0x037F;
@@ -96,9 +96,9 @@ namespace Alloy.Kernel.Arch
 	}
 
 	// Hands a ring-3 fault to the process's dispatcher: a CONTEXT and EXCEPTION_RECORD on the user stack, as Windows' KiUserExceptionDispatcher gets them
-	internal static unsafe class ExceptionDelivery
+	internal static class ExceptionDelivery
 	{
-		public static bool Deliver(KProcess process, InterruptFrame* frame)
+		public static unsafe bool Deliver(KProcess process, InterruptFrame* frame)
 		{
 			WindowsExceptionRecord record = default;
 			switch (frame->Vector)

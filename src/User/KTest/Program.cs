@@ -7,7 +7,7 @@ using Alloy.Runtime;
 namespace Alloy.User.KTest
 {
 	// Checks the kernel interfaces the Win32 layer stands on: VirtualAlloc semantics, threads, suspension, contexts and exception dispatch
-	internal static unsafe class Program
+	internal static class Program
 	{
 		private static int s_failed;
 		private static volatile int s_workerArgument;
@@ -18,7 +18,7 @@ namespace Alloy.User.KTest
 		private static ulong s_information0;
 		private static ulong s_information1;
 
-		private static int Main()
+		private static unsafe int Main()
 		{
 			Console.WriteLine("ktest: kernel interfaces for the Win32 layer");
 			TestMemory();
@@ -42,14 +42,14 @@ namespace Alloy.User.KTest
 
 		private static long Call(Syscall number, ulong a0 = 0, ulong a1 = 0, ulong a2 = 0, ulong a3 = 0) => SystemCall.Invoke(number, a0, a1, a2, a3);
 
-		private static MemoryBasicInformation Query(ulong address)
+		private static unsafe MemoryBasicInformation Query(ulong address)
 		{
 			MemoryBasicInformation info;
 			Call(Syscall.VirtualQuery, address, (ulong)&info);
 			return info;
 		}
 
-		private static void TestMemory()
+		private static unsafe void TestMemory()
 		{
 			const ulong Gigabyte = 1UL << 30;
 			const ulong Megabyte = 1UL << 20;
@@ -83,7 +83,7 @@ namespace Alloy.User.KTest
 			Check(status.TotalPhysical >= 1UL << 31 && status.AvailablePhysical < status.TotalPhysical, "memory status reports the machine");
 		}
 
-		private static void TestThreads()
+		private static unsafe void TestThreads()
 		{
 			long thread = Call(Syscall.CreateThread, (ulong)(delegate* unmanaged<ulong, void>)&Worker, 5, 0, ThreadFlags.Suspended);
 			Process.Sleep(20);
@@ -94,7 +94,7 @@ namespace Alloy.User.KTest
 			Process.Close(thread);
 		}
 
-		private static void TestSuspension()
+		private static unsafe void TestSuspension()
 		{
 			ulong* counter = (ulong*)Process.Allocate(4096);
 			ulong spin = PhxTestSpinAddress();
@@ -131,7 +131,7 @@ namespace Alloy.User.KTest
 			Process.Close(sleeper);
 		}
 
-		private static void TestExceptions()
+		private static unsafe void TestExceptions()
 		{
 			Call(Syscall.SetExceptionDispatcher, (ulong)(delegate* unmanaged<WindowsExceptionRecord*, WindowsContext*, void>)&Dispatcher);
 			PhxTestBreak();
@@ -172,7 +172,7 @@ namespace Alloy.User.KTest
 
 		// Kernel-delivered faults land here; the breakpoint resumes after itself, the others return from the helper that faulted
 		[UnmanagedCallersOnly]
-		private static void Dispatcher(WindowsExceptionRecord* record, WindowsContext* context)
+		private static unsafe void Dispatcher(WindowsExceptionRecord* record, WindowsContext* context)
 		{
 			s_exceptions++;
 			s_code = record->ExceptionCode;
@@ -201,7 +201,7 @@ namespace Alloy.User.KTest
 
 		[RuntimeImport("*", "PhxTestWrite")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void PhxTestWrite(int* address);
+		private static extern unsafe void PhxTestWrite(int* address);
 
 		[RuntimeImport("*", "PhxTestDivide")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -213,6 +213,6 @@ namespace Alloy.User.KTest
 
 		[RuntimeImport("*", "PhxTestRestore")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void PhxTestRestore(WindowsContext* context);
+		private static extern unsafe void PhxTestRestore(WindowsContext* context);
 	}
 }

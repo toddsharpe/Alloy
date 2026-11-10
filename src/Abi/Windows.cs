@@ -1,7 +1,7 @@
 namespace Alloy.Abi
 {
 	// Windows x64 CONTEXT (winnt.h), byte for byte: the kernel fills it for exceptions and GetThreadContext, the Win32 layer reads it
-	public unsafe struct WindowsContext
+	public struct WindowsContext
 	{
 		public const int Size = 0x4D0;
 		public const uint Amd64 = 0x100000;
@@ -55,8 +55,8 @@ namespace Alloy.Abi
 		public ulong R14;
 		public ulong R15;
 		public ulong Rip;
-		public fixed byte FltSave[512];
-		public fixed byte VectorRegister[26 * 16];
+		public unsafe fixed byte FltSave[512];
+		public unsafe fixed byte VectorRegister[26 * 16];
 		public ulong VectorControl;
 		public ulong DebugControl;
 		public ulong LastBranchToRip;
@@ -66,7 +66,7 @@ namespace Alloy.Abi
 	}
 
 	// Windows EXCEPTION_RECORD (winnt.h)
-	public unsafe struct WindowsExceptionRecord
+	public struct WindowsExceptionRecord
 	{
 		public const int Size = 0x98;
 		public const uint AccessViolation = 0xC0000005;
@@ -85,7 +85,7 @@ namespace Alloy.Abi
 		public ulong ExceptionAddress;
 		public uint NumberParameters;
 		public uint Reserved;
-		public fixed ulong ExceptionInformation[15];
+		public unsafe fixed ulong ExceptionInformation[15];
 	}
 
 	// Windows MEMORY_BASIC_INFORMATION (winnt.h)

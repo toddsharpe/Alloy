@@ -19,7 +19,7 @@ namespace Alloy.Kernel.Platform
 	}
 
 	// The VMBus client (MetalOS VmBusDriver): connects over SINT 2, collects offers, creates GPADLs and opens channels
-	internal static unsafe class VmBus
+	internal static class VmBus
 	{
 		public const int Vector = 0x90;
 		private const int MessageSint = 2;
@@ -54,7 +54,7 @@ namespace Alloy.Kernel.Platform
 		public const ulong NetworkHigh = 0x0EED65F9D2F23F91;
 
 		private static uint s_connectionId;
-		private static VmBusOffer* s_offers;
+		private static unsafe VmBusOffer* s_offers;
 		private static int s_offerCount;
 		private static VmBusChannel[] s_channels;
 		private static int s_nextGpadl;
@@ -62,11 +62,11 @@ namespace Alloy.Kernel.Platform
 		// Setup runs on one thread, so one reply slot is enough: the message type awaited and a copy of its payload
 		private static KEvent s_reply;
 		private static uint s_awaiting;
-		private static byte* s_replyPayload;
+		private static unsafe byte* s_replyPayload;
 
 		public static int OfferCount => s_offerCount;
 
-		public static bool Initialize()
+		public static unsafe bool Initialize()
 		{
 			s_offers = (VmBusOffer*)Heap.Allocate((nuint)(MaxOffers * sizeof(VmBusOffer)));
 			s_channels = new VmBusChannel[MaxChannels];
@@ -104,7 +104,7 @@ namespace Alloy.Kernel.Platform
 			return true;
 		}
 
-		public static bool TryFind(ulong typeLow, ulong typeHigh, out VmBusOffer offer)
+		public static unsafe bool TryFind(ulong typeLow, ulong typeHigh, out VmBusOffer offer)
 		{
 			for (int i = 0; i < s_offerCount; i++)
 			{
@@ -119,7 +119,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Describes physically contiguous pages to the host: a GPADL_HEADER with the first page numbers, GPADL_BODY for the rest
-		public static uint CreateGpadl(uint relId, ulong physical, int pages)
+		public static unsafe uint CreateGpadl(uint relId, ulong physical, int pages)
 		{
 			uint gpadl = (uint)Interlocked.Increment(ref s_nextGpadl);
 			byte* message = stackalloc byte[HyperV.MessagePayloadSize];
@@ -159,7 +159,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// The channel is registered before OPENCHANNEL: the host may signal it the moment it is open (MetalOS HyperVChannel)
-		public static bool OpenChannel(VmBusChannel channel, uint relId, uint gpadl, uint downstreamPageOffset)
+		public static unsafe bool OpenChannel(VmBusChannel channel, uint relId, uint gpadl, uint downstreamPageOffset)
 		{
 			if (relId >= MaxChannels)
 				return false;
@@ -185,7 +185,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Arms before posting, since the answer can arrive before the wait starts
-		private static bool Request(uint connectionId, void* message, int size, uint replyType)
+		private static unsafe bool Request(uint connectionId, void* message, int size, uint replyType)
 		{
 			ulong flags = Scheduler.Lock();
 			Arm(replyType);
@@ -194,7 +194,7 @@ namespace Alloy.Kernel.Platform
 			return posted && s_reply.Wait(ReplyTimeoutMs);
 		}
 
-		private static void OnInterrupt(InterruptFrame* frame)
+		private static unsafe void OnInterrupt(InterruptFrame* frame)
 		{
 			// Each set bit is a channel id the host signaled; exchanging a whole word takes its bits atomically
 			uint* events = HyperV.EventFlags(MessageSint);
@@ -226,7 +226,7 @@ namespace Alloy.Kernel.Platform
 			HyperV.EndOfInterrupt();
 		}
 
-		private static void OnMessage(byte* payload)
+		private static unsafe void OnMessage(byte* payload)
 		{
 			uint type = *(uint*)payload;
 			if (type == OfferChannel)

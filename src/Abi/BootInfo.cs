@@ -1,7 +1,7 @@
 namespace Alloy.Abi
 {
 	// Handed from the loader to KiSystemStartup in rcx, through the physical window; every address field is physical
-	public unsafe struct BootInfo
+	public struct BootInfo
 	{
 		public const ulong ExpectedMagic = 0x31544F4F42584850; // "PHXBOOT1"
 		public const uint CurrentVersion = 1;
@@ -54,7 +54,7 @@ namespace Alloy.Abi
 		public byte BootSecond;
 		public byte Reserved2;
 
-		public readonly bool IsValid => Magic == ExpectedMagic && Version == CurrentVersion && Size == sizeof(BootInfo);
+		public readonly unsafe bool IsValid => Magic == ExpectedMagic && Version == CurrentVersion && Size == sizeof(BootInfo);
 
 		public static ulong ToVirtual(ulong physical) => MemoryLayout.KernelPhysicalWindow + physical;
 	}

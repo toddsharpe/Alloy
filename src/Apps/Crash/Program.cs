@@ -4,7 +4,7 @@ using System.Diagnostics;
 namespace Alloy.Apps.Crash
 {
 	// MetalOS's crash.exe: faults on purpose; the runtime turns the fault into an unhandled exception, and the kernel ends this process and nothing else
-	internal static unsafe class Program
+	internal static class Program
 	{
 		// Statics that are never assigned, so the compiler can't fold the fault away or prove it ahead of time
 #pragma warning disable CS0649
@@ -12,7 +12,7 @@ namespace Alloy.Apps.Crash
 		private static int s_zero;
 #pragma warning restore CS0649
 
-		private static int Main(string[] args)
+		private static unsafe int Main(string[] args)
 		{
 			Console.WriteLine("Userspace crash demo.");
 			string[] commandLine = Environment.GetCommandLineArgs();

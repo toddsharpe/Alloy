@@ -1,7 +1,7 @@
 namespace Alloy.Graphics
 {
 	// Pixel art up to 8x8, two bits a cell: 0 is clear, 1 to 3 pick a palette color (MetalOS PixelGlyph and Wm::IconBits)
-	public sealed unsafe class PixelGlyph
+	public sealed class PixelGlyph
 	{
 		public readonly int Width;
 		public readonly int Height;

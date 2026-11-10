@@ -7,7 +7,7 @@ using Alloy.Text;
 namespace Alloy.Kernel.Platform
 {
 	// The Hyper-V synthetic NIC (MetalOS HyperVNic): NVSP 2 over VMBus, RNDIS inside it, 16 MB receive and send buffers
-	internal sealed unsafe class SyntheticNic : VmBusChannel
+	internal sealed class SyntheticNic : VmBusChannel
 	{
 		private const int RingPages = 10;
 		private const int BufferPages = 4096;
@@ -43,9 +43,9 @@ namespace Alloy.Kernel.Platform
 		private const ulong SectionTagMask = 0xFFFFFF0000000000;
 
 		private readonly KEvent _event = new KEvent(false);
-		private byte* _response;
-		private byte* _receiveBuffer;
-		private byte* _sendBuffer;
+		private unsafe byte* _response;
+		private unsafe byte* _receiveBuffer;
+		private unsafe byte* _sendBuffer;
 		private uint _sectionSize;
 		private int _sectionCount;
 		private ulong _sectionsInUse;
@@ -55,7 +55,7 @@ namespace Alloy.Kernel.Platform
 
 		public readonly byte[] Mac = new byte[6];
 
-		public static bool Start(in VmBusOffer offer)
+		public static unsafe bool Start(in VmBusOffer offer)
 		{
 			SyntheticNic nic = new SyntheticNic();
 			nic._response = (byte*)Heap.Allocate(NvspSize);
@@ -80,7 +80,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// NVSP init and NDIS version, the receive and send buffers, then RNDIS init, the packet filter and the MAC
-		private bool Negotiate(uint relId)
+		private unsafe bool Negotiate(uint relId)
 		{
 			byte* message = stackalloc byte[NvspSize];
 			Nvsp(message, NvspInit, NvspVersion2, NvspVersion2);
@@ -136,7 +136,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Copies one Ethernet frame into a free send section and hands it to the host; false when none is free
-		public bool SendFrame(byte* frame, int length)
+		public unsafe bool SendFrame(byte* frame, int length)
 		{
 			if (length <= 0 || length > NetFrame.Mtu || 44 + length > _sectionSize)
 				return false;
@@ -156,7 +156,7 @@ namespace Alloy.Kernel.Platform
 			return false;
 		}
 
-		private static void Nvsp(byte* message, uint type, uint first, uint second)
+		private static unsafe void Nvsp(byte* message, uint type, uint first, uint second)
 		{
 			new Span<byte>(message, NvspSize).Clear();
 			*(uint*)message = type;
@@ -164,21 +164,21 @@ namespace Alloy.Kernel.Platform
 			*(uint*)(message + 8) = second;
 		}
 
-		private bool Request(byte* message, uint answer)
+		private unsafe bool Request(byte* message, uint answer)
 		{
 			_event.Reset();
 			return Send(message, NvspSize, 1, PacketInband, CompletionRequested) && _event.Wait(2000) && *(uint*)_response == answer;
 		}
 
 		// Setup messages go through section 0
-		private bool RndisControl(void* rndis, uint length, bool completion)
+		private unsafe bool RndisControl(void* rndis, uint length, bool completion)
 		{
 			_event.Reset();
 			new ReadOnlySpan<byte>(rndis, (int)length).CopyTo(new Span<byte>(_sendBuffer, (int)_sectionSize));
 			return SendRndis(ChannelControl, 0, length, completion);
 		}
 
-		private bool SendRndis(uint channel, int section, uint length, bool completion)
+		private unsafe bool SendRndis(uint channel, int section, uint length, bool completion)
 		{
 			byte* message = stackalloc byte[NvspSize];
 			new Span<byte>(message, NvspSize).Clear();
@@ -218,7 +218,7 @@ namespace Alloy.Kernel.Platform
 			Scheduler.Unlock(flags);
 		}
 
-		protected override void OnPacket(VmBusPacket* packet, byte* payload, uint size)
+		protected override unsafe void OnPacket(VmBusPacket* packet, byte* payload, uint size)
 		{
 			if (size < 8)
 				return;

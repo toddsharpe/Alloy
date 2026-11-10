@@ -11,7 +11,7 @@ namespace Alloy.Kernel.Ke
 	}
 
 	// Anything a thread can block on; waiters are served in arrival order
-	internal abstract unsafe class KWaitable
+	internal abstract class KWaitable
 	{
 		private KWaitBlock _blocks;
 
@@ -22,14 +22,14 @@ namespace Alloy.Kernel.Ke
 		{
 		}
 
-		public bool Wait(ulong timeoutMs = ulong.MaxValue)
+		public unsafe bool Wait(ulong timeoutMs = ulong.MaxValue)
 		{
 			KWaitable self = this;
 			return WaitAny(&self, 1, timeoutMs) == 0;
 		}
 
 		// Returns the index of the object that satisfied the wait, or -1 on timeout
-		public static int WaitAny(KWaitable* objects, int count, ulong timeoutMs)
+		public static unsafe int WaitAny(KWaitable* objects, int count, ulong timeoutMs)
 		{
 			ulong flags = Scheduler.Lock();
 			for (int i = 0; i < count; i++)

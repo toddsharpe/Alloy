@@ -5,7 +5,7 @@ using Alloy.Arch.X64;
 namespace Alloy.Kernel.Arch
 {
 	// GDT, TSS and IDT in MetalOS's layout; syscall/sysret depend on the order of the code and data descriptors
-	internal static unsafe class Descriptors
+	internal static class Descriptors
 	{
 		public const ushort KernelCode = 0x08;
 		public const ushort KernelData = 0x10;
@@ -23,9 +23,9 @@ namespace Alloy.Kernel.Arch
 		private const int TssRsp0Offset = 4;
 		private const int TssIstOffset = 36;
 
-		private static byte* s_tss;
+		private static unsafe byte* s_tss;
 
-		public static void Initialize()
+		public static unsafe void Initialize()
 		{
 			ulong* gdt = (ulong*)PhxGdt();
 			gdt[0] = 0;
@@ -68,10 +68,10 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// The stack the CPU switches to when an interrupt or syscall arrives from ring 3
-		public static void SetKernelStack(ulong rsp0) => *(ulong*)(s_tss + TssRsp0Offset) = rsp0;
+		public static unsafe void SetKernelStack(ulong rsp0) => *(ulong*)(s_tss + TssRsp0Offset) = rsp0;
 
 		// The 10-byte limit and base operand of lgdt and lidt
-		private static void Describe(byte* register, void* table, int size)
+		private static unsafe void Describe(byte* register, void* table, int size)
 		{
 			*(ushort*)register = (ushort)(size - 1);
 			*(ulong*)(register + 2) = (ulong)table;
@@ -79,27 +79,27 @@ namespace Alloy.Kernel.Arch
 
 		[RuntimeImport("*", "PhxGdt")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void* PhxGdt();
+		private static extern unsafe void* PhxGdt();
 
 		[RuntimeImport("*", "PhxTss")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern byte* PhxTss();
+		private static extern unsafe byte* PhxTss();
 
 		[RuntimeImport("*", "PhxIdt")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void* PhxIdt();
+		private static extern unsafe void* PhxIdt();
 
 		[RuntimeImport("*", "PhxIstStacks")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern byte* PhxIstStacks(nuint* stackSize);
+		private static extern unsafe byte* PhxIstStacks(nuint* stackSize);
 
 		[RuntimeImport("*", "PhxIsrTable")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern ulong* PhxIsrTable();
+		private static extern unsafe ulong* PhxIsrTable();
 
 		[RuntimeImport("*", "PhxLoadGdt")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void PhxLoadGdt(void* gdtr);
+		private static extern unsafe void PhxLoadGdt(void* gdtr);
 
 		[RuntimeImport("*", "PhxLoadTss")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -107,6 +107,6 @@ namespace Alloy.Kernel.Arch
 
 		[RuntimeImport("*", "PhxLoadIdt")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void PhxLoadIdt(void* idtr);
+		private static extern unsafe void PhxLoadIdt(void* idtr);
 	}
 }

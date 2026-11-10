@@ -13,7 +13,7 @@ using Alloy.Text;
 namespace Alloy.Kernel.Arch
 {
 	// syscall/sysret setup, the per-CPU block behind gs, and the dispatcher for the table in Abi/Syscalls.cs
-	internal static unsafe class SystemCalls
+	internal static class SystemCalls
 	{
 		public const uint KernelGsBaseMsr = 0xC0000102;
 		private const uint EferMsr = 0xC0000080;
@@ -32,9 +32,9 @@ namespace Alloy.Kernel.Arch
 			public ulong UserRsp;
 		}
 
-		private static CpuBlock* s_cpu;
+		private static unsafe CpuBlock* s_cpu;
 
-		public static void Initialize()
+		public static unsafe void Initialize()
 		{
 			s_cpu = (CpuBlock*)Mm.Heap.Allocate((nuint)sizeof(CpuBlock));
 			s_cpu->Self = (ulong)s_cpu;
@@ -48,7 +48,7 @@ namespace Alloy.Kernel.Arch
 			Cpu.WriteMsr(EferMsr, Cpu.ReadMsr(EferMsr) | 1);
 		}
 
-		public static void SetKernelStack(ulong top)
+		public static unsafe void SetKernelStack(ulong top)
 		{
 			s_cpu->KernelRsp = top;
 			Descriptors.SetKernelStack(top);
@@ -56,7 +56,7 @@ namespace Alloy.Kernel.Arch
 
 		// The frame is the thread's whole user context (Interrupts.cs); the result goes back in its rax
 		[RuntimeExport("KiSystemCall")]
-		private static void Dispatch(InterruptFrame* frame)
+		private static unsafe void Dispatch(InterruptFrame* frame)
 		{
 			KUserThread thread = Scheduler.Current.Owner as KUserThread;
 			if (thread == null)
@@ -69,7 +69,7 @@ namespace Alloy.Kernel.Arch
 			thread.ReturningToUser();
 		}
 
-		private static long Handle(InterruptFrame* frame, KUserThread thread, KProcess process)
+		private static unsafe long Handle(InterruptFrame* frame, KUserThread thread, KProcess process)
 		{
 			switch ((Syscall)frame->Number)
 			{
@@ -371,7 +371,7 @@ namespace Alloy.Kernel.Arch
 		private static bool Terminating => Scheduler.Current.Owner is KUserThread user && user.Process.Exiting;
 
 		// GetThreadContext and SetThreadContext on a sibling thread's saved user frame; CONTEXT_EXCEPTION_REQUEST also reports whether it is in a syscall
-		private static long ThreadContext(KProcess process, KUserThread caller, InterruptFrame* frame)
+		private static unsafe long ThreadContext(KProcess process, KUserThread caller, InterruptFrame* frame)
 		{
 			if (process.Handles.Get(frame->A0) is not KUserThread target || target.Process != process || target == caller)
 				return Error(SyscallError.InvalidHandle);
@@ -393,7 +393,7 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// Hands the screen to one user process (the window server) at the largest synthvid mode; the kernel console stops drawing
-		private static long MapFramebuffer(KProcess process, ulong infoAddress)
+		private static unsafe long MapFramebuffer(KProcess process, ulong infoAddress)
 		{
 			BootInfo* boot = Alloy.Kernel.KernelEnvironment.BootInfo;
 			if (!Diag.Console.Release())
@@ -417,7 +417,7 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// The command line names the image; the StartInfo's handles are the caller's, and the child gets its own references
-		private static long CreateProcess(KProcess process, ulong line, ulong length, ulong argument, ulong startInfo)
+		private static unsafe long CreateProcess(KProcess process, ulong line, ulong length, ulong argument, ulong startInfo)
 		{
 			Span<char> commandLine = stackalloc char[256];
 			if (!UserMemory.ReadPath(line, length, commandLine, out int count))
@@ -435,7 +435,7 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// Returns what was there, up to 256 bytes, blocking while the pipe is empty and still has a writer; 0 is end of file
-		private static long ReadPipe(KPipeEnd reader, ulong buffer, ulong count)
+		private static unsafe long ReadPipe(KPipeEnd reader, ulong buffer, ulong count)
 		{
 			byte* chunk = stackalloc byte[256];
 			while (true)
@@ -457,7 +457,7 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// Writes everything, blocking while the pipe is full; -Closed if nobody can read it any more
-		private static long WritePipe(KPipeEnd writer, ulong buffer, ulong count)
+		private static unsafe long WritePipe(KPipeEnd writer, ulong buffer, ulong count)
 		{
 			byte* chunk = stackalloc byte[256];
 			ulong written = 0;
@@ -491,7 +491,7 @@ namespace Alloy.Kernel.Arch
 			return (long)written;
 		}
 
-		private static long WaitForMultiple(KProcess process, ulong handles, ulong count, ulong timeoutMs)
+		private static unsafe long WaitForMultiple(KProcess process, ulong handles, ulong count, ulong timeoutMs)
 		{
 			const int MaxObjects = 16;
 			if (count == 0 || count > MaxObjects)
@@ -512,7 +512,7 @@ namespace Alloy.Kernel.Arch
 			return index < 0 ? Error(SyscallError.Timeout) : index;
 		}
 
-		private static long SendMessage(KProcess process, ulong portHandle, ulong payload, ulong transferHandle)
+		private static unsafe long SendMessage(KProcess process, ulong portHandle, ulong payload, ulong transferHandle)
 		{
 			if (process.Handles.Get(portHandle) is not KPort port)
 				return Error(SyscallError.InvalidHandle);
@@ -543,7 +543,7 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// Blocks until a message arrives; returns the handle of the object it carried, 0 if none, or -Timeout
-		private static long ReceiveMessage(KProcess process, ulong portHandle, ulong payload, ulong timeoutMs)
+		private static unsafe long ReceiveMessage(KProcess process, ulong portHandle, ulong payload, ulong timeoutMs)
 		{
 			if (process.Handles.Get(portHandle) is not KPort port)
 				return Error(SyscallError.InvalidHandle);
@@ -567,7 +567,7 @@ namespace Alloy.Kernel.Arch
 			return result;
 		}
 
-		private static long DebugPrint(KProcess process, ulong address, ulong length)
+		private static unsafe long DebugPrint(KProcess process, ulong address, ulong length)
 		{
 			const int MaxLength = 200;
 			byte* bytes = stackalloc byte[MaxLength];

@@ -2,17 +2,17 @@ using Alloy.Abi;
 
 namespace Alloy.Tests;
 
-public unsafe class InputTests
+public class InputTests
 {
 	[Fact]
-	public void EventsAre16BytesAndFitTheRing()
+	public unsafe void EventsAre16BytesAndFitTheRing()
 	{
 		Assert.Equal(16, sizeof(InputEvent));
 		Assert.Equal(InputRing.Size, (ulong)InputRing.HeaderSize + InputRing.Capacity * (ulong)sizeof(InputEvent));
 	}
 
 	[Fact]
-	public void FreeRunningCountersWrapIntoTheRing()
+	public unsafe void FreeRunningCountersWrapIntoTheRing()
 	{
 		byte[] region = new byte[InputRing.Size];
 		fixed (byte* bytes = region)

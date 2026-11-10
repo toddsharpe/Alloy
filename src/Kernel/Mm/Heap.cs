@@ -4,7 +4,7 @@ using Alloy.Abi;
 namespace Alloy.Kernel.Mm
 {
 	// Kernel heap: page-sized slabs per size class up to 2 KB, whole pages above; memory lives in the physical window
-	internal static unsafe class Heap
+	internal static class Heap
 	{
 		private const uint SlabMagic = 0x42414C53;
 		private const uint LargeMagic = 0x4752414C;
@@ -17,25 +17,25 @@ namespace Alloy.Kernel.Mm
 		{
 			public uint Magic;
 			public uint ClassOrPages;
-			public void* FreeList;
-			public PageHeader* Next;
+			public unsafe void* FreeList;
+			public unsafe PageHeader* Next;
 			public uint FreeCount;
 			public uint Pad;
 		}
 
-		private static PageHeader** s_partial;
+		private static unsafe PageHeader** s_partial;
 		private static ulong s_largePages;
 
 		public static ulong LargePages => s_largePages;
 
-		public static void Initialize()
+		public static unsafe void Initialize()
 		{
 			ulong table = PhysicalMemory.Allocate(1);
 			s_partial = (PageHeader**)BootInfo.ToVirtual(table);
 		}
 
 		// Zeroed, 16-byte aligned memory, or null when physical memory runs out; preemptible threads share it, so slab updates run with interrupts off
-		public static void* Allocate(nuint size)
+		public static unsafe void* Allocate(nuint size)
 		{
 			if (size > MaximumSmall)
 				return AllocateLarge(size);
@@ -45,7 +45,7 @@ namespace Alloy.Kernel.Mm
 			return block;
 		}
 
-		private static void* AllocateSmall(nuint size)
+		private static unsafe void* AllocateSmall(nuint size)
 		{
 			int sizeClass = ClassFor(size);
 			PageHeader* page = s_partial[sizeClass];
@@ -68,7 +68,7 @@ namespace Alloy.Kernel.Mm
 			return block;
 		}
 
-		public static void Free(void* block)
+		public static unsafe void Free(void* block)
 		{
 			if (block == null)
 				return;
@@ -77,7 +77,7 @@ namespace Alloy.Kernel.Mm
 			Ke.Scheduler.Unlock(state);
 		}
 
-		private static void FreeLocked(void* block)
+		private static unsafe void FreeLocked(void* block)
 		{
 			PageHeader* page = (PageHeader*)((ulong)block & ~(MemoryLayout.PageSize - 1));
 			if (page->Magic == LargeMagic)
@@ -102,7 +102,7 @@ namespace Alloy.Kernel.Mm
 		}
 
 		// Objects start after their header word (Allocator.Place), so the allocation begins 8 bytes before the reference
-		public static void Free(object value)
+		public static unsafe void Free(object value)
 		{
 			if (value != null)
 				Free((byte*)System.Runtime.CompilerServices.Unsafe.As<object, nint>(ref value) - sizeof(nint));
@@ -116,7 +116,7 @@ namespace Alloy.Kernel.Mm
 			return sizeClass;
 		}
 
-		private static PageHeader* NewSlab(int sizeClass)
+		private static unsafe PageHeader* NewSlab(int sizeClass)
 		{
 			ulong physical = PhysicalMemory.Allocate(1);
 			if (physical == 0)
@@ -139,7 +139,7 @@ namespace Alloy.Kernel.Mm
 			return page;
 		}
 
-		private static void* AllocateLarge(nuint size)
+		private static unsafe void* AllocateLarge(nuint size)
 		{
 			ulong pages = MemoryLayout.PagesFor((ulong)size + HeaderSize);
 			ulong physical = PhysicalMemory.Allocate(pages);

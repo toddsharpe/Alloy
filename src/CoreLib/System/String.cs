@@ -5,7 +5,7 @@ using Internal.Runtime;
 namespace System
 {
 	// Contract with the compiler: a char array whose base size includes one extra char, the null terminator
-	public sealed unsafe class String
+	public sealed class String
 	{
 		internal const int FIRST_CHAR_OFFSET = 12; // MethodTable* + length
 
@@ -34,9 +34,9 @@ namespace System
 
 		// The compiler routes `new string(...)` to the static Ctor with the matching signature
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		public extern String(char* value);
+		public extern unsafe String(char* value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		public extern String(char* value, int startIndex, int length);
+		public extern unsafe String(char* value, int startIndex, int length);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		public extern String(char[] value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -46,7 +46,7 @@ namespace System
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		public extern String(char c, int count);
 
-		private static string Ctor(char* value)
+		private static unsafe string Ctor(char* value)
 		{
 			if (value == null)
 				return Empty;
@@ -56,7 +56,7 @@ namespace System
 			return Ctor(new ReadOnlySpan<char>(value, length));
 		}
 
-		private static string Ctor(char* value, int startIndex, int length) => Ctor(new ReadOnlySpan<char>(value + startIndex, length));
+		private static unsafe string Ctor(char* value, int startIndex, int length) => Ctor(new ReadOnlySpan<char>(value + startIndex, length));
 
 		private static string Ctor(char[] value) => value == null ? Empty : Ctor(new ReadOnlySpan<char>(value));
 
@@ -80,7 +80,7 @@ namespace System
 			return result;
 		}
 
-		internal static string FastAllocateString(int length) => Unsafe.As<string>(Allocator.NewArray(MethodTable.Of<string>(), length));
+		internal static unsafe string FastAllocateString(int length) => Unsafe.As<string>(Allocator.NewArray(MethodTable.Of<string>(), length));
 
 		public static bool IsNullOrEmpty(string value) => (object)value == null || value._stringLength == 0;
 

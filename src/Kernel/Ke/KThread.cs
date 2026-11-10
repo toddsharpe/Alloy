@@ -14,7 +14,7 @@ namespace Alloy.Kernel.Ke
 	}
 
 	// A kernel thread: its own stack, the rsp saved by PhxSwitchContext, and a link for whichever queue it is on
-	internal sealed unsafe class KThread
+	internal sealed class KThread
 	{
 		public const ulong StackPages = 8;
 
@@ -45,7 +45,7 @@ namespace Alloy.Kernel.Ke
 		public static KThread ForCurrent(string name) => new KThread(name) { State = ThreadState.Running };
 
 		// reserved bytes at the top of the stack stay free: a user thread keeps its user frame there
-		public static KThread Create(string name, delegate*<void*, void> entry, void* argument, int reserved = 0)
+		public static unsafe KThread Create(string name, delegate*<void*, void> entry, void* argument, int reserved = 0)
 		{
 			KThread thread = new KThread(name);
 			thread.StackPhysical = PhysicalMemory.Allocate(StackPages);

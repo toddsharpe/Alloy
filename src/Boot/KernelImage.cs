@@ -5,7 +5,7 @@ using Alloy.Efi;
 namespace Alloy.Boot
 {
 	// kernel.exe laid out in physically contiguous pages, ready to map at its link base
-	internal unsafe struct KernelImage
+	internal struct KernelImage
 	{
 		public ulong Physical;
 		public ulong ImageBase;
@@ -14,9 +14,9 @@ namespace Alloy.Boot
 		public ulong File;
 		public ulong FileSize;
 
-		public readonly ReadOnlySpan<byte> FileBytes => new ReadOnlySpan<byte>((void*)File, (int)FileSize);
+		public readonly unsafe ReadOnlySpan<byte> FileBytes => new ReadOnlySpan<byte>((void*)File, (int)FileSize);
 
-		public static KernelImage Load(EfiFileProtocol* root, string path)
+		public static unsafe KernelImage Load(EfiFileProtocol* root, string path)
 		{
 			KernelImage kernel = default;
 			Uefi.ReadFile(root, path, false, out kernel.File, out kernel.FileSize);

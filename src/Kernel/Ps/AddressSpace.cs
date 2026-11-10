@@ -24,7 +24,7 @@ namespace Alloy.Kernel.Ps
 	}
 
 	// A process's user half with Windows' VirtualAlloc semantics: reserve is bookkeeping, commit maps zeroed pages, decommit and release free them
-	internal sealed unsafe class AddressSpace
+	internal sealed class AddressSpace
 	{
 		public const ulong UserStart = 0x10000;
 		public const ulong UserEnd = 0x0000_7FFF_FFFF_0000;
@@ -113,7 +113,7 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// Changes the protection of committed pages; returns the first page's old protection, or 0 if any page isn't committed
-		public uint Protect(ulong address, ulong size, uint protect)
+		public unsafe uint Protect(ulong address, ulong size, uint protect)
 		{
 			if (!TryFlags(protect, out ulong flags))
 				return 0;
@@ -143,7 +143,7 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// VirtualQuery: the run of pages from address that share a state and protection, within one allocation
-		public bool Query(ulong address, MemoryBasicInformation* info)
+		public unsafe bool Query(ulong address, MemoryBasicInformation* info)
 		{
 			ulong page = address & ~(MemoryLayout.PageSize - 1);
 			Lock();
@@ -181,7 +181,7 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// Maps physical pages the caller supplies into a reservation; private ones are freed with the process
-		public bool MapPages(ulong address, ulong physical, ulong pages, PageFlags flags, bool owned)
+		public unsafe bool MapPages(ulong address, ulong physical, ulong pages, PageFlags flags, bool owned)
 		{
 			Lock();
 			bool mapped = true;
@@ -201,7 +201,7 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// The physical page behind a committed user address
-		public bool TryTranslate(ulong address, out ulong physical)
+		public unsafe bool TryTranslate(ulong address, out ulong physical)
 		{
 			Lock();
 			ulong* entry = Entry(address, false);
@@ -212,7 +212,7 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// Frees every page this process owns, then its page tables; the caller has switched to the kernel's tables
-		public void Destroy()
+		public unsafe void Destroy()
 		{
 			ulong* pml4 = Table(_root);
 			for (int i = 0; i < 256; i++)
@@ -273,7 +273,7 @@ namespace Alloy.Kernel.Ps
 			return start;
 		}
 
-		private bool CommitLocked(ulong address, ulong size, ulong flags)
+		private unsafe bool CommitLocked(ulong address, ulong size, ulong flags)
 		{
 			ulong start = address & ~(MemoryLayout.PageSize - 1);
 			ulong end = AlignUp(address + size, MemoryLayout.PageSize);
@@ -332,7 +332,7 @@ namespace Alloy.Kernel.Ps
 			return true;
 		}
 
-		private void Unmap(ulong page)
+		private unsafe void Unmap(ulong page)
 		{
 			ulong* entry = Entry(page, false);
 			if (entry == null || *entry == 0)
@@ -379,7 +379,7 @@ namespace Alloy.Kernel.Ps
 			return candidate + size <= UserEnd ? candidate : 0;
 		}
 
-		private void StateOf(ulong page, out uint state, out uint protect)
+		private unsafe void StateOf(ulong page, out uint state, out uint protect)
 		{
 			ulong* entry = Entry(page, false);
 			if (entry == null || (*entry & ((ulong)PageFlags.Present | NoAccess)) == 0)
@@ -436,7 +436,7 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// The leaf entry for a page, creating the tables above it when asked; user tables stay 4 KB pages
-		private ulong* Entry(ulong address, bool create)
+		private unsafe ulong* Entry(ulong address, bool create)
 		{
 			ulong table = _root;
 			for (int level = 4; level > 1; level--)
@@ -456,7 +456,7 @@ namespace Alloy.Kernel.Ps
 			return &Table(table)[(address >> 12) & 0x1FF];
 		}
 
-		private void FreeTable(ulong table, int level)
+		private unsafe void FreeTable(ulong table, int level)
 		{
 			ulong* entries = Table(table);
 			for (int i = 0; i < 512; i++)
@@ -470,7 +470,7 @@ namespace Alloy.Kernel.Ps
 			PhysicalMemory.Free(table, 1);
 		}
 
-		private static ulong* Table(ulong physical) => (ulong*)BootInfo.ToVirtual(physical);
+		private static unsafe ulong* Table(ulong physical) => (ulong*)BootInfo.ToVirtual(physical);
 
 		private static ulong AlignUp(ulong value, ulong alignment) => (value + alignment - 1) & ~(alignment - 1);
 	}

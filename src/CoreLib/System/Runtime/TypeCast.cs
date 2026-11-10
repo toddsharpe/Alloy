@@ -4,9 +4,9 @@ using Internal.Runtime;
 namespace System.Runtime
 {
 	// Casts and covariant array stores for generated code; variance and IDynamicInterfaceCastable fail loudly
-	internal static unsafe class TypeCast
+	internal static class TypeCast
 	{
-		public static object IsInstanceOfClass(MethodTable* pTargetType, object obj)
+		public static unsafe object IsInstanceOfClass(MethodTable* pTargetType, object obj)
 		{
 			if (obj == null)
 				return null;
@@ -18,46 +18,46 @@ namespace System.Runtime
 			return null;
 		}
 
-		public static object CheckCastClass(MethodTable* pTargetType, object obj)
+		public static unsafe object CheckCastClass(MethodTable* pTargetType, object obj)
 		{
 			if (obj != null && IsInstanceOfClass(pTargetType, obj) == null)
 				ThrowHelper.ThrowInvalidCast();
 			return obj;
 		}
 
-		private static object CheckCastClassSpecial(MethodTable* pTargetType, object obj) => CheckCastClass(pTargetType, obj);
+		private static unsafe object CheckCastClassSpecial(MethodTable* pTargetType, object obj) => CheckCastClass(pTargetType, obj);
 
-		public static object IsInstanceOfInterface(MethodTable* pTargetType, object obj)
+		public static unsafe object IsInstanceOfInterface(MethodTable* pTargetType, object obj)
 		{
 			if (obj == null)
 				return null;
 			return ImplementsInterface(obj.GetMethodTable(), pTargetType) ? obj : null;
 		}
 
-		public static object CheckCastInterface(MethodTable* pTargetType, object obj)
+		public static unsafe object CheckCastInterface(MethodTable* pTargetType, object obj)
 		{
 			if (obj != null && !ImplementsInterface(obj.GetMethodTable(), pTargetType))
 				ThrowHelper.ThrowInvalidCast();
 			return obj;
 		}
 
-		public static object IsInstanceOfAny(MethodTable* pTargetType, object obj)
+		public static unsafe object IsInstanceOfAny(MethodTable* pTargetType, object obj)
 		{
 			if (obj == null)
 				return null;
 			return AreTypesAssignable(obj.GetMethodTable(), pTargetType) ? obj : null;
 		}
 
-		public static object CheckCastAny(MethodTable* pTargetType, object obj)
+		public static unsafe object CheckCastAny(MethodTable* pTargetType, object obj)
 		{
 			if (obj != null && !AreTypesAssignable(obj.GetMethodTable(), pTargetType))
 				ThrowHelper.ThrowInvalidCast();
 			return obj;
 		}
 
-		public static bool IsInstanceOfException(MethodTable* pTargetType, object obj) => IsInstanceOfClass(pTargetType, obj) != null;
+		public static unsafe bool IsInstanceOfException(MethodTable* pTargetType, object obj) => IsInstanceOfClass(pTargetType, obj) != null;
 
-		public static void StelemRef(object[] array, nint index, object obj)
+		public static unsafe void StelemRef(object[] array, nint index, object obj)
 		{
 			ref object element = ref Unsafe.As<ArrayElement[]>(array)[index].Value;
 			if (obj != null)
@@ -70,7 +70,7 @@ namespace System.Runtime
 			element = obj;
 		}
 
-		public static ref object LdelemaRef(object[] array, nint index, MethodTable* elementType)
+		public static unsafe ref object LdelemaRef(object[] array, nint index, MethodTable* elementType)
 		{
 			ref object element = ref Unsafe.As<ArrayElement[]>(array)[index].Value;
 			if (array.GetMethodTable()->RelatedParameterType != elementType)
@@ -78,7 +78,7 @@ namespace System.Runtime
 			return ref element;
 		}
 
-		internal static bool AreTypesAssignable(MethodTable* source, MethodTable* target)
+		internal static unsafe bool AreTypesAssignable(MethodTable* source, MethodTable* target)
 		{
 			if (source == target)
 				return true;
@@ -110,7 +110,7 @@ namespace System.Runtime
 		}
 
 		// The interface map lists every interface the type implements, inherited ones included
-		private static bool ImplementsInterface(MethodTable* source, MethodTable* target)
+		private static unsafe bool ImplementsInterface(MethodTable* source, MethodTable* target)
 		{
 			MethodTable** map = source->InterfaceMap;
 			for (int i = 0; i < source->NumInterfaces; i++)
@@ -131,9 +131,9 @@ namespace System.Runtime
 	}
 
 	// Boxing helpers for paths the JIT doesn't inline (Nullable<T>, shared generics)
-	internal static unsafe class RuntimeExports
+	internal static class RuntimeExports
 	{
-		public static object RhBox(MethodTable* pEEType, ref byte data)
+		public static unsafe object RhBox(MethodTable* pEEType, ref byte data)
 		{
 			if (pEEType->IsNullable)
 				ThrowHelper.FailFast("FAILFAST: boxing Nullable<T> is not supported");
@@ -142,19 +142,19 @@ namespace System.Runtime
 			return box;
 		}
 
-		public static ref byte RhUnbox2(MethodTable* pUnboxToEEType, object obj)
+		public static unsafe ref byte RhUnbox2(MethodTable* pUnboxToEEType, object obj)
 		{
 			if (obj == null || obj.GetMethodTable() != pUnboxToEEType)
 				ThrowHelper.ThrowInvalidCast();
 			return ref obj.GetRawData();
 		}
 
-		public static void RhUnboxNullable(ref byte data, MethodTable* pUnboxToEEType, object obj)
+		public static unsafe void RhUnboxNullable(ref byte data, MethodTable* pUnboxToEEType, object obj)
 		{
 			ThrowHelper.FailFast("FAILFAST: unboxing to Nullable<T> is not supported");
 		}
 
-		public static void RhUnboxTypeTest(MethodTable* pType, MethodTable* pBoxType)
+		public static unsafe void RhUnboxTypeTest(MethodTable* pType, MethodTable* pBoxType)
 		{
 			if (pType != pBoxType)
 				ThrowHelper.ThrowInvalidCast();
@@ -165,7 +165,7 @@ namespace System.Runtime
 namespace System.Runtime.CompilerServices
 {
 	// Lazy cctors, single-threaded; re-entering a running cctor returns early, as in .NET
-	internal static unsafe class ClassConstructorRunner
+	internal static class ClassConstructorRunner
 	{
 		private static object CheckStaticClassConstructionReturnGCStaticBase(ref StaticClassConstructionContext context, object gcStaticBase)
 		{
@@ -179,7 +179,7 @@ namespace System.Runtime.CompilerServices
 			return nonGcStaticBase;
 		}
 
-		private static void CheckStaticClassConstruction(ref StaticClassConstructionContext context)
+		private static unsafe void CheckStaticClassConstruction(ref StaticClassConstructionContext context)
 		{
 			nint cctor = context.cctorMethodAddress;
 			if (cctor == 0 || cctor == 1)

@@ -4,7 +4,7 @@ using Alloy.Abi;
 namespace Alloy.Runtime
 {
 	// Typed wrappers over SystemCall; errors come back as negative values (Abi/Syscalls.cs)
-	public static unsafe class Process
+	public static class Process
 	{
 		public static int Id => (int)SystemCall.Invoke(Syscall.GetProcessId);
 
@@ -17,9 +17,9 @@ namespace Alloy.Runtime
 		public static void Exit(int code) => SystemCall.ExitProcess(code);
 
 		// Starts an initrd image named by the command line's first word (bin/ and .exe are tried); returns a handle, or a negative error
-		public static long Create(string commandLine, ulong argument = 0) => Create(commandLine, argument, null);
+		public static unsafe long Create(string commandLine, ulong argument = 0) => Create(commandLine, argument, null);
 
-		public static long Create(string commandLine, ulong argument, StartInfo* startInfo)
+		public static unsafe long Create(string commandLine, ulong argument, StartInfo* startInfo)
 		{
 			byte* bytes = stackalloc byte[256];
 			int length = Ascii(commandLine, bytes, 255);
@@ -57,9 +57,9 @@ namespace Alloy.Runtime
 		}
 
 		// Up to max running processes (MetalOS GetProcesses); returns how many
-		public static int List(ProcessEntry* entries, int max) => (int)SystemCall.Invoke(Syscall.GetProcesses, (ulong)entries, (ulong)max);
+		public static unsafe int List(ProcessEntry* entries, int max) => (int)SystemCall.Invoke(Syscall.GetProcesses, (ulong)entries, (ulong)max);
 
-		public static long CreateThread(delegate* unmanaged<ulong, void> entry, ulong argument) =>
+		public static unsafe long CreateThread(delegate* unmanaged<ulong, void> entry, ulong argument) =>
 			SystemCall.Invoke(Syscall.CreateThread, (ulong)entry, argument, 0, 0);
 
 		public static void ExitThread() => SystemCall.Invoke(Syscall.ExitThread);
@@ -72,9 +72,9 @@ namespace Alloy.Runtime
 
 		public static long Close(long handle) => SystemCall.Invoke(Syscall.CloseHandle, (ulong)handle);
 
-		public static void* Allocate(ulong size) => (void*)SystemCall.Invoke(Syscall.VirtualAlloc, 0, size, Memory.Commit | Memory.Reserve, Memory.ReadWrite);
+		public static unsafe void* Allocate(ulong size) => (void*)SystemCall.Invoke(Syscall.VirtualAlloc, 0, size, Memory.Commit | Memory.Reserve, Memory.ReadWrite);
 
-		internal static int Ascii(string text, byte* destination, int capacity)
+		internal static unsafe int Ascii(string text, byte* destination, int capacity)
 		{
 			int length = Math.Min(text.Length, capacity);
 			for (int i = 0; i < length; i++)
@@ -83,29 +83,29 @@ namespace Alloy.Runtime
 		}
 	}
 
-	public static unsafe class File
+	public static class File
 	{
-		public static long Open(string path)
+		public static unsafe long Open(string path)
 		{
 			byte* bytes = stackalloc byte[256];
 			int length = Process.Ascii(path, bytes, 256);
 			return SystemCall.Invoke(Syscall.OpenFile, (ulong)bytes, (ulong)length);
 		}
 
-		public static long Read(long handle, void* buffer, ulong count) => SystemCall.Invoke(Syscall.ReadFile, (ulong)handle, (ulong)buffer, count);
+		public static unsafe long Read(long handle, void* buffer, ulong count) => SystemCall.Invoke(Syscall.ReadFile, (ulong)handle, (ulong)buffer, count);
 
 		public static long Seek(long handle, long offset, SeekOrigin origin) => SystemCall.Invoke(Syscall.SeekFile, (ulong)handle, (ulong)offset, (ulong)origin);
 
 		public static long Size(long handle) => SystemCall.Invoke(Syscall.GetFileSize, (ulong)handle);
 
-		public static long Write(long handle, void* buffer, ulong count) => SystemCall.Invoke(Syscall.WriteFile, (ulong)handle, (ulong)buffer, count);
+		public static unsafe long Write(long handle, void* buffer, ulong count) => SystemCall.Invoke(Syscall.WriteFile, (ulong)handle, (ulong)buffer, count);
 
 		public static long Close(long handle) => Process.Close(handle);
 	}
 
-	public static unsafe class Pipe
+	public static class Pipe
 	{
-		public static bool Create(out long read, out long write)
+		public static unsafe bool Create(out long read, out long write)
 		{
 			long* ends = stackalloc long[2];
 			bool created = SystemCall.Invoke(Syscall.CreatePipe, (ulong)ends) == 0;
@@ -118,10 +118,10 @@ namespace Alloy.Runtime
 		public static long Available(long read) => SystemCall.Invoke(Syscall.PeekPipe, (ulong)read);
 	}
 
-	public static unsafe class Clock
+	public static class Clock
 	{
 		// Wall-clock time from the RTC, in the host's local time
-		public static SystemTime Now
+		public static unsafe SystemTime Now
 		{
 			get
 			{
@@ -133,9 +133,9 @@ namespace Alloy.Runtime
 	}
 
 	// Standard output when the process has one (a pipe from term), otherwise whole lines to the kernel log
-	public static unsafe class Console
+	public static class Console
 	{
-		private static char* s_line;
+		private static unsafe char* s_line;
 		private static int s_length;
 
 		public static void WriteLine(ReadOnlySpan<char> text)
@@ -148,7 +148,7 @@ namespace Alloy.Runtime
 
 		public static void Error(ReadOnlySpan<char> text) => Write(Environment.StdError != 0 ? Environment.StdError : Environment.StdOutput, text);
 
-		private static void Write(ulong handle, ReadOnlySpan<char> text)
+		private static unsafe void Write(ulong handle, ReadOnlySpan<char> text)
 		{
 			if (handle != 0)
 			{

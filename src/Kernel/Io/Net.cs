@@ -7,14 +7,14 @@ using Alloy.Kernel.Ob;
 namespace Alloy.Kernel.Io
 {
 	// The kernel owns the NIC and raw Ethernet frames; the TCP/IP stack is NetSvr (MetalOS kernel/Net.cpp)
-	internal static unsafe class Net
+	internal static class Net
 	{
-		private static byte* s_ring;
+		private static unsafe byte* s_ring;
 		private static KEvent s_ready;
 
 		public static ulong Received { get; private set; }
 
-		public static void Initialize()
+		public static unsafe void Initialize()
 		{
 			KSection section = KSection.Create(NetFrame.RingSize);
 			s_ring = (byte*)BootInfo.ToVirtual(section.Physical);
@@ -24,7 +24,7 @@ namespace Alloy.Kernel.Io
 		}
 
 		// The NIC calls this from its interrupt handler; a full ring drops the frame, as MetalOS does when the netstack falls behind
-		public static void Receive(byte* frame, int length)
+		public static unsafe void Receive(byte* frame, int length)
 		{
 			if (s_ring == null || length <= 0 || length > NetFrame.Mtu)
 				return;

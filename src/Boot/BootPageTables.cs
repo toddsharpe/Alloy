@@ -5,13 +5,13 @@ using Alloy.Arch.X64;
 namespace Alloy.Boot
 {
 	// The page tables the kernel starts on, built in fresh loader memory rather than by editing the firmware's
-	internal static unsafe class BootPageTables
+	internal static class BootPageTables
 	{
 		private const ulong MinimumWindow = 4UL << 30;
 
 		private static PageTableBuilder s_tables;
 
-		public static void Build(BootInfo* info, KernelImage kernel, MemoryMap map)
+		public static unsafe void Build(BootInfo* info, KernelImage kernel, MemoryMap map)
 		{
 			bool hugePages = (Cpu.CpuId(0x80000001).Edx & (1u << 26)) != 0;
 			s_tables = new PageTableBuilder(&Uefi.AllocatePageTable, 0, hugePages);

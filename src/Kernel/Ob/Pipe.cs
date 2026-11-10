@@ -4,11 +4,11 @@ using Alloy.Kernel.Ke;
 namespace Alloy.Kernel.Ob
 {
 	// A one-way byte stream between processes (MetalOS CreatePipe): a ring buffer with a read end and a write end
-	internal sealed unsafe class KPipe
+	internal sealed class KPipe
 	{
 		public const int Capacity = 4096;
 
-		private readonly byte* _buffer;
+		private readonly unsafe byte* _buffer;
 		private uint _read;
 		private uint _write;
 
@@ -17,7 +17,7 @@ namespace Alloy.Kernel.Ob
 		public bool ReaderOpen = true;
 		public bool WriterOpen = true;
 
-		private KPipe()
+		private unsafe KPipe()
 		{
 			_buffer = (byte*)Mm.Heap.Allocate(Capacity);
 			Reader = new KPipeEnd(this, false);
@@ -29,7 +29,7 @@ namespace Alloy.Kernel.Ob
 		public int Count => (int)(_write - _read);
 
 		// Interrupts must be off; returns how many bytes moved
-		public int Take(byte* destination, int count)
+		public unsafe int Take(byte* destination, int count)
 		{
 			int taken = Math.Min(count, Count);
 			for (int i = 0; i < taken; i++)
@@ -38,7 +38,7 @@ namespace Alloy.Kernel.Ob
 			return taken;
 		}
 
-		public int Put(byte* source, int count)
+		public unsafe int Put(byte* source, int count)
 		{
 			int put = Math.Min(count, Capacity - Count);
 			for (int i = 0; i < put; i++)

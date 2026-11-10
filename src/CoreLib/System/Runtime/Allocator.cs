@@ -4,18 +4,18 @@ using Internal.Runtime;
 namespace System.Runtime
 {
 	// The platform supplies zeroed memory; with no GC nothing is reclaimed
-	internal static unsafe partial class Allocator
+	internal static partial class Allocator
 	{
 		// Returns zeroed, 8-byte aligned memory, or null when exhausted
-		private static partial void* AllocateZeroed(nuint size);
+		private static unsafe partial void* AllocateZeroed(nuint size);
 
-		internal static object NewObject(MethodTable* pMT)
+		internal static unsafe object NewObject(MethodTable* pMT)
 		{
 			// BaseSize counts the object header that precedes the MethodTable pointer
 			return Place(pMT, pMT->BaseSize);
 		}
 
-		internal static object NewArray(MethodTable* pMT, int length)
+		internal static unsafe object NewArray(MethodTable* pMT, int length)
 		{
 			if (length < 0)
 				ThrowHelper.ThrowArgumentOutOfRange();
@@ -28,7 +28,7 @@ namespace System.Runtime
 			return array;
 		}
 
-		private static object Place(MethodTable* pMT, nuint size)
+		private static unsafe object Place(MethodTable* pMT, nuint size)
 		{
 			size = (size + 7) & ~(nuint)7;
 			byte* memory = (byte*)AllocateZeroed(size);
@@ -43,22 +43,22 @@ namespace System.Runtime
 
 		// Allocation entry points the compiler calls (JitHelper.cs, AllocFast.asm in dotnet/runtime)
 		[RuntimeExport("RhpNewFast")]
-		private static object RhpNewFast(MethodTable* pMT) => NewObject(pMT);
+		private static unsafe object RhpNewFast(MethodTable* pMT) => NewObject(pMT);
 
 		// Finalizers never run: there is no GC to discover unreachable objects
 		[RuntimeExport("RhpNewFinalizable")]
-		private static object RhpNewFinalizable(MethodTable* pMT) => NewObject(pMT);
+		private static unsafe object RhpNewFinalizable(MethodTable* pMT) => NewObject(pMT);
 
 		[RuntimeExport("RhNewObject")]
-		private static object RhNewObject(MethodTable* pMT) => NewObject(pMT);
+		private static unsafe object RhNewObject(MethodTable* pMT) => NewObject(pMT);
 
 		[RuntimeExport("RhpNewArrayFast")]
-		private static object RhpNewArrayFast(MethodTable* pMT, int length) => NewArray(pMT, length);
+		private static unsafe object RhpNewArrayFast(MethodTable* pMT, int length) => NewArray(pMT, length);
 
 		[RuntimeExport("RhpNewPtrArrayFast")]
-		private static object RhpNewPtrArrayFast(MethodTable* pMT, int length) => NewArray(pMT, length);
+		private static unsafe object RhpNewPtrArrayFast(MethodTable* pMT, int length) => NewArray(pMT, length);
 
 		[RuntimeExport("RhNewArray")]
-		private static object RhNewArray(MethodTable* pMT, int length) => NewArray(pMT, length);
+		private static unsafe object RhNewArray(MethodTable* pMT, int length) => NewArray(pMT, length);
 	}
 }

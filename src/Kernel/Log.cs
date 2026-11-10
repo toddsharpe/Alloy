@@ -6,11 +6,11 @@ using Alloy.Text;
 namespace Alloy.Kernel
 {
 	// Kernel output: always COM1, and the framebuffer console once it is up
-	internal static unsafe class Log
+	internal static class Log
 	{
 		private static Uart16550 s_serial;
 
-		public static void Initialize()
+		public static unsafe void Initialize()
 		{
 			s_serial = Uart16550.Com1;
 			s_serial.Initialize();

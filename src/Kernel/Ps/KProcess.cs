@@ -13,7 +13,7 @@ using Alloy.Text;
 namespace Alloy.Kernel.Ps
 {
 	// A user address space with its handles and threads; signaled once every thread has exited
-	internal sealed unsafe class KProcess : KObject
+	internal sealed class KProcess : KObject
 	{
 		private const ulong MinimumStack = 256 * 1024;
 
@@ -50,7 +50,7 @@ namespace Alloy.Kernel.Ps
 		public override bool IsSignaled => _exited;
 
 		// The image is the command line's first word, looked up as given, then under bin/, then with .exe added
-		private static bool TryResolve(ReadOnlySpan<char> name, Span<char> path, out int length, out byte* data, out long size)
+		private static unsafe bool TryResolve(ReadOnlySpan<char> name, Span<char> path, out int length, out byte* data, out long size)
 		{
 			length = 0;
 			data = null;
@@ -72,7 +72,7 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// Loads a PE from the initrd into a fresh address space and starts its first thread; null if the image is unusable
-		public static KProcess Create(ReadOnlySpan<char> commandLine, ulong argument, KObject stdInput = null, KObject stdOutput = null, KObject stdError = null)
+		public static unsafe KProcess Create(ReadOnlySpan<char> commandLine, ulong argument, KObject stdInput = null, KObject stdOutput = null, KObject stdError = null)
 		{
 			int space = commandLine.IndexOf(' ');
 			Span<char> resolved = stackalloc char[300];
@@ -118,7 +118,7 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// Fills up to max rows for GetProcesses (MetalOS ps); returns how many
-		public static int List(ProcessEntry* entries, int max)
+		public static unsafe int List(ProcessEntry* entries, int max)
 		{
 			int count = 0;
 			ulong flags = Scheduler.Lock();
@@ -233,7 +233,7 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// The image's pages go in one physically contiguous run, mapped section by section; every page stays owned by the process
-		private bool LoadImage(in PeImage pe)
+		private unsafe bool LoadImage(in PeImage pe)
 		{
 			ulong pages = MemoryLayout.PagesFor(pe.SizeOfImage);
 			ulong physical = PhysicalMemory.Allocate(pages);
@@ -260,7 +260,7 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// The PEB: the image base where Windows keeps it, then Alloy's parameters (standard handles, now the child's own, and the command line)
-		private bool CreateProcessBlock(ReadOnlySpan<char> commandLine, KObject stdInput, KObject stdOutput, KObject stdError)
+		private unsafe bool CreateProcessBlock(ReadOnlySpan<char> commandLine, KObject stdInput, KObject stdOutput, KObject stdError)
 		{
 			Peb = Space.Reserve(0, MemoryLayout.PageSize, Memory.ReadWrite, RegionKind.Private);
 			if (Peb == 0 || !Space.Commit(Peb, MemoryLayout.PageSize, Memory.ReadWrite) || !Space.TryTranslate(Peb, out ulong physical))
@@ -282,7 +282,7 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// Writes through the physical window, since this process's pages may not be the ones mapped right now
-		private void WriteUser(ulong address, ulong value)
+		private unsafe void WriteUser(ulong address, ulong value)
 		{
 			if (Space.TryTranslate(address, out ulong physical))
 				*(ulong*)BootInfo.ToVirtual(physical) = value;
@@ -317,7 +317,7 @@ namespace Alloy.Kernel.Ps
 	}
 
 	// The kernel side of a user thread: its KThread, its user frame at the top of the kernel stack, its TEB, and its suspend count
-	internal sealed unsafe class KUserThread : KObject
+	internal sealed class KUserThread : KObject
 	{
 		public readonly KProcess Process;
 		public readonly KThread Thread;
@@ -348,12 +348,12 @@ namespace Alloy.Kernel.Ps
 		public override bool IsSignaled => _exited;
 
 		// The user context saved by every entry from ring 3, always at the same place: the top of the kernel stack
-		public InterruptFrame* Frame => (InterruptFrame*)(Thread.StackTop - InterruptFrame.Size);
+		public unsafe InterruptFrame* Frame => (InterruptFrame*)(Thread.StackTop - InterruptFrame.Size);
 
 		// Blocked in the kernel on the thread's behalf, rather than stopped in ring 3
-		public bool InSystemCall => Frame->Vector == InterruptFrame.SyscallVector;
+		public unsafe bool InSystemCall => Frame->Vector == InterruptFrame.SyscallVector;
 
-		public static KUserThread Create(KProcess process, ulong entry, ulong stack, ulong argument, ulong teb, bool suspended)
+		public static unsafe KUserThread Create(KProcess process, ulong entry, ulong stack, ulong argument, ulong teb, bool suspended)
 		{
 			KThread thread = KThread.Create(process.Name, &Start, null, InterruptFrame.Size);
 			KUserThread user = new KUserThread(process, thread, entry, stack, argument, teb, suspended);
@@ -404,7 +404,7 @@ namespace Alloy.Kernel.Ps
 			Process.ThreadExited(this);
 		}
 
-		private static void Start(void* argument)
+		private static unsafe void Start(void* argument)
 		{
 			KUserThread user = (KUserThread)Scheduler.Current.Owner;
 			UserContext.Initialize(user.Frame, user._entry, user._stack, user._argument);
@@ -414,6 +414,6 @@ namespace Alloy.Kernel.Ps
 
 		[RuntimeImport("*", "PhxResumeUser")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern void PhxResumeUser(InterruptFrame* frame);
+		private static extern unsafe void PhxResumeUser(InterruptFrame* frame);
 	}
 }

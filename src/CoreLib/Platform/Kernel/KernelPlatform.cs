@@ -7,26 +7,26 @@ using Alloy.Arch.X64;
 
 namespace Alloy.Kernel
 {
-	public static unsafe class KernelEnvironment
+	public static class KernelEnvironment
 	{
 		// Handed over by the loader in rcx, addressed through the physical window
-		public static BootInfo* BootInfo { get; internal set; }
+		public static unsafe BootInfo* BootInfo { get; internal set; }
 
 		// Set once the kernel heap is up; until then `new` is served from the boot arena
-		public static delegate*<nuint, void*> HeapAllocate;
+		public static unsafe delegate*<nuint, void*> HeapAllocate;
 	}
 }
 
 namespace Internal.Runtime.CompilerHelpers
 {
-	internal static unsafe class KernelStartup
+	internal static class KernelStartup
 	{
 		[RuntimeImport("*", "__managed__Main")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern int ManagedMain(int argc, char** argv);
+		private static extern unsafe int ManagedMain(int argc, char** argv);
 
 		[RuntimeExport("KiSystemStartup")]
-		private static void KiSystemStartup(BootInfo* bootInfo)
+		private static unsafe void KiSystemStartup(BootInfo* bootInfo)
 		{
 			Alloy.Kernel.KernelEnvironment.BootInfo = bootInfo;
 			StartupCodeHelpers.InitializeModules();
@@ -39,15 +39,15 @@ namespace Internal.Runtime.CompilerHelpers
 namespace System.Runtime
 {
 	// Bump allocator over a fixed .bss arena until the kernel heap exists (phase 2)
-	internal static unsafe partial class Allocator
+	internal static partial class Allocator
 	{
 		private static nuint s_bootArenaUsed;
 
 		[RuntimeImport("*", "PhxBootArena")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern byte* PhxBootArena(nuint* size);
+		private static extern unsafe byte* PhxBootArena(nuint* size);
 
-		private static partial void* AllocateZeroed(nuint size)
+		private static unsafe partial void* AllocateZeroed(nuint size)
 		{
 			if (Alloy.Kernel.KernelEnvironment.HeapAllocate != null)
 				return Alloy.Kernel.KernelEnvironment.HeapAllocate(size);

@@ -6,18 +6,18 @@ using Alloy.Kernel.Ob;
 namespace Alloy.Kernel.Io
 {
 	// The kernel -> window server input ring (MetalOS KeInputPost), published as the "input" section and "input.ready" event
-	internal static unsafe class Input
+	internal static class Input
 	{
 		// Mouse moves stop going in at half full, keeping the rest for keys and clicks, as in MetalOS
 		private const uint MoveLimit = InputRing.Capacity / 2;
 
-		private static InputRing* s_ring;
+		private static unsafe InputRing* s_ring;
 		private static KEvent s_ready;
 		private static ushort s_buttons;
 
 		public static ulong Posted { get; private set; }
 
-		public static void Initialize()
+		public static unsafe void Initialize()
 		{
 			KSection section = KSection.Create(InputRing.Size);
 			s_ring = (InputRing*)BootInfo.ToVirtual(section.Physical);
@@ -27,7 +27,7 @@ namespace Alloy.Kernel.Io
 		}
 
 		// Drivers call this from their interrupt handlers, so interrupts are already off and there is one producer
-		public static void Post(in InputEvent input)
+		public static unsafe void Post(in InputEvent input)
 		{
 			if (s_ring == null)
 				return;

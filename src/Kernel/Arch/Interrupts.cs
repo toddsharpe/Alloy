@@ -9,12 +9,12 @@ using Alloy.Text;
 namespace Alloy.Kernel.Arch
 {
 	// Mirrors what KiInterruptCommon and PhxSyscallEntry push, lowest address first; from ring 3 it is the thread's whole user context
-	internal unsafe struct InterruptFrame
+	internal struct InterruptFrame
 	{
 		public const int Size = 512 + 22 * 8;
 		public const ulong SyscallVector = 0x100;
 
-		public fixed byte FxSave[512];
+		public unsafe fixed byte FxSave[512];
 		public ulong R15;
 		public ulong R14;
 		public ulong R13;
@@ -48,25 +48,25 @@ namespace Alloy.Kernel.Arch
 		public readonly ulong A3 => R9;
 	}
 
-	internal static unsafe class Interrupts
+	internal static class Interrupts
 	{
 		public const int Breakpoint = 3;
 		public const int PageFault = 14;
 		public const int FirstExternal = 32;
 
-		private static delegate*<InterruptFrame*, void>* s_handlers;
+		private static unsafe delegate*<InterruptFrame*, void>* s_handlers;
 
 		public static int BreakpointCount { get; private set; }
 
-		public static void Initialize()
+		public static unsafe void Initialize()
 		{
 			s_handlers = (delegate*<InterruptFrame*, void>*)Mm.Heap.Allocate(256 * (nuint)sizeof(nint));
 		}
 
-		public static void Register(int vector, delegate*<InterruptFrame*, void> handler) => s_handlers[vector] = handler;
+		public static unsafe void Register(int vector, delegate*<InterruptFrame*, void> handler) => s_handlers[vector] = handler;
 
 		[RuntimeExport("KiInterruptDispatch")]
-		private static void Dispatch(InterruptFrame* frame)
+		private static unsafe void Dispatch(InterruptFrame* frame)
 		{
 			int vector = (int)frame->Vector;
 			if (vector < FirstExternal)
@@ -84,7 +84,7 @@ namespace Alloy.Kernel.Arch
 				user.ReturningToUser();
 		}
 
-		private static void HandleException(InterruptFrame* frame)
+		private static unsafe void HandleException(InterruptFrame* frame)
 		{
 			// A fault inside a probe or user-copy routine resumes at its recovery point instead of crashing
 			nuint count;
@@ -115,7 +115,7 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// A fault in ring 3 goes to the process's exception dispatcher if it registered one; otherwise it ends that process, never the system
-		private static void UserFault(InterruptFrame* frame)
+		private static unsafe void UserFault(InterruptFrame* frame)
 		{
 			KUserThread user = Scheduler.Current.Owner as KUserThread;
 			if (user != null && user.Process.ExceptionDispatcher != 0 && ExceptionDelivery.Deliver(user.Process, frame))
@@ -141,6 +141,6 @@ namespace Alloy.Kernel.Arch
 
 		[RuntimeImport("*", "PhxFixupTable")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern ulong* PhxFixupTable(nuint* count);
+		private static extern unsafe ulong* PhxFixupTable(nuint* count);
 	}
 }

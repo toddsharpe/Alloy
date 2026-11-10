@@ -5,7 +5,7 @@ using Alloy.Graphics;
 namespace Alloy.Sdk
 {
 	// A window on the user-mode window server: a shared section holding a WindowHeader and the surface the app draws into
-	public sealed unsafe class Window
+	public sealed class Window
 	{
 		private static long s_server;
 		private static long s_reply;
@@ -13,7 +13,7 @@ namespace Alloy.Sdk
 
 		public readonly ulong Id;
 		public Surface Surface;
-		private WindowHeader* _header;
+		private unsafe WindowHeader* _header;
 
 		// The screen above the taskbar, from the server's Connected reply (MetalOS GetScreenRect)
 		public static int ScreenWidth { get; private set; }
@@ -23,14 +23,14 @@ namespace Alloy.Sdk
 		// Waitable alongside other handles: signaled while events are queued for this app
 		public static long EventPort => s_reply;
 
-		private Window(ulong id, WindowHeader* header)
+		private unsafe Window(ulong id, WindowHeader* header)
 		{
 			Id = id;
 			_header = header;
 			Surface = new Surface((uint*)((byte*)header + WindowHeader.PixelOffset), header->Width, header->Height, header->Width);
 		}
 
-		public static Window Create(string title, int x, int y, int width, int height, ulong style = WmProtocol.StyleFramed, PixelGlyph icon = null)
+		public static unsafe Window Create(string title, int x, int y, int width, int height, ulong style = WmProtocol.StyleFramed, PixelGlyph icon = null)
 		{
 			if (!Connect())
 				return null;
@@ -69,7 +69,7 @@ namespace Alloy.Sdk
 		public void Destroy() => Send(WmProtocol.DestroyWindow);
 
 		// Answers the server's Resize event with a surface of that size; the old one stays mapped until the process exits
-		public bool Resize(int width, int height)
+		public unsafe bool Resize(int width, int height)
 		{
 			if (width <= 0 || height <= 0)
 				return false;
@@ -105,7 +105,7 @@ namespace Alloy.Sdk
 			Port.Send(s_server, message);
 		}
 
-		private static long NewSection(int width, int height, out WindowHeader* header)
+		private static unsafe long NewSection(int width, int height, out WindowHeader* header)
 		{
 			long section = SharedMemory.Create(WindowHeader.PixelOffset + (ulong)width * (ulong)height * 4);
 			long address = section > 0 ? SharedMemory.MapAddress(section) : -1;

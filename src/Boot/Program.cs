@@ -8,13 +8,13 @@ using Alloy.Text;
 
 namespace Alloy.Boot
 {
-	internal static unsafe class Program
+	internal static class Program
 	{
 		private const ulong BootStackSize = 64 * 1024;
 		private const uint EferMsr = 0xC0000080;
 		private const ulong EferNoExecuteEnable = 1 << 11;
 
-		private static void Main()
+		private static unsafe void Main()
 		{
 			Log.Initialize();
 			Log.WriteLine("Alloy Boot (phase 1)");
@@ -78,7 +78,7 @@ namespace Alloy.Boot
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		private static extern void PhxEnterKernel(ulong pageTableRoot, ulong stackTop, ulong entryPoint, ulong bootInfo);
 
-		private static void PrintPlatform()
+		private static unsafe void PrintPlatform()
 		{
 			EfiSystemTable* st = EfiApplication.SystemTable;
 			SpanWriter line = new SpanWriter(stackalloc char[160]);
@@ -99,7 +99,7 @@ namespace Alloy.Boot
 		}
 
 		// GOP hangs off the console handle on Hyper-V's firmware (MetalOS EfiDevice.cpp)
-		private static void ReadFramebuffer(BootInfo* info)
+		private static unsafe void ReadFramebuffer(BootInfo* info)
 		{
 			EfiGraphicsOutputProtocol* gop = Uefi.OpenProtocol<EfiGraphicsOutputProtocol>(EfiApplication.SystemTable->ConsoleOutHandle, EfiGuids.GraphicsOutputProtocol, "GraphicsOutput");
 			EfiGraphicsOutputModeInformation* mode = gop->Mode->Info;
@@ -113,7 +113,7 @@ namespace Alloy.Boot
 			info->FramebufferPixelsPerScanLine = mode->PixelsPerScanLine;
 		}
 
-		private static void ReadTime(BootInfo* info)
+		private static unsafe void ReadTime(BootInfo* info)
 		{
 			EfiTime time;
 			if (EfiStatus.IsError(EfiApplication.SystemTable->RuntimeServices->GetTime(&time, null)))
@@ -126,7 +126,7 @@ namespace Alloy.Boot
 			info->BootSecond = time.Second;
 		}
 
-		private static void Describe(BootInfo* info, KernelImage kernel)
+		private static unsafe void Describe(BootInfo* info, KernelImage kernel)
 		{
 			SpanWriter line = new SpanWriter(stackalloc char[192]);
 			line.Append("Kernel 0x");
@@ -145,7 +145,7 @@ namespace Alloy.Boot
 			Log.WriteLine(ref line);
 		}
 
-		private static int Strlen(char* s)
+		private static unsafe int Strlen(char* s)
 		{
 			int length = 0;
 			while (s[length] != '\0')
@@ -153,7 +153,7 @@ namespace Alloy.Boot
 			return length;
 		}
 
-		private static void AppendCpuVendor(ref SpanWriter writer)
+		private static unsafe void AppendCpuVendor(ref SpanWriter writer)
 		{
 			CpuIdResult id = Cpu.CpuId(0);
 			uint* registers = stackalloc uint[] { id.Ebx, id.Edx, id.Ecx };

@@ -4,7 +4,7 @@ using Alloy.Abi;
 namespace Alloy.Kernel.Mm
 {
 	// Physical page allocator over the UEFI memory map; pages are reached through the physical window
-	internal static unsafe class PhysicalMemory
+	internal static class PhysicalMemory
 	{
 		// Real-mode memory stays reserved for application processor trampolines later
 		private const ulong ReservedLow = 0x100000;
@@ -16,7 +16,7 @@ namespace Alloy.Kernel.Mm
 		public static ulong TotalPages => s_pages.Count;
 
 		// Call after the kernel's own GDT/IDT are loaded: boot services memory, where the firmware's lived, becomes free
-		public static void Initialize(BootInfo* info)
+		public static unsafe void Initialize(BootInfo* info)
 		{
 			ulong highest = 0;
 			for (int i = 0; i < DescriptorCount(info); i++)
@@ -50,7 +50,7 @@ namespace Alloy.Kernel.Mm
 		}
 
 		// Zeroed, physically contiguous pages; returns 0 when out of memory
-		public static ulong Allocate(ulong pages = 1)
+		public static unsafe ulong Allocate(ulong pages = 1)
 		{
 			ulong state = Ke.Scheduler.Lock();
 			ulong index = s_pages.Allocate(pages);
@@ -71,9 +71,9 @@ namespace Alloy.Kernel.Mm
 
 		public static ulong AllocatePageTable() => Allocate(1);
 
-		public static int DescriptorCount(BootInfo* info) => (int)(info->MemoryMapSize / info->MemoryDescriptorSize);
+		public static unsafe int DescriptorCount(BootInfo* info) => (int)(info->MemoryMapSize / info->MemoryDescriptorSize);
 
-		public static MemoryDescriptor* Descriptor(BootInfo* info, int index) =>
+		public static unsafe MemoryDescriptor* Descriptor(BootInfo* info, int index) =>
 			(MemoryDescriptor*)BootInfo.ToVirtual(info->MemoryMap + (ulong)index * info->MemoryDescriptorSize);
 
 		private static bool IsFree(MemoryType type) => type == MemoryType.Conventional || type == MemoryType.BootServicesCode || type == MemoryType.BootServicesData;

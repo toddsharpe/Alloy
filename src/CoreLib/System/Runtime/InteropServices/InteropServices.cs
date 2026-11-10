@@ -119,7 +119,7 @@ namespace System.Runtime.InteropServices
 			=> instance.GetInterfaceImplementation(interfaceType);
 	}
 
-	public static unsafe class MemoryMarshal
+	public static class MemoryMarshal
 	{
 		public static ref T GetArrayDataReference<T>(T[] array) => ref Unsafe.As<byte, T>(ref Unsafe.As<RawArrayData>(array).Data);
 
@@ -131,26 +131,26 @@ namespace System.Runtime.InteropServices
 
 		public static ReadOnlySpan<T> CreateReadOnlySpan<T>(ref readonly T reference, int length) => new ReadOnlySpan<T>(ref Unsafe.AsRef(in reference), length);
 
-		public static Span<byte> AsBytes<T>(Span<T> span) where T : unmanaged =>
+		public static unsafe Span<byte> AsBytes<T>(Span<T> span) where T : unmanaged =>
 			new Span<byte>(ref Unsafe.As<T, byte>(ref span._reference), checked(span.Length * sizeof(T)));
 
-		public static ReadOnlySpan<byte> AsBytes<T>(ReadOnlySpan<T> span) where T : unmanaged =>
+		public static unsafe ReadOnlySpan<byte> AsBytes<T>(ReadOnlySpan<T> span) where T : unmanaged =>
 			new ReadOnlySpan<byte>(ref Unsafe.As<T, byte>(ref span._reference), checked(span.Length * sizeof(T)));
 
-		public static Span<TTo> Cast<TFrom, TTo>(Span<TFrom> span) where TFrom : unmanaged where TTo : unmanaged =>
+		public static unsafe Span<TTo> Cast<TFrom, TTo>(Span<TFrom> span) where TFrom : unmanaged where TTo : unmanaged =>
 			new Span<TTo>(ref Unsafe.As<TFrom, TTo>(ref span._reference), (int)((ulong)span.Length * (ulong)sizeof(TFrom) / (ulong)sizeof(TTo)));
 
-		public static ReadOnlySpan<TTo> Cast<TFrom, TTo>(ReadOnlySpan<TFrom> span) where TFrom : unmanaged where TTo : unmanaged =>
+		public static unsafe ReadOnlySpan<TTo> Cast<TFrom, TTo>(ReadOnlySpan<TFrom> span) where TFrom : unmanaged where TTo : unmanaged =>
 			new ReadOnlySpan<TTo>(ref Unsafe.As<TFrom, TTo>(ref span._reference), (int)((ulong)span.Length * (ulong)sizeof(TFrom) / (ulong)sizeof(TTo)));
 
-		public static T Read<T>(ReadOnlySpan<byte> source) where T : unmanaged
+		public static unsafe T Read<T>(ReadOnlySpan<byte> source) where T : unmanaged
 		{
 			if (sizeof(T) > source.Length)
 				ThrowHelper.ThrowArgumentOutOfRange();
 			return Unsafe.ReadUnaligned<T>(ref source._reference);
 		}
 
-		public static bool TryRead<T>(ReadOnlySpan<byte> source, out T value) where T : unmanaged
+		public static unsafe bool TryRead<T>(ReadOnlySpan<byte> source, out T value) where T : unmanaged
 		{
 			if (sizeof(T) > source.Length)
 			{
@@ -161,7 +161,7 @@ namespace System.Runtime.InteropServices
 			return true;
 		}
 
-		public static void Write<T>(Span<byte> destination, in T value) where T : unmanaged
+		public static unsafe void Write<T>(Span<byte> destination, in T value) where T : unmanaged
 		{
 			if (sizeof(T) > destination.Length)
 				ThrowHelper.ThrowArgumentOutOfRange();
