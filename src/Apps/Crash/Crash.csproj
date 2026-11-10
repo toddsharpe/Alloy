@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<AssemblyName>crash</AssemblyName>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Alloy.Sdk\Alloy.Sdk.csproj" />
+	</ItemGroup>
+
+</Project>

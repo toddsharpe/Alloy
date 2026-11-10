@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!-- The UEFI loader: \EFI\BOOT\BOOTX64.EFI -->
+	<PropertyGroup>
+		<AlloyKind>Efi</AlloyKind>
+		<AlloyImageName>BOOTX64.EFI</AlloyImageName>
+	</PropertyGroup>
+
+</Project>

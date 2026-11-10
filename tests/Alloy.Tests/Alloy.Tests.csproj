@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!-- Host tests: hardware-free image code compiled against the real BCL -->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<IsPackable>false</IsPackable>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+		<PackageReference Include="xunit" Version="2.9.3" />
+		<PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Using Include="Xunit" />
+	</ItemGroup>
+
+	<!-- The same files the images compile -->
+	<ItemGroup>
+		<Compile Include="..\..\src\CoreLib\Alloy\**\*.cs" Link="Shared\CoreLib\%(RecursiveDir)%(Filename)%(Extension)" />
+		<Compile Include="..\..\src\Abi\**\*.cs" Link="Shared\Abi\%(RecursiveDir)%(Filename)%(Extension)" />
+		<Compile Include="..\..\src\Arch\x64\Paging.cs" Link="Shared\Arch\Paging.cs" />
+		<Compile Include="..\..\src\Kernel\Mm\BitmapAllocator.cs" Link="Shared\Kernel\BitmapAllocator.cs" />
+		<Compile Include="..\..\tools\BuildImage\InitrdWriter.cs" Link="Shared\Tools\InitrdWriter.cs" />
+		<Compile Include="..\..\tools\BuildImage\SymbolWriter.cs" Link="Shared\Tools\SymbolWriter.cs" />
+	</ItemGroup>
+
+</Project>

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<AlloyKind>User</AlloyKind>
+		<AssemblyName>ktest</AssemblyName>
+	</PropertyGroup>
+
+</Project>

@@ -1,0 +1,40 @@
+<Project>
+	<!-- Everything under src/ is a freestanding image: no BCL, our CoreLib is compiled into each image as its system module -->
+
+	<PropertyGroup>
+		<AlloyRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)..'))</AlloyRoot>
+		<AlloySrc>$(AlloyRoot)src\</AlloySrc>
+		<AlloyBin>$(AlloyRoot)build\bin\</AlloyBin>
+
+		<!-- The ILC helper contract changes every release; upgrading this is a porting task -->
+		<AlloyIlcVersion>10.0.9</AlloyIlcVersion>
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<OutputType>Exe</OutputType>
+		<LangVersion>latest</LangVersion>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<Nullable>disable</Nullable>
+		<ImplicitUsings>disable</ImplicitUsings>
+
+		<NoStdLib>true</NoStdLib>
+		<NoConfig>true</NoConfig>
+		<DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+		<RuntimeMetadataVersion>v4.0.30319</RuntimeMetadataVersion>
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+		<GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+		<GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+		<GenerateDependencyFile>false</GenerateDependencyFile>
+		<ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+		<UseAppHost>false</UseAppHost>
+		<EnableNETAnalyzers>false</EnableNETAnalyzers>
+		<IsPackable>false</IsPackable>
+		<DebugType>portable</DebugType>
+		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+
+		<!-- CS0649/CS0169: contract fields the compiler or loader writes; CS8500: pointers to objects are safe without a moving GC -->
+		<NoWarn>$(NoWarn);CS0649;CS0169;CS8500</NoWarn>
+		<DefineConstants>$(DefineConstants);TARGET_64BIT;TARGET_AMD64</DefineConstants>
+	</PropertyGroup>
+</Project>

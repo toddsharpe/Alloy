@@ -1,0 +1,20 @@
+<Project>
+	<!-- Finds the MSVC x64 tools with vswhere; shared by the freestanding images (src/) and the .NET apps (src/Apps) -->
+	<Target Name="AlloyFindMsvc" Condition="'$(AlloyMsvcBin)' == ''">
+		<PropertyGroup>
+			<_AlloyVsWhere>$(MSBuildProgramFiles32)\Microsoft Visual Studio\Installer\vswhere.exe</_AlloyVsWhere>
+		</PropertyGroup>
+		<Error Condition="!Exists('$(_AlloyVsWhere)')" Text="vswhere.exe not found; install Visual Studio with the C++ x64 tools or set AlloyMsvcBin." />
+		<Exec Command="&quot;$(_AlloyVsWhere)&quot; -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath" ConsoleToMSBuild="true" StandardOutputImportance="low">
+			<Output TaskParameter="ConsoleOutput" PropertyName="_AlloyVsPath" />
+		</Exec>
+		<ReadLinesFromFile File="$(_AlloyVsPath)\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt">
+			<Output TaskParameter="Lines" PropertyName="_AlloyVcToolsVersion" />
+		</ReadLinesFromFile>
+		<PropertyGroup>
+			<AlloyMsvcBin>$(_AlloyVsPath)\VC\Tools\MSVC\$(_AlloyVcToolsVersion.Trim())\bin\Hostx64\x64\</AlloyMsvcBin>
+			<AlloyMsvcLib>$(_AlloyVsPath)\VC\Tools\MSVC\$(_AlloyVcToolsVersion.Trim())\lib\x64\</AlloyMsvcLib>
+		</PropertyGroup>
+		<Error Condition="!Exists('$(AlloyMsvcBin)link.exe')" Text="MSVC x64 tools not found in '$(AlloyMsvcBin)'." />
+	</Target>
+</Project>

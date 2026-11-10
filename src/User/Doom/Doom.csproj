@@ -1,0 +1,97 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!-- Doom: doomgeneric (C, the MetalOS.Doom submodule) linked into a C# user image; the same sources as MetalOS's Doom.vcxproj -->
+	<PropertyGroup>
+		<AlloyKind>User</AlloyKind>
+		<AssemblyName>doom</AssemblyName>
+		<AlloyCIncludes>$(MSBuildProjectDirectory)\crt;$(MSBuildProjectDirectory)\crt\include;$(AlloyRoot)external\MetalOS.Doom\doomgeneric</AlloyCIncludes>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<AlloyC Include="crt\alloy_crt.c" />
+		<AlloyCpp Include="crt\core_crt\ctype.c;crt\core_crt\stdio.c;crt\core_crt\stdlib.c;crt\core_crt\string.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\am_map.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\d_event.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\d_items.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\d_iwad.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\d_loop.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\d_main.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\d_mode.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\d_net.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\doomdef.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\doomgeneric.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\doomstat.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\dstrings.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\dummy.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\f_finale.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\f_wipe.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\g_game.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\gusconf.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\hu_lib.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\hu_stuff.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\i_cdmus.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\i_endoom.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\i_input.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\i_joystick.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\i_scale.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\i_sound.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\i_system.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\i_timer.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\i_video.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\icon.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\info.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\m_argv.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\m_bbox.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\m_cheat.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\m_config.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\m_controls.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\m_fixed.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\m_menu.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\m_misc.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\m_random.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\memio.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_ceilng.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_doors.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_enemy.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_floor.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_inter.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_lights.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_map.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_maputl.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_mobj.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_plats.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_pspr.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_saveg.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_setup.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_sight.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_spec.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_switch.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_telept.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_tick.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\p_user.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\r_bsp.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\r_data.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\r_draw.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\r_main.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\r_plane.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\r_segs.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\r_sky.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\r_things.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\s_sound.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\sha1.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\sounds.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\st_lib.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\st_stuff.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\statdump.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\tables.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\v_video.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\w_checksum.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\w_file.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\w_file_stdc.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\w_main.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\w_wad.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\wi_stuff.c" />
+		<AlloyC Include="$(AlloyRoot)external\MetalOS.Doom\doomgeneric\z_zone.c" />
+	</ItemGroup>
+
+</Project>

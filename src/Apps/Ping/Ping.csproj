@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<AssemblyName>ping</AssemblyName>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Alloy.Sdk\Alloy.Sdk.csproj" />
+	</ItemGroup>
+
+</Project>
