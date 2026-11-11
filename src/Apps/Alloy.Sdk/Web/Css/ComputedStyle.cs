@@ -19,6 +19,36 @@ namespace Alloy.Sdk.Web.Css
 		TableCaption,
 		TableColumn,
 		TableColumnGroup,
+		Flex,
+		InlineFlex,
+	}
+
+	public enum FlexDirection
+	{
+		Row,
+		RowReverse,
+		Column,
+		ColumnReverse,
+	}
+
+	public enum JustifyContent
+	{
+		FlexStart,
+		FlexEnd,
+		Center,
+		SpaceBetween,
+		SpaceAround,
+		SpaceEvenly,
+	}
+
+	public enum AlignItems
+	{
+		Stretch,
+		FlexStart,
+		FlexEnd,
+		Center,
+		Baseline,
+		Auto,
 	}
 
 	public enum FloatSide
@@ -197,6 +227,19 @@ namespace Alloy.Sdk.Web.Css
 		public float LetterSpacing;
 		public float Opacity = 1;
 
+		// Flex containers and items
+		public FlexDirection FlexDirection = FlexDirection.Row;
+		public bool FlexWrap;
+		public JustifyContent JustifyContent = JustifyContent.FlexStart;
+		public AlignItems AlignItems = AlignItems.Stretch;
+		public AlignItems AlignSelf = AlignItems.Auto;
+		public float FlexGrow;
+		public float FlexShrink = 1;
+		public Length FlexBasis = Length.Auto;
+		public Length RowGap = Length.Zero;
+		public Length ColumnGap = Length.Zero;
+		public int Order;
+
 		// Custom properties (--name) in scope, shared with the parent until the element declares its own
 		public Dictionary<string, List<CssToken>> Custom;
 
@@ -205,7 +248,9 @@ namespace Alloy.Sdk.Web.Css
 		// Line height in pixels for this font size: "normal" is a fraction of the size, as browsers do
 		public float ResolvedLineHeight => LineHeight < 0 ? MathF.Round(FontSize * 1.2f) : LineHeight;
 
-		public bool IsBlockLevel => Display == Display.Block || Display == Display.ListItem || Display == Display.Table || Display == Display.TableCaption;
+		public bool IsBlockLevel => Display == Display.Block || Display == Display.ListItem || Display == Display.Table || Display == Display.TableCaption || Display == Display.Flex;
+
+		public bool IsFlexContainer => Display == Display.Flex || Display == Display.InlineFlex;
 
 		public bool IsInlineLevel => Display == Display.Inline || Display == Display.InlineBlock;
 

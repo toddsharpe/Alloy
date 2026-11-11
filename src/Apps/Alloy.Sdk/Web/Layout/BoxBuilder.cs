@@ -86,7 +86,7 @@ namespace Alloy.Sdk.Web.Layout
 						return text;
 					}
 					LayoutBox image = new LayoutBox(BoxKind.InlineBlock, element, style) { Alt = alt, Image = bitmap, IntrinsicWidth = bitmap?.Width ?? 0, IntrinsicHeight = bitmap?.Height ?? 0 };
-					if (style.Display == Display.Block || style.Display == Display.ListItem)
+					if (style.Display == Display.Block || style.Display == Display.ListItem || style.Display == Display.Flex)
 						image.Kind = BoxKind.Block;
 					return image;
 				}
@@ -154,6 +154,7 @@ namespace Alloy.Sdk.Web.Layout
 				case Display.Inline:
 					return new LayoutBox(BoxKind.Inline, element, style);
 				case Display.InlineBlock:
+				case Display.InlineFlex:
 					return new LayoutBox(BoxKind.InlineBlock, element, style);
 				case Display.Table:
 					return new LayoutBox(BoxKind.Table, element, style);
@@ -195,6 +196,11 @@ namespace Alloy.Sdk.Web.Layout
 			if (box.Kind == BoxKind.TableRow)
 			{
 				WrapLooseCells(box);
+				return;
+			}
+			if (box.Style.IsFlexContainer && box.Kind != BoxKind.Inline)
+			{
+				BlockifyFlexItems(box);
 				return;
 			}
 			if (box.Kind == BoxKind.Inline)
@@ -247,6 +253,53 @@ namespace Alloy.Sdk.Web.Layout
 			{
 				if (child.Kind == BoxKind.AnonymousBlock)
 					TrimTrailingWhitespace(child);
+			}
+		}
+
+		// Every child of a flex container is an item: inline elements become blocks, runs of text get an anonymous block each, whitespace alone is dropped
+		private static void BlockifyFlexItems(LayoutBox box)
+		{
+			List<LayoutBox> children = new List<LayoutBox>(box.Children);
+			box.Children.Clear();
+			LayoutBox anonymous = null;
+			foreach (LayoutBox child in children)
+			{
+				if (child.Kind == BoxKind.Text)
+				{
+					if (IsAllWhitespace(child.Text))
+						continue;
+					if (anonymous == null)
+					{
+						anonymous = new LayoutBox(BoxKind.AnonymousBlock, null, ComputedStyle.Inherit(box.Style));
+						anonymous.Style.Display = Display.Block;
+						box.Add(anonymous);
+					}
+					anonymous.Add(child);
+					continue;
+				}
+				anonymous = null;
+				if (child.Kind == BoxKind.LineBreak)
+					continue;
+				if (child.Kind == BoxKind.Inline)
+				{
+					child.Kind = BoxKind.Block;
+					child.Style.Display = Display.Block;
+				}
+				else if (child.Kind == BoxKind.InlineBlock && !child.IsReplaced)
+				{
+					child.Kind = BoxKind.Block;
+					if (child.Style.Display == Display.InlineBlock)
+						child.Style.Display = Display.Block;
+					else if (child.Style.Display == Display.InlineFlex)
+						child.Style.Display = Display.Flex;
+				}
+				else if (child.Kind == BoxKind.InlineBlock)
+					child.Kind = BoxKind.Block;
+				else if (child.Kind == BoxKind.TableRow || child.Kind == BoxKind.TableCell)
+					child.Kind = BoxKind.Block;
+				if (child.Style.Float != FloatSide.None)
+					child.Style.Float = FloatSide.None;
+				box.Add(child);
 			}
 		}
 

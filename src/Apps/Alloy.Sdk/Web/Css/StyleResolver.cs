@@ -509,6 +509,65 @@ namespace Alloy.Sdk.Web.Css
 					if (tokens[0].Type == CssTokenType.Number)
 						_style.Opacity = (float)Math.Clamp(tokens[0].Number, 0, 1);
 					break;
+				case "flex-direction":
+					_style.FlexDirection = Keyword(tokens[0], "row-reverse", FlexDirection.RowReverse, "column", FlexDirection.Column, "column-reverse", FlexDirection.ColumnReverse, FlexDirection.Row);
+					break;
+				case "flex-wrap":
+					_style.FlexWrap = tokens[0].IsIdent("wrap") || tokens[0].IsIdent("wrap-reverse");
+					break;
+				case "flex-flow":
+					foreach (CssToken token in tokens)
+					{
+						if (token.IsIdent("wrap") || token.IsIdent("wrap-reverse"))
+							_style.FlexWrap = true;
+						else if (token.IsIdent("nowrap"))
+							_style.FlexWrap = false;
+						else if (token.Type == CssTokenType.Ident)
+							_style.FlexDirection = Keyword(token, "row-reverse", FlexDirection.RowReverse, "column", FlexDirection.Column, "column-reverse", FlexDirection.ColumnReverse, FlexDirection.Row);
+					}
+					break;
+				case "justify-content":
+					_style.JustifyContent = ParseJustify(tokens[0]);
+					break;
+				case "align-items":
+					_style.AlignItems = ParseAlign(tokens[0], AlignItems.Stretch);
+					break;
+				case "align-self":
+					_style.AlignSelf = ParseAlign(tokens[0], AlignItems.Auto);
+					break;
+				case "flex-grow":
+					if (tokens[0].Type == CssTokenType.Number)
+						_style.FlexGrow = (float)Math.Max(0, tokens[0].Number);
+					break;
+				case "flex-shrink":
+					if (tokens[0].Type == CssTokenType.Number)
+						_style.FlexShrink = (float)Math.Max(0, tokens[0].Number);
+					break;
+				case "flex-basis":
+					ApplyFlexBasis(tokens[0]);
+					break;
+				case "flex":
+					ApplyFlexShorthand(tokens);
+					break;
+				case "gap":
+					if (TryEdge(tokens[0], false, false, out Length rowGap))
+					{
+						_style.RowGap = rowGap;
+						_style.ColumnGap = tokens.Count > 1 && TryEdge(tokens[1], false, false, out Length columnGap) ? columnGap : rowGap;
+					}
+					break;
+				case "row-gap":
+					if (TryEdge(tokens[0], false, false, out Length onlyRowGap))
+						_style.RowGap = onlyRowGap;
+					break;
+				case "column-gap":
+					if (TryEdge(tokens[0], false, false, out Length onlyColumnGap))
+						_style.ColumnGap = onlyColumnGap;
+					break;
+				case "order":
+					if (tokens[0].Type == CssTokenType.Number)
+						_style.Order = (int)tokens[0].Number;
+					break;
 			}
 		}
 
@@ -693,11 +752,15 @@ namespace Alloy.Sdk.Web.Css
 			{
 				case "block":
 				case "flow-root":
-				case "flex":
 				case "grid":
+					_style.Display = Display.Block;
+					break;
+				case "flex":
+					_style.Display = Display.Flex;
+					break;
 				case "inline-flex":
 				case "inline-grid":
-					_style.Display = Display.Block;
+					_style.Display = Display.InlineFlex;
 					break;
 				case "inline":
 				case "contents":
@@ -974,6 +1037,81 @@ namespace Alloy.Sdk.Web.Css
 					nested--;
 			}
 			return i - 1;
+		}
+
+		private static JustifyContent ParseJustify(CssToken token)
+		{
+			if (token.Type != CssTokenType.Ident)
+				return JustifyContent.FlexStart;
+			return token.Value.ToLowerInvariant() switch
+			{
+				"flex-end" or "end" or "right" => JustifyContent.FlexEnd,
+				"center" => JustifyContent.Center,
+				"space-between" => JustifyContent.SpaceBetween,
+				"space-around" => JustifyContent.SpaceAround,
+				"space-evenly" => JustifyContent.SpaceEvenly,
+				_ => JustifyContent.FlexStart,
+			};
+		}
+
+		private static AlignItems ParseAlign(CssToken token, AlignItems fallback)
+		{
+			if (token.Type != CssTokenType.Ident)
+				return fallback;
+			return token.Value.ToLowerInvariant() switch
+			{
+				"stretch" or "normal" => AlignItems.Stretch,
+				"flex-start" or "start" or "self-start" => AlignItems.FlexStart,
+				"flex-end" or "end" or "self-end" => AlignItems.FlexEnd,
+				"center" => AlignItems.Center,
+				"baseline" => AlignItems.Baseline,
+				"auto" => AlignItems.Auto,
+				_ => fallback,
+			};
+		}
+
+		private void ApplyFlexBasis(CssToken token)
+		{
+			if (token.IsIdent("auto") || token.IsIdent("content"))
+				_style.FlexBasis = Length.Auto;
+			else if (CssValue.TryLength(token, _fontSize, _rootFontSize, true, false, out Length basis))
+				_style.FlexBasis = basis;
+		}
+
+		// flex: none | auto | [grow [shrink]] [basis], with the usual defaults for the one-value forms
+		private void ApplyFlexShorthand(List<CssToken> tokens)
+		{
+			if (tokens.Count == 1 && tokens[0].IsIdent("none"))
+			{
+				_style.FlexGrow = 0;
+				_style.FlexShrink = 0;
+				_style.FlexBasis = Length.Auto;
+				return;
+			}
+			if (tokens.Count == 1 && tokens[0].IsIdent("auto"))
+			{
+				_style.FlexGrow = 1;
+				_style.FlexShrink = 1;
+				_style.FlexBasis = Length.Auto;
+				return;
+			}
+			_style.FlexGrow = 1;
+			_style.FlexShrink = 1;
+			_style.FlexBasis = Length.Zero;
+			int numbers = 0;
+			foreach (CssToken token in tokens)
+			{
+				if (token.Type == CssTokenType.Number && !token.IsDelim('/'))
+				{
+					if (numbers == 0)
+						_style.FlexGrow = (float)Math.Max(0, token.Number);
+					else if (numbers == 1)
+						_style.FlexShrink = (float)Math.Max(0, token.Number);
+					numbers++;
+				}
+				else
+					ApplyFlexBasis(token);
+			}
 		}
 
 		private void ApplyFontSize(CssToken token)
