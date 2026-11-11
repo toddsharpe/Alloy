@@ -69,25 +69,49 @@ namespace Alloy.Kernel.Platform
 
 			ushort code = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4));
 			uint info = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(8));
-			ushort key = (info & IsUnicode) != 0 ? FromUnicode(code)
+			bool shift = false;
+			ushort key = (info & IsUnicode) != 0 ? FromUnicode(code, out shift)
 				: (info & IsE0) != 0 && code == E0LeftWindows ? VirtualKey.LeftWindows
 				: code < ScancodeSet1.Length ? ScancodeSet1[code] : VirtualKey.None;
 			if (key == VirtualKey.None)
 				return;
+			bool pressed = (info & IsBreak) == 0;
+			// A typed character that needs Shift gets a Shift press around its key, as a keyboard would have sent
+			if (shift && pressed)
+				Post(VirtualKey.LeftShift, true);
+			Post(key, pressed);
+			if (shift && !pressed)
+				Post(VirtualKey.LeftShift, false);
+		}
+
+		private static void Post(ushort key, bool pressed)
+		{
 			InputEvent input = default;
 			input.Type = InputEventType.Key;
 			input.Key = key;
-			input.Pressed = (ushort)((info & IsBreak) == 0 ? 1 : 0);
+			input.Pressed = (ushort)(pressed ? 1 : 0);
 			Input.Post(in input);
 		}
 
-		// VM Connect's "Type clipboard text" sends UTF-16 code units; map them to the keys the scan code path produces
-		private static ushort FromUnicode(ushort c)
+		// VM Connect's "Type clipboard text" sends UTF-16 code units; map them to the keys a US keyboard would press, and whether Shift is held
+		private static ushort FromUnicode(ushort c, out bool shift)
 		{
+			shift = false;
 			if (c >= 'a' && c <= 'z')
 				return (ushort)(c - 'a' + 'A');
-			if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+			if (c >= 'A' && c <= 'Z')
+			{
+				shift = true;
 				return c;
+			}
+			if (c >= '0' && c <= '9')
+				return c;
+			int shifted = ")!@#$%^&*(".IndexOf((char)c);
+			if (shifted >= 0)
+			{
+				shift = true;
+				return (ushort)('0' + shifted);
+			}
 			switch (c)
 			{
 				case ' ':
@@ -99,20 +123,63 @@ namespace Alloy.Kernel.Platform
 					return VirtualKey.Back;
 				case '\t':
 					return VirtualKey.Tab;
+				case 0x1B:
+					return VirtualKey.Escape;
 				case '-':
+					return VirtualKey.OemMinus;
+				case '_':
+					shift = true;
 					return VirtualKey.OemMinus;
 				case '=':
 					return VirtualKey.OemPlus;
+				case '+':
+					shift = true;
+					return VirtualKey.OemPlus;
 				case ',':
+					return VirtualKey.OemComma;
+				case '<':
+					shift = true;
 					return VirtualKey.OemComma;
 				case '.':
 					return VirtualKey.OemPeriod;
+				case '>':
+					shift = true;
+					return VirtualKey.OemPeriod;
 				case '/':
 					return VirtualKey.OemSlash;
-				case '*':
-					return VirtualKey.Multiply;
-				case '+':
-					return VirtualKey.Add;
+				case '?':
+					shift = true;
+					return VirtualKey.OemSlash;
+				case ';':
+					return VirtualKey.OemSemicolon;
+				case ':':
+					shift = true;
+					return VirtualKey.OemSemicolon;
+				case '`':
+					return VirtualKey.OemTilde;
+				case '~':
+					shift = true;
+					return VirtualKey.OemTilde;
+				case '[':
+					return VirtualKey.OemOpenBracket;
+				case '{':
+					shift = true;
+					return VirtualKey.OemOpenBracket;
+				case ']':
+					return VirtualKey.OemCloseBracket;
+				case '}':
+					shift = true;
+					return VirtualKey.OemCloseBracket;
+				case '\\':
+					return VirtualKey.OemBackslash;
+				case '|':
+					shift = true;
+					return VirtualKey.OemBackslash;
+				case '\'':
+					return VirtualKey.OemQuote;
+				case '"':
+					shift = true;
+					return VirtualKey.OemQuote;
 				default:
 					return VirtualKey.None;
 			}

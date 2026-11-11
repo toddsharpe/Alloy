@@ -12,6 +12,7 @@ public class AddressTests
 	[InlineData("//host/x", "http://host/x")]
 	[InlineData("https://secure.example", "https://secure.example/")]
 	[InlineData("192.168.1.1", "http://192.168.1.1/")]
+	[InlineData("https//example.com", "https://example.com/")]
 	public void NormalizesTypedAddresses(string typed, string expected)
 	{
 		Assert.Equal(expected, Address.Normalize(typed));

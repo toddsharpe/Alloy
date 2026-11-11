@@ -157,6 +157,33 @@ void GetSystemTimeAsFileTime(FILETIME* time)
 	time->dwHighDateTime = (DWORD)(now >> 32);
 }
 
+// Civil time to a FILETIME, the same way the clock base is built; the runtime's DateTime code imports this and the two below
+BOOL SystemTimeToFileTime(const SYSTEMTIME* systemTime, FILETIME* fileTime)
+{
+	LONG64 days = PhxDaysFromCivil(systemTime->wYear, systemTime->wMonth, systemTime->wDay) + 134774;
+	ULONG64 seconds = (ULONG64)days * 86400 + (ULONG64)systemTime->wHour * 3600 + (ULONG64)systemTime->wMinute * 60 + systemTime->wSecond;
+	ULONG64 ticks = seconds * 10000000 + (ULONG64)systemTime->wMilliseconds * 10000;
+	fileTime->dwLowDateTime = (DWORD)ticks;
+	fileTime->dwHighDateTime = (DWORD)(ticks >> 32);
+	return TRUE;
+}
+
+// Alloy keeps the clock in UTC, so local and universal time are the same
+BOOL TzSpecificLocalTimeToSystemTime(PVOID timeZone, const SYSTEMTIME* localTime, SYSTEMTIME* universalTime)
+{
+	(void)timeZone;
+	*universalTime = *localTime;
+	return TRUE;
+}
+
+BOOL SetThreadErrorMode(DWORD newMode, DWORD* oldMode)
+{
+	(void)newMode;
+	if (oldMode != NULL)
+		*oldMode = 0;
+	return TRUE;
+}
+
 BOOL QueryPerformanceCounter(LONGLONG* counter)
 {
 	*counter = (LONGLONG)PhxReferenceTime();

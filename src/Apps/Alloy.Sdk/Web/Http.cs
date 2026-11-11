@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
+using Alloy.Sdk.Security.Crypto;
+using Alloy.Sdk.Security.Tls;
 
 namespace Alloy.Sdk.Web
 {
@@ -16,6 +18,9 @@ namespace Alloy.Sdk.Web
 		public readonly Dictionary<string, string> Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 		public byte[] Body = Array.Empty<byte>();
 		public long ElapsedMs;
+
+		// The TLS cipher suite the connection used, or null over plain http
+		public string CipherSuite;
 
 		public bool Ok => Status >= 200 && Status < 300;
 
@@ -72,7 +77,7 @@ namespace Alloy.Sdk.Web
 				if (response.Status != 301 && response.Status != 302 && response.Status != 303 && response.Status != 307 && response.Status != 308)
 					return response;
 				string location = response.Header("Location");
-				if (location == null || !Uri.TryCreate(url, location, out Uri next) || next.Scheme != "http")
+				if (location == null || !Uri.TryCreate(url, location, out Uri next) || (next.Scheme != "http" && next.Scheme != "https"))
 					return response;
 				if (response.Status == 303 || ((response.Status == 301 || response.Status == 302) && method == "POST"))
 				{
@@ -88,8 +93,8 @@ namespace Alloy.Sdk.Web
 		{
 			HttpResponse response = new HttpResponse { Url = url };
 			ulong started = Kernel.TickCount;
-			if (url.Scheme != "http")
-				return Failed(response, $"{url.Scheme} is not supported, only http");
+			if (url.Scheme != "http" && url.Scheme != "https")
+				return Failed(response, $"{url.Scheme} is not supported, only http and https");
 			if (!Dns.TryResolve(url.Host, out uint address))
 				return Failed(response, $"can't resolve {url.Host}");
 
@@ -102,11 +107,37 @@ namespace Alloy.Sdk.Web
 				if (connected < 0)
 					return Failed(response, connected == SystemCall.Error(Abi.SyscallError.Timeout) ? $"connect to {url.Host} timed out" : $"connect to {url.Host} refused");
 
+				NetStream network = new NetStream(socket, timeoutMs);
+				Stream stream = network;
+				if (url.Scheme == "https")
+				{
+					TlsClient tls = new TlsClient(network, url.Host, Tls.Roots, Tls.Now);
+					try
+					{
+						tls.Handshake();
+					}
+					catch (TlsException e)
+					{
+						return Failed(response, network.Error != null ? network.Error : e.Message);
+					}
+					catch (IOException e)
+					{
+						return Failed(response, e.Message);
+					}
+					response.CipherSuite = tls.CipherSuiteName;
+					stream = tls;
+				}
 				byte[] request = BuildRequest(method, url, body, contentType);
-				if (Alloy.Sdk.Net.Send(socket, request) < request.Length)
-					return Failed(response, "the connection closed while sending");
+				try
+				{
+					stream.Write(request);
+				}
+				catch (IOException e)
+				{
+					return Failed(response, e.Message);
+				}
 
-				SocketReader reader = new SocketReader(socket, timeoutMs);
+				SocketReader reader = new SocketReader(stream, network);
 				if (!ReadHead(reader, response))
 					return response;
 				byte[] raw = ReadBody(reader, response, method == "HEAD");
@@ -315,11 +346,43 @@ namespace Alloy.Sdk.Web
 		private static string Truncate(string text, int length) => text.Length <= length ? text : text.Substring(0, length) + "...";
 	}
 
-	// Buffered reads over a stream socket with a per-read timeout; lines end at CRLF (a bare LF is accepted)
+	// What the HTTP client needs for https: the trust store from the image's certificate bundle, loaded once, and the clock
+	public static class Tls
+	{
+		public const string BundlePath = "/certs/ca-bundle.crt";
+		private static TrustStore s_roots;
+
+		public static TrustStore Roots
+		{
+			get
+			{
+				if (s_roots == null)
+				{
+					byte[] pem = File.ReadAllBytes(BundlePath);
+					s_roots = pem == null ? new TrustStore() : TrustStore.FromPem(Encoding.ASCII.GetString(pem));
+				}
+				return s_roots;
+			}
+		}
+
+		// The kernel's clock; before it is set the bundle's own era is assumed so validity checks do not all fail
+		public static DateTime Now
+		{
+			get
+			{
+				Abi.SystemTime time = Kernel.Time;
+				if (time.Year < 2000)
+					return new DateTime(2026, 11, 11, 0, 0, 0, DateTimeKind.Utc);
+				return new DateTime(time.Year, Math.Clamp((int)time.Month, 1, 12), Math.Clamp((int)time.Day, 1, 28), Math.Clamp((int)time.Hour, 0, 23), Math.Clamp((int)time.Minute, 0, 59), Math.Clamp((int)time.Second, 0, 59), DateTimeKind.Utc);
+			}
+		}
+	}
+
+	// Buffered reads over a connection stream (plain or TLS); lines end at CRLF (a bare LF is accepted)
 	internal sealed class SocketReader
 	{
-		private readonly long _socket;
-		private readonly ulong _timeoutMs;
+		private readonly Stream _stream;
+		private readonly NetStream _network;
 		private readonly byte[] _buffer = new byte[16384];
 		private int _start;
 		private int _end;
@@ -327,10 +390,10 @@ namespace Alloy.Sdk.Web
 
 		public string Error { get; private set; }
 
-		public SocketReader(long socket, ulong timeoutMs)
+		public SocketReader(Stream stream, NetStream network)
 		{
-			_socket = socket;
-			_timeoutMs = timeoutMs;
+			_stream = stream;
+			_network = network;
 		}
 
 		private bool Fill()
@@ -345,15 +408,24 @@ namespace Alloy.Sdk.Web
 				_end -= _start;
 				_start = 0;
 			}
-			long got = Alloy.Sdk.Net.Receive(_socket, _buffer.AsSpan(_end), _timeoutMs);
+			int got;
+			try
+			{
+				got = _stream.Read(_buffer, _end, _buffer.Length - _end);
+			}
+			catch (IOException e)
+			{
+				_closed = true;
+				Error = _network.Error ?? e.Message;
+				return false;
+			}
 			if (got <= 0)
 			{
 				_closed = true;
-				if (got < 0)
-					Error = got == SystemCall.Error(Abi.SyscallError.Timeout) ? "the server stopped answering" : "the connection was reset";
+				Error = _network.Error;
 				return false;
 			}
-			_end += (int)got;
+			_end += got;
 			return true;
 		}
 

@@ -24,6 +24,7 @@
 	<!-- Small images the decoder tests read back -->
 	<ItemGroup>
 		<EmbeddedResource Include="Fixtures\*" />
+		<EmbeddedResource Include="..\..\src\Root\certs\ca-bundle.crt" Link="Fixtures\ca-bundle.crt" LogicalName="Alloy.Tests.Fixtures.ca-bundle.crt" />
 	</ItemGroup>
 
 	<!-- The same files the images compile -->
@@ -46,6 +47,7 @@
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Layout\*.cs" Link="Shared\Sdk\Web\Layout\%(Filename)%(Extension)" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Address.cs" Link="Shared\Sdk\Web\Address.cs" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Images\*.cs" Link="Shared\Sdk\Web\Images\%(Filename)%(Extension)" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Security\**\*.cs" Link="Shared\Sdk\Security\%(RecursiveDir)%(Filename)%(Extension)" />
 	</ItemGroup>
 
 </Project>

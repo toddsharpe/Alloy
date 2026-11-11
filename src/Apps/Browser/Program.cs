@@ -88,11 +88,11 @@ namespace Alloy.Apps.Browser
 					return shift ? '~' : '`';
 				case VirtualKey.OemOpenBracket:
 					return shift ? '{' : '[';
-				case 0xDD:
+				case VirtualKey.OemCloseBracket:
 					return shift ? '}' : ']';
-				case 0xDC:
+				case VirtualKey.OemBackslash:
 					return shift ? '|' : '\\';
-				case 0xDE:
+				case VirtualKey.OemQuote:
 					return shift ? '"' : '\'';
 				case VirtualKey.Decimal:
 					return '.';

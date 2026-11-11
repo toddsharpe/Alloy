@@ -257,6 +257,7 @@ typedef struct _SLIST_ENTRY { struct _SLIST_ENTRY* Next; } SLIST_ENTRY;
 typedef struct __declspec(align(16)) { SLIST_ENTRY* Next; ULONGLONG Depth; } SLIST_HEADER;
 
 typedef struct { DWORD dwLowDateTime; DWORD dwHighDateTime; } FILETIME;
+typedef struct { WORD wYear, wMonth, wDayOfWeek, wDay, wHour, wMinute, wSecond, wMilliseconds; } SYSTEMTIME;
 
 typedef struct
 {
@@ -355,7 +356,7 @@ typedef struct { _PVFV* _first; _PVFV* _last; _PVFV* _end; } _onexit_table_t;
 	X(QueryPerformanceCounter) X(QueryPerformanceFrequency) X(RaiseException) X(RaiseFailFastException) X(ReadConsoleW) X(ReadFile) X(RegisterEventSourceW) X(ReportEventW) X(ResetEvent) X(ResetWriteWatch) \
 	X(ResumeThread) X(RtlCaptureContext) X(RtlCaptureStackBackTrace) X(RtlLookupFunctionEntry) X(RtlPcToFileHeader) X(RtlRestoreContext) X(RtlUnwindEx) X(RtlVirtualUnwind) \
 	X(SetEvent) X(SetLastError) X(SetThreadAffinityMask) X(SetThreadContext) X(SetThreadGroupAffinity) X(SetThreadIdealProcessorEx) X(SetThreadPriority) X(SetUnhandledExceptionFilter) \
-	X(SetXStateFeaturesMask) X(Sleep) X(SleepEx) X(SuspendThread) X(SwitchToThread) X(TerminateProcess) X(TlsAlloc) X(TlsFree) X(TlsGetValue) X(TlsSetValue) X(TryEnterCriticalSection) \
+	X(SetThreadErrorMode) X(SetXStateFeaturesMask) X(Sleep) X(SleepEx) X(SuspendThread) X(SwitchToThread) X(SystemTimeToFileTime) X(TerminateProcess) X(TlsAlloc) X(TlsFree) X(TlsGetValue) X(TlsSetValue) X(TryEnterCriticalSection) X(TzSpecificLocalTimeToSystemTime) \
 	X(UnhandledExceptionFilter) X(VerSetConditionMask) X(VerifyVersionInfoW) X(VirtualAlloc) X(VirtualAllocExNuma) X(VirtualFree) X(VirtualProtect) X(VirtualQuery) X(VirtualUnlock) \
 	X(WaitForMultipleObjectsEx) X(WaitForSingleObject) X(WaitForSingleObjectEx) X(WideCharToMultiByte) X(WriteConsoleW) X(WriteFile)
 
@@ -465,6 +466,9 @@ BOOL SetThreadIdealProcessorEx(HANDLE thread, PROCESSOR_NUMBER* ideal, PROCESSOR
 BOOL SetThreadPriority(HANDLE thread, int priority);
 PTOP_LEVEL_EXCEPTION_FILTER SetUnhandledExceptionFilter(PTOP_LEVEL_EXCEPTION_FILTER filter);
 BOOL SetXStateFeaturesMask(CONTEXT* context, DWORD64 mask);
+BOOL SetThreadErrorMode(DWORD newMode, DWORD* oldMode);
+BOOL SystemTimeToFileTime(const SYSTEMTIME* systemTime, FILETIME* fileTime);
+BOOL TzSpecificLocalTimeToSystemTime(PVOID timeZone, const SYSTEMTIME* localTime, SYSTEMTIME* universalTime);
 void Sleep(DWORD milliseconds);
 DWORD SleepEx(DWORD milliseconds, BOOL alertable);
 DWORD SuspendThread(HANDLE thread);
