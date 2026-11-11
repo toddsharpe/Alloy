@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using Alloy.Abi;
 using Alloy.Arch.X64;
 using Alloy.Kernel.Ps;
@@ -9,11 +10,32 @@ namespace Alloy.Kernel.Arch
 	internal static class UserContext
 	{
 		private const int MxcsrOffset = 24;
+		private const int ContextFlagsOffset = 0x30;
 
 		// Flags ring 3 may change: CF PF AF ZF SF TF DF OF; IF and the reserved bit 1 always stay set
 		private const ulong UserFlags = 0xDD5;
 
-		public static unsafe void ToContext(InterruptFrame* frame, WindowsContext* context, uint flags)
+		// The ContextFlags a caller asked for, in a CONTEXT it passed as bytes
+		public static uint ContextFlagsOf(ReadOnlySpan<byte> context) => MemoryMarshal.Read<uint>(context.Slice(ContextFlagsOffset));
+
+		// A CONTEXT is handled as bytes outside this class; it is pinned here only to fill the fixed-layout struct
+		public static unsafe void ToContext(InterruptFrame* frame, Span<byte> context, uint flags)
+		{
+			if (context.Length < WindowsContext.Size)
+				Environment.FailFast("FAILFAST: a CONTEXT buffer too small");
+			fixed (byte* pointer = context)
+				ToContext(frame, (WindowsContext*)pointer, flags);
+		}
+
+		public static unsafe void FromContext(ReadOnlySpan<byte> context, InterruptFrame* frame)
+		{
+			if (context.Length < WindowsContext.Size)
+				Environment.FailFast("FAILFAST: a CONTEXT buffer too small");
+			fixed (byte* pointer = context)
+				FromContext((WindowsContext*)pointer, frame);
+		}
+
+		private static unsafe void ToContext(InterruptFrame* frame, WindowsContext* context, uint flags)
 		{
 			new Span<byte>(context, WindowsContext.Size).Clear();
 			context->ContextFlags = flags;
@@ -45,7 +67,7 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// Applies the parts ContextFlags names; segments and privileged flags stay as ring 3 requires
-		public static unsafe void FromContext(WindowsContext* context, InterruptFrame* frame)
+		private static unsafe void FromContext(WindowsContext* context, InterruptFrame* frame)
 		{
 			uint flags = context->ContextFlags;
 			if ((flags & (WindowsContext.Control & 0xFF)) != 0)
@@ -148,10 +170,9 @@ namespace Alloy.Kernel.Arch
 			ulong contextAddress = (frame->Rsp - WindowsContext.Size - 64) & ~15UL;
 			ulong recordAddress = (contextAddress - WindowsExceptionRecord.Size) & ~15UL;
 			ulong rsp = recordAddress - 40;
-			byte* context = stackalloc byte[WindowsContext.Size];
-			UserContext.ToContext(frame, (WindowsContext*)context, WindowsContext.All);
-			ulong zero = 0;
-			if (!UserMemory.CopyTo(contextAddress, context, WindowsContext.Size) || !UserMemory.CopyTo(recordAddress, &record, WindowsExceptionRecord.Size) || !UserMemory.CopyTo(rsp, &zero, 8))
+			Span<byte> context = stackalloc byte[WindowsContext.Size];
+			UserContext.ToContext(frame, context, WindowsContext.All);
+			if (!UserMemory.CopyTo(contextAddress, context) || !UserMemory.CopyTo(recordAddress, in record) || !UserMemory.CopyTo<ulong>(rsp, 0))
 				return false;
 
 			frame->Rip = process.ExceptionDispatcher;

@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using Alloy.Abi;
 using Alloy.Kernel.Io;
 using Alloy.Kernel.Ke;
@@ -86,13 +87,12 @@ namespace Alloy.Kernel.Platform
 		// Serializes the disk: an auto-reset event that starts signaled is a lock a waiting thread sleeps on
 		private readonly KEvent _lock = new KEvent(false, true);
 		private readonly KEvent _event = new KEvent(false);
-		private unsafe byte* _response;
+		private readonly byte[] _response = new byte[PacketSize];
 		private bool _waiting;
 		private ulong _pending;
 		private ulong _nextId = 1;
 
 		private ulong _bouncePhysical;
-		private unsafe byte* _bounce;
 		private uint _maxTransfer;
 
 		private ushort _version;
@@ -102,28 +102,26 @@ namespace Alloy.Kernel.Platform
 
 		public static SyntheticScsi Active { get; private set; }
 
-		private unsafe SyntheticScsi()
+		private SyntheticScsi()
 		{
 			_channel = new Channel(this);
-			_response = (byte*)Heap.Allocate(PacketSize);
 		}
 
 		public override int SectorSize => (int)_sectorSize;
 
 		public override ulong SectorCount => _sectorCount;
 
+		private Span<byte> Bounce => PhysicalMemory.Window(_bouncePhysical, BounceSize);
+
 		// True with a disk to serve at target 0, LUN 0
-		public static unsafe bool Start(in VmBusOffer offer)
+		public static bool Start(in VmBusOffer offer)
 		{
 			SyntheticScsi scsi = new SyntheticScsi();
 			if (!scsi._channel.OpenRings(in offer, RingPages) || !scsi.Negotiate())
 				return false;
 
 			scsi._bouncePhysical = PhysicalMemory.Allocate(BouncePages);
-			if (scsi._bouncePhysical == 0)
-				return false;
-			scsi._bounce = (byte*)BootInfo.ToVirtual(scsi._bouncePhysical);
-			if (!scsi.Probe())
+			if (scsi._bouncePhysical == 0 || !scsi.Probe())
 				return false;
 
 			scsi._ready = true;
@@ -131,7 +129,7 @@ namespace Alloy.Kernel.Platform
 			return true;
 		}
 
-		public override unsafe bool Read(ulong sector, int count, Span<byte> buffer)
+		public override bool Read(ulong sector, int count, Span<byte> buffer)
 		{
 			if (!InRange(sector, count, buffer.Length))
 				return false;
@@ -145,7 +143,7 @@ namespace Alloy.Kernel.Platform
 				done = Transfer(Read16, sector + (ulong)at, (uint)sectors, DirectionIn);
 				if (done)
 				{
-					new ReadOnlySpan<byte>(_bounce, sectors * (int)_sectorSize).CopyTo(buffer.Slice(at * (int)_sectorSize));
+					Bounce.Slice(0, sectors * (int)_sectorSize).CopyTo(buffer.Slice(at * (int)_sectorSize));
 					at += sectors;
 				}
 			}
@@ -153,7 +151,7 @@ namespace Alloy.Kernel.Platform
 			return done;
 		}
 
-		public override unsafe bool Write(ulong sector, int count, ReadOnlySpan<byte> buffer)
+		public override bool Write(ulong sector, int count, ReadOnlySpan<byte> buffer)
 		{
 			if (!InRange(sector, count, buffer.Length))
 				return false;
@@ -164,7 +162,7 @@ namespace Alloy.Kernel.Platform
 			for (int at = 0; done && at < count;)
 			{
 				int sectors = Math.Min(chunk, count - at);
-				buffer.Slice(at * (int)_sectorSize, sectors * (int)_sectorSize).CopyTo(new Span<byte>(_bounce, sectors * (int)_sectorSize));
+				buffer.Slice(at * (int)_sectorSize, sectors * (int)_sectorSize).CopyTo(Bounce);
 				done = Transfer(Write16, sector + (ulong)at, (uint)sectors, DirectionOut);
 				at += sectors;
 			}
@@ -172,16 +170,16 @@ namespace Alloy.Kernel.Platform
 			return done;
 		}
 
-		public override unsafe bool Flush()
+		public override bool Flush()
 		{
 			if (!_ready)
 				return false;
 
 			_lock.Wait();
-			byte* cdb = stackalloc byte[10];
-			new Span<byte>(cdb, 10).Clear();
+			Span<byte> cdb = stackalloc byte[10];
+			cdb.Clear();
 			cdb[0] = SynchronizeCache10;
-			bool done = Command(new ReadOnlySpan<byte>(cdb, 10), DirectionNone, 0);
+			bool done = Command(cdb, DirectionNone, 0);
 			_lock.Signal();
 			return done;
 		}
@@ -190,7 +188,7 @@ namespace Alloy.Kernel.Platform
 			_ready && count >= 0 && (ulong)count <= _sectorCount && sector <= _sectorCount - (ulong)count && (long)bufferLength >= (long)count * _sectorSize;
 
 		// Begin, a protocol version both sides speak, the channel's properties, end
-		private unsafe bool Negotiate()
+		private bool Negotiate()
 		{
 			if (!Operate(BeginInitialization))
 			{
@@ -199,20 +197,20 @@ namespace Alloy.Kernel.Platform
 			}
 
 			// Newest first; a version the host rejects completes with a nonzero status
-			byte* packet = stackalloc byte[PacketSize];
+			Span<byte> packet = stackalloc byte[PacketSize];
 			for (int i = 0; i < 3 && _version == 0; i++)
 			{
 				ushort version = i == 0 ? VersionWin10 : i == 1 ? VersionWin8_1 : VersionWin8;
-				new Span<byte>(packet, PacketSize).Clear();
-				Put32(packet, Operation, QueryProtocolVersion);
-				Put32(packet, Flags, RequestCompletionFlag);
-				Put16(packet, VersionField, version);
+				packet.Clear();
+				BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(Operation), QueryProtocolVersion);
+				BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(Flags), RequestCompletionFlag);
+				BinaryPrimitives.WriteUInt16LittleEndian(packet.Slice(VersionField), version);
 				if (!Execute(packet, 0))
 				{
 					Log.WriteLine("SyntheticScsi: no answer to QUERY_PROTOCOL_VERSION");
 					return false;
 				}
-				if (Get32(_response, Operation) == CompleteIo && Get32(_response, Status) == 0)
+				if (Response(Operation) == CompleteIo && Response(Status) == 0)
 					_version = version;
 			}
 			if (_version == 0)
@@ -221,17 +219,17 @@ namespace Alloy.Kernel.Platform
 				return false;
 			}
 
-			new Span<byte>(packet, PacketSize).Clear();
-			Put32(packet, Operation, QueryProperties);
-			Put32(packet, Flags, RequestCompletionFlag);
-			if (!Execute(packet, 0) || Get32(_response, Operation) != CompleteIo || Get32(_response, Status) != 0)
+			packet.Clear();
+			BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(Operation), QueryProperties);
+			BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(Flags), RequestCompletionFlag);
+			if (!Execute(packet, 0) || Response(Operation) != CompleteIo || Response(Status) != 0)
 			{
 				Log.WriteLine("SyntheticScsi: no answer to QUERY_PROPERTIES");
 				return false;
 			}
 
 			// The host's limit on one request, or the bounce buffer's where that is smaller or the host names none
-			uint hostMax = Get32(_response, MaxTransferBytes);
+			uint hostMax = Response(MaxTransferBytes);
 			_maxTransfer = hostMax == 0 || hostMax > BounceSize ? BounceSize : hostMax;
 
 			if (!Operate(EndInitialization))
@@ -243,34 +241,35 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// The disk at target 0, LUN 0: a direct-access device, its capacity, and a look at its partition table
-		private unsafe bool Probe()
+		private bool Probe()
 		{
-			byte* cdb = stackalloc byte[MaxCdb];
-			new Span<byte>(cdb, MaxCdb).Clear();
+			Span<byte> cdb = stackalloc byte[MaxCdb];
+			cdb.Clear();
 			cdb[0] = Inquiry;
 			cdb[4] = (byte)InquiryLength;
-			if (!Command(new ReadOnlySpan<byte>(cdb, 6), DirectionIn, InquiryLength) || (_bounce[0] & 0x1F) != PeripheralDisk)
+			if (!Command(cdb.Slice(0, 6), DirectionIn, InquiryLength) || (Bounce[0] & 0x1F) != PeripheralDisk)
 			{
 				Log.WriteLine("SyntheticScsi: no disk at target 0, LUN 0");
 				return false;
 			}
 
 			// The last sector and the sector size, big-endian
-			new Span<byte>(cdb, MaxCdb).Clear();
+			cdb.Clear();
 			cdb[0] = ServiceActionIn16;
 			cdb[1] = ReadCapacity16;
 			cdb[13] = (byte)CapacityLength;
-			if (!Command(new ReadOnlySpan<byte>(cdb, MaxCdb), DirectionIn, CapacityLength))
+			if (!Command(cdb, DirectionIn, CapacityLength))
 			{
 				Log.WriteLine("SyntheticScsi: READ CAPACITY failed");
 				return false;
 			}
 
+			ReadOnlySpan<byte> capacity = Bounce;
 			ulong last = 0;
 			for (int i = 0; i < 8; i++)
-				last = (last << 8) | _bounce[i];
+				last = (last << 8) | capacity[i];
 			_sectorCount = last + 1;
-			_sectorSize = ((uint)_bounce[8] << 24) | ((uint)_bounce[9] << 16) | ((uint)_bounce[10] << 8) | _bounce[11];
+			_sectorSize = ((uint)capacity[8] << 24) | ((uint)capacity[9] << 16) | ((uint)capacity[10] << 8) | capacity[11];
 			if (_sectorSize == 0 || BounceSize % _sectorSize != 0 || _maxTransfer < _sectorSize)
 			{
 				Log.WriteLine("SyntheticScsi: the sector size doesn't fit the transfer size");
@@ -278,7 +277,7 @@ namespace Alloy.Kernel.Platform
 			}
 
 			// The boot disk is GPT, whose header in sector 1 starts with its signature
-			bool gpt = Transfer(Read16, 1, 1, DirectionIn) && _bounce[0] == 'E' && _bounce[1] == 'F' && _bounce[2] == 'I' && _bounce[3] == ' ' && _bounce[4] == 'P' && _bounce[5] == 'A' && _bounce[6] == 'R' && _bounce[7] == 'T';
+			bool gpt = Transfer(Read16, 1, 1, DirectionIn) && IsGptSignature(Bounce);
 			SpanWriter line = new SpanWriter(stackalloc char[128]);
 			line.Append("SyntheticScsi: protocol ");
 			line.Append((uint)(_version >> 8));
@@ -294,19 +293,22 @@ namespace Alloy.Kernel.Platform
 			return true;
 		}
 
+		private static bool IsGptSignature(ReadOnlySpan<byte> sector) =>
+			sector[0] == 'E' && sector[1] == 'F' && sector[2] == 'I' && sector[3] == ' ' && sector[4] == 'P' && sector[5] == 'A' && sector[6] == 'R' && sector[7] == 'T';
+
 		// Sends the packet and waits for its completion in the response, with dmaBytes of the bounce buffer as its data; false on no answer
-		private unsafe bool Execute(byte* packet, uint dmaBytes)
+		private bool Execute(ReadOnlySpan<byte> packet, uint dmaBytes)
 		{
 			ulong flags = Scheduler.Lock();
 			_event.Reset();
 			_pending = _nextId++;
-			new Span<byte>(_response, PacketSize).Clear();
+			_response.AsSpan().Clear();
 			_waiting = true;
 			Scheduler.Unlock(flags);
 
 			bool sent = dmaBytes == 0 ?
-				_channel.Post(packet, PacketSize, _pending) :
-				_channel.PostGpaDirect(packet, PacketSize, _pending, _bouncePhysical, dmaBytes);
+				_channel.Post(packet, _pending) :
+				_channel.PostGpaDirect(packet, _pending, _bouncePhysical, dmaBytes);
 			bool answered = sent && _event.Wait(TimeoutMs);
 
 			flags = Scheduler.Lock();
@@ -315,41 +317,41 @@ namespace Alloy.Kernel.Platform
 			return answered;
 		}
 
-		private unsafe bool Operate(uint operation)
+		private bool Operate(uint operation)
 		{
-			byte* packet = stackalloc byte[PacketSize];
-			new Span<byte>(packet, PacketSize).Clear();
-			Put32(packet, Operation, operation);
-			Put32(packet, Flags, RequestCompletionFlag);
-			return Execute(packet, 0) && Get32(_response, Operation) == CompleteIo && Get32(_response, Status) == 0;
+			Span<byte> packet = stackalloc byte[PacketSize];
+			packet.Clear();
+			BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(Operation), operation);
+			BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(Flags), RequestCompletionFlag);
+			return Execute(packet, 0) && Response(Operation) == CompleteIo && Response(Status) == 0;
 		}
 
 		// One SCSI command to the disk, its data in the bounce buffer; false unless it succeeds
-		private unsafe bool Command(ReadOnlySpan<byte> cdb, byte direction, uint bytes)
+		private bool Command(ReadOnlySpan<byte> cdb, byte direction, uint bytes)
 		{
 			if (cdb.Length > MaxCdb || bytes > BounceSize)
 				return false;
 
 			// A disk reports a unit attention once after it changes or first comes up, so the command goes again
-			byte* packet = stackalloc byte[PacketSize];
+			Span<byte> packet = stackalloc byte[PacketSize];
 			for (int attempt = 0; attempt < 3; attempt++)
 			{
-				new Span<byte>(packet, PacketSize).Clear();
-				Put32(packet, Operation, ExecuteSrb);
-				Put32(packet, Flags, RequestCompletionFlag);
-				Put16(packet, SrbLength, SrbSize);
+				packet.Clear();
+				BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(Operation), ExecuteSrb);
+				BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(Flags), RequestCompletionFlag);
+				BinaryPrimitives.WriteUInt16LittleEndian(packet.Slice(SrbLength), SrbSize);
 				packet[CdbLength] = (byte)cdb.Length;
 				packet[SenseLength] = SenseSize;
 				packet[DataIn] = direction;
-				Put32(packet, TransferLength, bytes);
-				cdb.CopyTo(new Span<byte>(packet + Cdb, MaxCdb));
-				Put32(packet, SrbFlags, SrbFlagsDisableSynchTransfer | (direction == DirectionIn ? SrbFlagsDataIn : direction == DirectionOut ? SrbFlagsDataOut : 0));
-				Put32(packet, SrbTimeout, 60);
+				BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(TransferLength), bytes);
+				cdb.CopyTo(packet.Slice(Cdb, MaxCdb));
+				BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(SrbFlags), SrbFlagsDisableSynchTransfer | (direction == DirectionIn ? SrbFlagsDataIn : direction == DirectionOut ? SrbFlagsDataOut : 0));
+				BinaryPrimitives.WriteUInt32LittleEndian(packet.Slice(SrbTimeout), 60);
 
 				if (!Execute(packet, bytes))
 					return false;
 
-				if (Get32(_response, Status) == 0 && (_response[SrbStatus] & SrbStatusMask) == SrbStatusSuccess && _response[ScsiStatus] == ScsiStatusGood)
+				if (Response(Status) == 0 && (_response[SrbStatus] & SrbStatusMask) == SrbStatusSuccess && _response[ScsiStatus] == ScsiStatusGood)
 					return true;
 
 				bool unitAttention = _response[ScsiStatus] == ScsiStatusCheckCondition && (_response[SrbStatus] & SrbStatusAutosenseValid) != 0 &&
@@ -361,10 +363,10 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// READ(16) or WRITE(16): count sectors at sector, big-endian, through the bounce buffer
-		private unsafe bool Transfer(byte opcode, ulong sector, uint count, byte direction)
+		private bool Transfer(byte opcode, ulong sector, uint count, byte direction)
 		{
-			byte* cdb = stackalloc byte[MaxCdb];
-			new Span<byte>(cdb, MaxCdb).Clear();
+			Span<byte> cdb = stackalloc byte[MaxCdb];
+			cdb.Clear();
 			cdb[0] = opcode;
 			for (int i = 0; i < 8; i++)
 				cdb[2 + i] = (byte)(sector >> (56 - 8 * i));
@@ -372,25 +374,21 @@ namespace Alloy.Kernel.Platform
 				cdb[10 + i] = (byte)(count >> (24 - 8 * i));
 
 			uint bytes = count * _sectorSize;
-			return Command(new ReadOnlySpan<byte>(cdb, MaxCdb), direction, bytes) && Get32(_response, TransferLength) == bytes;
+			return Command(cdb, direction, bytes) && Response(TransferLength) == bytes;
 		}
 
-		private unsafe void OnPacket(VmBusPacket* packet, byte* payload, uint size)
+		private uint Response(int offset) => BinaryPrimitives.ReadUInt32LittleEndian(_response.AsSpan(offset));
+
+		private void OnPacket(in VmBusPacket packet, ReadOnlySpan<byte> payload)
 		{
 			// Only the completion a request is waiting for counts; the host's bus notifications and answers that came too late are dropped
-			if (packet->Type != VmBusChannel.PacketCompletion || !_waiting || packet->TransactionId != _pending)
+			if (packet.Type != VmBusChannel.PacketCompletion || !_waiting || packet.TransactionId != _pending)
 				return;
 
-			new ReadOnlySpan<byte>(payload, (int)Math.Min(size, (uint)PacketSize)).CopyTo(new Span<byte>(_response, PacketSize));
+			payload.Slice(0, Math.Min(payload.Length, PacketSize)).CopyTo(_response);
 			_waiting = false;
 			_event.Signal();
 		}
-
-		private static unsafe void Put16(byte* packet, int offset, ushort value) => *(ushort*)(packet + offset) = value;
-
-		private static unsafe void Put32(byte* packet, int offset, uint value) => *(uint*)(packet + offset) = value;
-
-		private static unsafe uint Get32(byte* packet, int offset) => *(uint*)(packet + offset);
 
 		// The controller's VMBus channel; its packets go to the driver
 		private sealed class Channel : VmBusChannel
@@ -404,11 +402,11 @@ namespace Alloy.Kernel.Platform
 
 			public bool OpenRings(in VmBusOffer offer, int pages) => Open(in offer, pages, pages);
 
-			public unsafe bool Post(void* data, uint length, ulong requestId) => Send(data, length, requestId, PacketInband, CompletionRequested);
+			public bool Post(ReadOnlySpan<byte> data, ulong requestId) => Send(data, requestId, PacketInband, CompletionRequested);
 
-			public unsafe bool PostGpaDirect(void* data, uint length, ulong requestId, ulong physical, uint byteCount) => SendGpaDirect(data, length, requestId, physical, byteCount);
+			public bool PostGpaDirect(ReadOnlySpan<byte> data, ulong requestId, ulong physical, uint byteCount) => SendGpaDirect(data, requestId, physical, byteCount);
 
-			protected override unsafe void OnPacket(VmBusPacket* packet, byte* payload, uint size) => _owner.OnPacket(packet, payload, size);
+			protected override void OnPacket(in VmBusPacket packet, ReadOnlySpan<byte> header, ReadOnlySpan<byte> payload) => _owner.OnPacket(in packet, payload);
 		}
 	}
 }

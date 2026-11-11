@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using Alloy.Abi;
 using Alloy.Kernel.Ke;
 using Alloy.Kernel.Mm;
@@ -11,6 +12,7 @@ namespace Alloy.Kernel.Platform
 	{
 		private const int RingPages = 10;
 		private const int BufferPages = 4096;
+		private const ulong BufferBytes = BufferPages * MemoryLayout.PageSize;
 		private const ushort ReceiveBufferId = 0xCAFE;
 		private const uint NvspVersion2 = 0x30002;
 		private const uint NvspSuccess = 1;
@@ -37,15 +39,18 @@ namespace Alloy.Kernel.Platform
 		private const uint OidPacketFilter = 0x0001010E;
 		private const uint FilterDirectedMulticastBroadcast = 0x1 | 0x4 | 0x8;
 
+		// An RNDIS data message: type, length, then the data's offset from the field after length and its length
+		private const int RndisHeaderSize = 44;
+
 		// Send-buffer sections: 0 carries setup messages; a data frame holds one until its RNDIS completion
 		private const int MaxSendSections = 64;
 		private const ulong SectionTag = 0x534E440000000000;
 		private const ulong SectionTagMask = 0xFFFFFF0000000000;
 
 		private readonly KEvent _event = new KEvent(false);
-		private unsafe byte* _response;
-		private unsafe byte* _receiveBuffer;
-		private unsafe byte* _sendBuffer;
+		private readonly byte[] _response = new byte[NvspSize];
+		private ulong _receivePhysical;
+		private ulong _sendPhysical;
 		private uint _sectionSize;
 		private int _sectionCount;
 		private ulong _sectionsInUse;
@@ -55,10 +60,13 @@ namespace Alloy.Kernel.Platform
 
 		public readonly byte[] Mac = new byte[6];
 
-		public static unsafe bool Start(in VmBusOffer offer)
+		private Span<byte> ReceiveBuffer => PhysicalMemory.Window(_receivePhysical, BufferBytes);
+
+		private Span<byte> SendBuffer => PhysicalMemory.Window(_sendPhysical, BufferBytes);
+
+		public static bool Start(in VmBusOffer offer)
 		{
 			SyntheticNic nic = new SyntheticNic();
-			nic._response = (byte*)Heap.Allocate(NvspSize);
 			if (!nic.Open(in offer, RingPages, RingPages) || !nic.Negotiate(offer.RelId))
 				return false;
 			Active = nic;
@@ -80,37 +88,35 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// NVSP init and NDIS version, the receive and send buffers, then RNDIS init, the packet filter and the MAC
-		private unsafe bool Negotiate(uint relId)
+		private bool Negotiate(uint relId)
 		{
-			byte* message = stackalloc byte[NvspSize];
+			Span<byte> message = stackalloc byte[NvspSize];
 			Nvsp(message, NvspInit, NvspVersion2, NvspVersion2);
-			if (!Request(message, NvspInitComplete) || *(uint*)(_response + 12) != NvspSuccess)
+			if (!Request(message, NvspInitComplete) || BinaryPrimitives.ReadUInt32LittleEndian(_response.AsSpan(12)) != NvspSuccess)
 				return false;
 			Nvsp(message, NvspNdisVersion, 6, 30);
-			Send(message, NvspSize, 0, PacketInband, 0);
+			Send(message, 0, PacketInband, 0);
 
-			ulong receive = PhysicalMemory.Allocate(BufferPages);
-			ulong send = PhysicalMemory.Allocate(BufferPages);
-			if (receive == 0 || send == 0)
+			_receivePhysical = PhysicalMemory.Allocate(BufferPages);
+			_sendPhysical = PhysicalMemory.Allocate(BufferPages);
+			if (_receivePhysical == 0 || _sendPhysical == 0)
 				return false;
-			_receiveBuffer = (byte*)BootInfo.ToVirtual(receive);
-			_sendBuffer = (byte*)BootInfo.ToVirtual(send);
-			Nvsp(message, NvspReceiveBuffer, VmBus.CreateGpadl(relId, receive, BufferPages), ReceiveBufferId);
+			Nvsp(message, NvspReceiveBuffer, VmBus.CreateGpadl(relId, _receivePhysical, BufferPages), ReceiveBufferId);
 			if (!Request(message, NvspReceiveBufferComplete))
 				return false;
-			Nvsp(message, NvspSendBuffer, VmBus.CreateGpadl(relId, send, BufferPages), 0);
-			if (!Request(message, NvspSendBufferComplete) || (_sectionSize = *(uint*)(_response + 8)) == 0)
+			Nvsp(message, NvspSendBuffer, VmBus.CreateGpadl(relId, _sendPhysical, BufferPages), 0);
+			if (!Request(message, NvspSendBufferComplete) || (_sectionSize = BinaryPrimitives.ReadUInt32LittleEndian(_response.AsSpan(8))) == 0)
 				return false;
-			_sectionCount = (int)Math.Min((ulong)BufferPages * MemoryLayout.PageSize / _sectionSize, MaxSendSections);
+			_sectionCount = (int)Math.Min(BufferBytes / _sectionSize, MaxSendSections);
 
-			uint* rndis = stackalloc uint[8];
+			Span<uint> rndis = stackalloc uint[8];
 			rndis[0] = RndisInit;
 			rndis[1] = 24;
 			rndis[2] = 1;
 			rndis[3] = 1;
 			rndis[4] = 0;
 			rndis[5] = 0x4000;
-			if (!RndisControl(rndis, 24, true) || !_event.Wait(2000))
+			if (!RndisControl(rndis.Slice(0, 6), true) || !_event.Wait(2000))
 				return false;
 
 			rndis[0] = RndisSet;
@@ -121,7 +127,7 @@ namespace Alloy.Kernel.Platform
 			rndis[5] = 20;
 			rndis[6] = 0;
 			rndis[7] = FilterDirectedMulticastBroadcast;
-			if (!RndisControl(rndis, 32, true) || !_event.Wait(2000))
+			if (!RndisControl(rndis, true) || !_event.Wait(2000))
 				return false;
 
 			// The answer comes back as RNDIS_MSG_QUERY_C on the control channel, not as a completion
@@ -132,62 +138,64 @@ namespace Alloy.Kernel.Platform
 			rndis[4] = 0;
 			rndis[5] = 20;
 			rndis[6] = 0;
-			return RndisControl(rndis, 28, false) && _event.Wait(2000) && _macReady;
+			return RndisControl(rndis.Slice(0, 7), false) && _event.Wait(2000) && _macReady;
 		}
 
 		// Copies one Ethernet frame into a free send section and hands it to the host; false when none is free
-		public unsafe bool SendFrame(byte* frame, int length)
+		public bool SendFrame(ReadOnlySpan<byte> frame)
 		{
-			if (length <= 0 || length > NetFrame.Mtu || 44 + length > _sectionSize)
+			if (frame.Length <= 0 || frame.Length > NetFrame.Mtu || RndisHeaderSize + frame.Length > _sectionSize)
 				return false;
 			int section = AcquireSection();
 			if (section == 0)
 				return false;
-			uint* rndis = (uint*)(_sendBuffer + (ulong)section * _sectionSize);
-			new Span<byte>(rndis, 44).Clear();
-			rndis[0] = RndisPacket;
-			rndis[1] = (uint)(44 + length);
-			rndis[2] = 36;
-			rndis[3] = (uint)length;
-			new ReadOnlySpan<byte>(frame, length).CopyTo(new Span<byte>((byte*)rndis + 44, length));
-			if (SendRndis(ChannelData, section, (uint)(44 + length), true))
+			Span<byte> slot = SendBuffer.Slice(section * (int)_sectionSize, (int)_sectionSize);
+			slot.Slice(0, RndisHeaderSize).Clear();
+			BinaryPrimitives.WriteUInt32LittleEndian(slot, RndisPacket);
+			BinaryPrimitives.WriteUInt32LittleEndian(slot.Slice(4), (uint)(RndisHeaderSize + frame.Length));
+			BinaryPrimitives.WriteUInt32LittleEndian(slot.Slice(8), RndisHeaderSize - 8);
+			BinaryPrimitives.WriteUInt32LittleEndian(slot.Slice(12), (uint)frame.Length);
+			frame.CopyTo(slot.Slice(RndisHeaderSize));
+			if (SendRndis(ChannelData, section, (uint)(RndisHeaderSize + frame.Length), true))
 				return true;
 			ReleaseSection(SectionTag | (uint)section);
 			return false;
 		}
 
-		private static unsafe void Nvsp(byte* message, uint type, uint first, uint second)
+		private static void Nvsp(Span<byte> message, uint type, uint first, uint second)
 		{
-			new Span<byte>(message, NvspSize).Clear();
-			*(uint*)message = type;
-			*(uint*)(message + 4) = first;
-			*(uint*)(message + 8) = second;
+			message.Clear();
+			BinaryPrimitives.WriteUInt32LittleEndian(message, type);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(4), first);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(8), second);
 		}
 
-		private unsafe bool Request(byte* message, uint answer)
+		private bool Request(ReadOnlySpan<byte> message, uint answer)
 		{
 			_event.Reset();
-			return Send(message, NvspSize, 1, PacketInband, CompletionRequested) && _event.Wait(2000) && *(uint*)_response == answer;
+			return Send(message, 1, PacketInband, CompletionRequested) && _event.Wait(2000) && BinaryPrimitives.ReadUInt32LittleEndian(_response) == answer;
 		}
 
 		// Setup messages go through section 0
-		private unsafe bool RndisControl(void* rndis, uint length, bool completion)
+		private bool RndisControl(ReadOnlySpan<uint> rndis, bool completion)
 		{
 			_event.Reset();
-			new ReadOnlySpan<byte>(rndis, (int)length).CopyTo(new Span<byte>(_sendBuffer, (int)_sectionSize));
-			return SendRndis(ChannelControl, 0, length, completion);
+			Span<byte> section = SendBuffer.Slice(0, (int)_sectionSize);
+			for (int i = 0; i < rndis.Length; i++)
+				BinaryPrimitives.WriteUInt32LittleEndian(section.Slice(4 * i), rndis[i]);
+			return SendRndis(ChannelControl, 0, (uint)(4 * rndis.Length), completion);
 		}
 
-		private unsafe bool SendRndis(uint channel, int section, uint length, bool completion)
+		private bool SendRndis(uint channel, int section, uint length, bool completion)
 		{
-			byte* message = stackalloc byte[NvspSize];
-			new Span<byte>(message, NvspSize).Clear();
-			*(uint*)message = NvspRndisPacket;
-			*(uint*)(message + 4) = channel;
-			*(uint*)(message + 8) = (uint)section;
-			*(uint*)(message + 12) = length;
+			Span<byte> message = stackalloc byte[NvspSize];
+			message.Clear();
+			BinaryPrimitives.WriteUInt32LittleEndian(message, NvspRndisPacket);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(4), channel);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(8), (uint)section);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(12), length);
 			ulong transaction = section == 0 ? 0 : SectionTag | (uint)section;
-			return Send(message, NvspSize, transaction, PacketInband, completion ? CompletionRequested : (ushort)0);
+			return Send(message, transaction, PacketInband, completion ? CompletionRequested : (ushort)0);
 		}
 
 		private int AcquireSection()
@@ -218,51 +226,61 @@ namespace Alloy.Kernel.Platform
 			Scheduler.Unlock(flags);
 		}
 
-		protected override unsafe void OnPacket(VmBusPacket* packet, byte* payload, uint size)
+		protected override void OnPacket(in VmBusPacket packet, ReadOnlySpan<byte> header, ReadOnlySpan<byte> payload)
 		{
-			if (size < 8)
+			if (payload.Length < 8)
 				return;
-			uint type = *(uint*)payload;
-			if (packet->Type == PacketCompletion)
+			uint type = BinaryPrimitives.ReadUInt32LittleEndian(payload);
+			if (packet.Type == PacketCompletion)
 			{
 				if (type == NvspRndisPacketComplete)
-					ReleaseSection(packet->TransactionId);
+					ReleaseSection(packet.TransactionId);
 				if (type == NvspInitComplete || type == NvspReceiveBufferComplete || type == NvspSendBufferComplete || type == NvspRndisPacketComplete)
 				{
-					new ReadOnlySpan<byte>(payload, NvspSize).CopyTo(new Span<byte>(_response, NvspSize));
-					if (type != NvspRndisPacketComplete || packet->TransactionId == 0)
+					payload.Slice(0, Math.Min(payload.Length, NvspSize)).CopyTo(_response);
+					if (type != NvspRndisPacketComplete || packet.TransactionId == 0)
 						_event.Signal();
 				}
 				return;
 			}
-			if (packet->Type != PacketTransferPages || type != NvspRndisPacket)
+			if (packet.Type != PacketTransferPages || type != NvspRndisPacket || header.Length < 8)
 				return;
 
-			// The transfer-page header follows the descriptor: ranges of the receive buffer, each holding one RNDIS message
-			byte* transfer = (byte*)packet + sizeof(VmBusPacket);
-			uint ranges = *(uint*)(transfer + 4);
-			uint channel = *(uint*)(payload + 4);
-			for (uint r = 0; r < ranges; r++)
+			// The transfer-page header follows the descriptor: a range count, then ranges of the receive buffer, each holding one RNDIS message
+			uint ranges = BinaryPrimitives.ReadUInt32LittleEndian(header.Slice(4));
+			uint channel = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(4));
+			ReadOnlySpan<byte> receive = ReceiveBuffer;
+			for (int r = 0; r < ranges && 8 + 8 * r + 8 <= header.Length; r++)
 			{
-				uint* rndis = (uint*)(_receiveBuffer + *(uint*)(transfer + 8 + 8 * r + 4));
-				if (channel == ChannelControl && rndis[0] == RndisQueryComplete)
+				int count = (int)BinaryPrimitives.ReadUInt32LittleEndian(header.Slice(8 + 8 * r));
+				int offset = (int)BinaryPrimitives.ReadUInt32LittleEndian(header.Slice(8 + 8 * r + 4));
+				if (count < 8 || offset < 0 || (long)offset + count > receive.Length)
+					continue;
+				ReadOnlySpan<byte> rndis = receive.Slice(offset, count);
+				uint message = BinaryPrimitives.ReadUInt32LittleEndian(rndis);
+				if (channel == ChannelControl && message == RndisQueryComplete && rndis.Length >= 24)
 				{
-					byte* info = (byte*)(rndis + 2) + rndis[5];
-					for (int i = 0; i < 6 && i < (int)rndis[4]; i++)
+					// The information buffer's length and its offset from the request id field
+					int length = (int)BinaryPrimitives.ReadUInt32LittleEndian(rndis.Slice(16));
+					int at = 8 + (int)BinaryPrimitives.ReadUInt32LittleEndian(rndis.Slice(20));
+					ReadOnlySpan<byte> info = rndis.Slice(at, Math.Min(length, rndis.Length - at));
+					for (int i = 0; i < 6 && i < info.Length; i++)
 						Mac[i] = info[i];
 					_macReady = true;
 					_event.Signal();
 				}
-				else if (channel == ChannelData && rndis[0] == RndisPacket)
+				else if (channel == ChannelData && message == RndisPacket && rndis.Length >= 16)
 				{
-					byte* frame = (byte*)(rndis + 2) + rndis[2];
-					Io.Net.Receive(frame, (int)rndis[3]);
+					int at = 8 + (int)BinaryPrimitives.ReadUInt32LittleEndian(rndis.Slice(8));
+					int length = (int)BinaryPrimitives.ReadUInt32LittleEndian(rndis.Slice(12));
+					if (at >= 0 && length >= 0 && (long)at + length <= rndis.Length)
+						Io.Net.Receive(rndis.Slice(at, length));
 				}
 			}
 
-			byte* complete = stackalloc byte[NvspSize];
+			Span<byte> complete = stackalloc byte[NvspSize];
 			Nvsp(complete, NvspRndisPacketComplete, NvspSuccess, 0);
-			Send(complete, NvspSize, packet->TransactionId, PacketCompletion, 0);
+			Send(complete, packet.TransactionId, PacketCompletion, 0);
 		}
 	}
 }

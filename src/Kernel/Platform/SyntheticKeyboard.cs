@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using Alloy.Abi;
 using Alloy.Kernel.Io;
 using Alloy.Kernel.Ke;
@@ -39,33 +40,35 @@ namespace Alloy.Kernel.Platform
 			0x7B,
 		};
 
-		public static unsafe bool Start(in VmBusOffer offer)
+		public static bool Start(in VmBusOffer offer)
 		{
 			SyntheticKeyboard keyboard = new SyntheticKeyboard();
 			if (!keyboard.Open(in offer, RingPages, RingPages))
 				return false;
-			ulong request = ProtocolRequest | ((ulong)Version << 32);
-			if (!keyboard.Send(&request, 8, 1, PacketInband, CompletionRequested))
+			Span<byte> request = stackalloc byte[8];
+			BinaryPrimitives.WriteUInt32LittleEndian(request, ProtocolRequest);
+			BinaryPrimitives.WriteUInt32LittleEndian(request.Slice(4), Version);
+			if (!keyboard.Send(request, 1, PacketInband, CompletionRequested))
 				return false;
 			return keyboard._response.Wait(2000) && (keyboard._status & ProtocolAccepted) != 0;
 		}
 
-		protected override unsafe void OnPacket(VmBusPacket* packet, byte* payload, uint size)
+		protected override void OnPacket(in VmBusPacket packet, ReadOnlySpan<byte> header, ReadOnlySpan<byte> payload)
 		{
-			if (packet->Type != PacketInband || size < 8)
+			if (packet.Type != PacketInband || payload.Length < 8)
 				return;
-			uint message = *(uint*)payload;
+			uint message = BinaryPrimitives.ReadUInt32LittleEndian(payload);
 			if (message == ProtocolResponse)
 			{
-				_status = *(uint*)(payload + 4);
+				_status = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(4));
 				_response.Signal();
 				return;
 			}
-			if (message != KeyEvent || size < 12)
+			if (message != KeyEvent || payload.Length < 12)
 				return;
 
-			ushort code = *(ushort*)(payload + 4);
-			uint info = *(uint*)(payload + 8);
+			ushort code = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(4));
+			uint info = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(8));
 			ushort key = (info & IsUnicode) != 0 ? FromUnicode(code)
 				: (info & IsE0) != 0 && code == E0LeftWindows ? VirtualKey.LeftWindows
 				: code < ScancodeSet1.Length ? ScancodeSet1[code] : VirtualKey.None;

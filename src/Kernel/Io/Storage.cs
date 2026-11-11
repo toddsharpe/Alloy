@@ -186,32 +186,30 @@ namespace Alloy.Kernel.Io
 			return listed;
 		}
 
-		// The whole of a file in a heap block the caller frees; null if it's missing, empty or can't be read
-		public static unsafe byte* LoadFile(ReadOnlySpan<char> path, out long size)
+		// The whole of a file in an array the caller gives back to the heap; null if it's missing, empty or can't be read
+		public static byte[] LoadFile(ReadOnlySpan<char> path)
 		{
-			size = 0;
 			KFile file = Open(path, FileAccess.Read, FileCreate.OpenExisting);
 			if (file == null)
 				return null;
 
-			byte* data = null;
+			byte[] data = null;
 			if (file.Size > 0 && file.Size <= 0x7FFFFFFF)
 			{
-				data = (byte*)Heap.Allocate((nuint)file.Size);
-				long total = 0;
-				while (data != null && total < file.Size)
+				data = new byte[file.Size];
+				int total = 0;
+				while (total < data.Length)
 				{
-					int read = Read(file, new Span<byte>(data + total, (int)Math.Min(file.Size - total, ChunkSize)));
+					int read = Read(file, data.AsSpan(total, Math.Min(data.Length - total, ChunkSize)));
 					if (read <= 0)
 						break;
 					total += read;
 				}
-				if (data != null && total != file.Size)
+				if (total != data.Length)
 				{
 					Heap.Free(data);
 					data = null;
 				}
-				size = data != null ? total : 0;
 			}
 
 			// Nothing holds a handle to this file, so it is closed and freed here

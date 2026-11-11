@@ -1,4 +1,7 @@
 using System;
+using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Alloy.Kernel.Arch;
 using Alloy.Kernel.Ke;
@@ -64,7 +67,7 @@ namespace Alloy.Kernel.Platform
 		public const ulong KvpHigh = 0xE6038C1E848A27B8;
 
 		private static uint s_connectionId;
-		private static unsafe VmBusOffer* s_offers;
+		private static VmBusOffer[] s_offers;
 		private static int s_offerCount;
 		private static VmBusChannel[] s_channels;
 		private static int s_nextGpadl;
@@ -72,15 +75,15 @@ namespace Alloy.Kernel.Platform
 		// Setup runs on one thread, so one reply slot is enough: the message type awaited and a copy of its payload
 		private static KEvent s_reply;
 		private static uint s_awaiting;
-		private static unsafe byte* s_replyPayload;
+		private static byte[] s_replyPayload;
 
 		public static int OfferCount => s_offerCount;
 
 		public static unsafe bool Initialize()
 		{
-			s_offers = (VmBusOffer*)Heap.Allocate((nuint)(MaxOffers * sizeof(VmBusOffer)));
+			s_offers = new VmBusOffer[MaxOffers];
 			s_channels = new VmBusChannel[MaxChannels];
-			s_replyPayload = (byte*)Heap.Allocate(HyperV.MessagePayloadSize);
+			s_replyPayload = new byte[HyperV.MessagePayloadSize];
 			s_reply = new KEvent(false);
 
 			HyperV.InitializeSynic();
@@ -88,22 +91,24 @@ namespace Alloy.Kernel.Platform
 			HyperV.EnableSint(MessageSint, Vector);
 
 			// The monitor pages are only handed over; channels here signal with HvSignalEvent instead
-			byte* contact = stackalloc byte[40];
-			new Span<byte>(contact, 40).Clear();
-			*(uint*)contact = InitiateContact;
-			*(uint*)(contact + 8) = VersionWin10V52;
+			Span<byte> contact = stackalloc byte[40];
+			contact.Clear();
+			BinaryPrimitives.WriteUInt32LittleEndian(contact, InitiateContact);
+			BinaryPrimitives.WriteUInt32LittleEndian(contact.Slice(8), VersionWin10V52);
 			contact[16] = MessageSint;
-			*(ulong*)(contact + 24) = PhysicalMemory.Allocate(1);
-			*(ulong*)(contact + 32) = PhysicalMemory.Allocate(1);
-			if (!Request(ContactConnectionId, contact, 40, VersionResponse) || s_replyPayload[8] == 0)
+			BinaryPrimitives.WriteUInt64LittleEndian(contact.Slice(24), PhysicalMemory.Allocate(1));
+			BinaryPrimitives.WriteUInt64LittleEndian(contact.Slice(32), PhysicalMemory.Allocate(1));
+			if (!Request(ContactConnectionId, contact, VersionResponse) || s_replyPayload[8] == 0)
 			{
 				Log.WriteLine("VmBus: the host refused protocol 5.2");
 				return false;
 			}
-			s_connectionId = *(uint*)(s_replyPayload + 12);
+			s_connectionId = BinaryPrimitives.ReadUInt32LittleEndian(s_replyPayload.AsSpan(12));
 
-			ulong header = RequestOffers;
-			if (!Request(s_connectionId, &header, 8, AllOffersDelivered))
+			Span<byte> header = stackalloc byte[8];
+			header.Clear();
+			BinaryPrimitives.WriteUInt32LittleEndian(header, RequestOffers);
+			if (!Request(s_connectionId, header, AllOffersDelivered))
 			{
 				Log.WriteLine("VmBus: no ALLOFFERS_DELIVERED from the host");
 				return false;
@@ -114,7 +119,7 @@ namespace Alloy.Kernel.Platform
 			return true;
 		}
 
-		public static unsafe bool TryFind(ulong typeLow, ulong typeHigh, out VmBusOffer offer)
+		public static bool TryFind(ulong typeLow, ulong typeHigh, out VmBusOffer offer)
 		{
 			for (int i = 0; i < s_offerCount; i++)
 			{
@@ -129,60 +134,60 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Describes physically contiguous pages to the host: a GPADL_HEADER with the first page numbers, GPADL_BODY for the rest
-		public static unsafe uint CreateGpadl(uint relId, ulong physical, int pages)
+		public static uint CreateGpadl(uint relId, ulong physical, int pages)
 		{
 			uint gpadl = (uint)Interlocked.Increment(ref s_nextGpadl);
-			byte* message = stackalloc byte[HyperV.MessagePayloadSize];
+			Span<byte> message = stackalloc byte[HyperV.MessagePayloadSize];
 			int headerPfns = pages < MaxHeaderPfns ? pages : MaxHeaderPfns;
-			new Span<byte>(message, HyperV.MessagePayloadSize).Clear();
-			*(uint*)message = GpadlHeader;
-			*(uint*)(message + 8) = relId;
-			*(uint*)(message + 12) = gpadl;
-			*(ushort*)(message + 16) = (ushort)(8 + 8 * pages);
-			*(ushort*)(message + 18) = 1;
-			*(uint*)(message + 20) = (uint)pages << 12;
+			message.Clear();
+			BinaryPrimitives.WriteUInt32LittleEndian(message, GpadlHeader);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(8), relId);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(12), gpadl);
+			BinaryPrimitives.WriteUInt16LittleEndian(message.Slice(16), (ushort)(8 + 8 * pages));
+			BinaryPrimitives.WriteUInt16LittleEndian(message.Slice(18), 1);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(20), (uint)pages << 12);
 			for (int i = 0; i < headerPfns; i++)
-				*(ulong*)(message + 28 + 8 * i) = (physical >> 12) + (ulong)i;
+				BinaryPrimitives.WriteUInt64LittleEndian(message.Slice(28 + 8 * i), (physical >> 12) + (ulong)i);
 
 			ulong flags = Scheduler.Lock();
 			Arm(GpadlCreated);
-			bool posted = HyperV.PostMessageRetry(s_connectionId, ChannelMessage, message, 28 + 8 * headerPfns);
+			bool posted = HyperV.PostMessageRetry(s_connectionId, ChannelMessage, message.Slice(0, 28 + 8 * headerPfns));
 			Scheduler.Unlock(flags);
 
 			uint number = 0;
 			for (int sent = headerPfns; posted && sent < pages;)
 			{
 				int batch = pages - sent < MaxBodyPfns ? pages - sent : MaxBodyPfns;
-				new Span<byte>(message, HyperV.MessagePayloadSize).Clear();
-				*(uint*)message = GpadlBody;
-				*(uint*)(message + 8) = number++;
-				*(uint*)(message + 12) = gpadl;
+				message.Clear();
+				BinaryPrimitives.WriteUInt32LittleEndian(message, GpadlBody);
+				BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(8), number++);
+				BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(12), gpadl);
 				for (int i = 0; i < batch; i++)
-					*(ulong*)(message + 16 + 8 * i) = (physical >> 12) + (ulong)(sent + i);
-				posted = HyperV.PostMessageRetry(s_connectionId, ChannelMessage, message, 16 + 8 * batch);
+					BinaryPrimitives.WriteUInt64LittleEndian(message.Slice(16 + 8 * i), (physical >> 12) + (ulong)(sent + i));
+				posted = HyperV.PostMessageRetry(s_connectionId, ChannelMessage, message.Slice(0, 16 + 8 * batch));
 				sent += batch;
 			}
 
 			if (!posted || !s_reply.Wait(ReplyTimeoutMs))
 				return 0;
-			return *(uint*)(s_replyPayload + 12) == gpadl && *(uint*)(s_replyPayload + 16) == 0 ? gpadl : 0;
+			return BinaryPrimitives.ReadUInt32LittleEndian(s_replyPayload.AsSpan(12)) == gpadl && BinaryPrimitives.ReadUInt32LittleEndian(s_replyPayload.AsSpan(16)) == 0 ? gpadl : 0;
 		}
 
 		// The channel is registered before OPENCHANNEL: the host may signal it the moment it is open (MetalOS HyperVChannel)
-		public static unsafe bool OpenChannel(VmBusChannel channel, uint relId, uint gpadl, uint downstreamPageOffset)
+		public static bool OpenChannel(VmBusChannel channel, uint relId, uint gpadl, uint downstreamPageOffset)
 		{
 			if (relId >= MaxChannels)
 				return false;
 			s_channels[relId] = channel;
 
-			byte* message = stackalloc byte[148];
-			new Span<byte>(message, 148).Clear();
-			*(uint*)message = OpenChannelRequest;
-			*(uint*)(message + 8) = relId;
-			*(uint*)(message + 12) = relId;
-			*(uint*)(message + 16) = gpadl;
-			*(uint*)(message + 24) = downstreamPageOffset;
-			if (Request(s_connectionId, message, 148, OpenChannelResult) && *(uint*)(s_replyPayload + 16) == 0)
+			Span<byte> message = stackalloc byte[148];
+			message.Clear();
+			BinaryPrimitives.WriteUInt32LittleEndian(message, OpenChannelRequest);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(8), relId);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(12), relId);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(16), gpadl);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(24), downstreamPageOffset);
+			if (Request(s_connectionId, message, OpenChannelResult) && BinaryPrimitives.ReadUInt32LittleEndian(s_replyPayload.AsSpan(16)) == 0)
 				return true;
 			s_channels[relId] = null;
 			return false;
@@ -195,11 +200,11 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Arms before posting, since the answer can arrive before the wait starts
-		private static unsafe bool Request(uint connectionId, void* message, int size, uint replyType)
+		private static bool Request(uint connectionId, ReadOnlySpan<byte> message, uint replyType)
 		{
 			ulong flags = Scheduler.Lock();
 			Arm(replyType);
-			bool posted = HyperV.PostMessageRetry(connectionId, ChannelMessage, message, size);
+			bool posted = HyperV.PostMessageRetry(connectionId, ChannelMessage, message);
 			Scheduler.Unlock(flags);
 			return posted && s_reply.Wait(ReplyTimeoutMs);
 		}
@@ -207,12 +212,12 @@ namespace Alloy.Kernel.Platform
 		private static unsafe void OnInterrupt(InterruptFrame* frame)
 		{
 			// Each set bit is a channel id the host signaled; exchanging a whole word takes its bits atomically
-			uint* events = HyperV.EventFlags(MessageSint);
+			Span<uint> events = HyperV.EventFlags(MessageSint);
 			for (int word = 0; word < MaxChannels / 32; word++)
 			{
 				if (Volatile.Read(ref events[word]) == 0)
 					continue;
-				uint pending = (uint)Interlocked.Exchange(ref *(int*)&events[word], 0);
+				uint pending = (uint)Interlocked.Exchange(ref Unsafe.As<uint, int>(ref events[word]), 0);
 				for (int bit = 0; pending != 0; bit++, pending >>= 1)
 				{
 					if ((pending & 1) != 0)
@@ -220,15 +225,16 @@ namespace Alloy.Kernel.Platform
 				}
 			}
 
-			byte* slot = HyperV.MessageSlot(MessageSint);
-			if (Volatile.Read(ref *(uint*)slot) == ChannelMessage)
+			Span<byte> slot = HyperV.MessageSlot(MessageSint);
+			uint type = Volatile.Read(ref MemoryMarshal.Cast<byte, uint>(slot)[0]);
+			if (type == ChannelMessage)
 			{
-				byte* payload = stackalloc byte[HyperV.MessagePayloadSize];
-				new ReadOnlySpan<byte>(slot + 16, HyperV.MessagePayloadSize).CopyTo(new Span<byte>(payload, HyperV.MessagePayloadSize));
+				Span<byte> payload = stackalloc byte[HyperV.MessagePayloadSize];
+				slot.Slice(16, HyperV.MessagePayloadSize).CopyTo(payload);
 				HyperV.CompleteMessage(MessageSint);
 				OnMessage(payload);
 			}
-			else if (Volatile.Read(ref *(uint*)slot) != 0)
+			else if (type != 0)
 			{
 				HyperV.CompleteMessage(MessageSint);
 			}
@@ -239,20 +245,21 @@ namespace Alloy.Kernel.Platform
 			Scheduler.Preempt();
 		}
 
-		private static unsafe void OnMessage(byte* payload)
+		private static void OnMessage(ReadOnlySpan<byte> payload)
 		{
-			uint type = *(uint*)payload;
+			uint type = BinaryPrimitives.ReadUInt32LittleEndian(payload);
 			if (type == OfferChannel)
 			{
-				if (s_offerCount < MaxOffers && *(ushort*)(payload + 8 + 172) == 0)
+				// The offer body starts at 8; a nonzero sub-channel index means a secondary channel, which Alloy doesn't use
+				if (s_offerCount < MaxOffers && BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(8 + 172)) == 0)
 				{
-					VmBusOffer* offer = &s_offers[s_offerCount++];
-					offer->TypeLow = *(ulong*)(payload + 8);
-					offer->TypeHigh = *(ulong*)(payload + 16);
-					offer->RelId = *(uint*)(payload + 184);
-					offer->DedicatedInterrupt = (payload[190] & 1) != 0;
-					offer->ConnectionId = *(uint*)(payload + 192);
-					offer->MmioMegabytes = *(ushort*)(payload + 58);
+					ref VmBusOffer offer = ref s_offers[s_offerCount++];
+					offer.TypeLow = BinaryPrimitives.ReadUInt64LittleEndian(payload.Slice(8));
+					offer.TypeHigh = BinaryPrimitives.ReadUInt64LittleEndian(payload.Slice(16));
+					offer.RelId = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(184));
+					offer.DedicatedInterrupt = (payload[190] & 1) != 0;
+					offer.ConnectionId = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(192));
+					offer.MmioMegabytes = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(58));
 				}
 				return;
 			}
@@ -260,13 +267,13 @@ namespace Alloy.Kernel.Platform
 			{
 				SpanWriter line = new SpanWriter(stackalloc char[64]);
 				line.Append("VmBus: host rescinded channel ");
-				line.Append(*(uint*)(payload + 8));
+				line.Append(BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(8)));
 				Log.WriteLine(ref line);
 				return;
 			}
 			if (type == s_awaiting)
 			{
-				new ReadOnlySpan<byte>(payload, HyperV.MessagePayloadSize).CopyTo(new Span<byte>(s_replyPayload, HyperV.MessagePayloadSize));
+				payload.CopyTo(s_replyPayload);
 				s_awaiting = 0;
 				s_reply.Signal();
 			}

@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using Alloy.Kernel.Ke;
 
@@ -73,6 +74,8 @@ namespace Alloy.Kernel.Platform
 		// Shared by the host's messages (in the VMBus interrupt) and PublishValue (in a syscall), so changes go under the scheduler lock
 		private static readonly Entry[] s_entries = new Entry[MaxEntries];
 
+		private ulong _ipRequests;
+
 		protected override ReadOnlySpan<uint> MessageVersions => new uint[] { Version(4, 0), Version(3, 0) };
 
 		private KvpComponent() : base(FrameSize)
@@ -96,29 +99,30 @@ namespace Alloy.Kernel.Platform
 			return stored;
 		}
 
-		protected override unsafe uint OnMessage(ushort type, byte* body, int length)
+		protected override uint OnMessage(ushort type, Span<byte> body)
 		{
-			if (type != TypeKvp || length < 4)
+			if (type != TypeKvp || body.Length < 4)
 				return StatusFail;
 
 			byte operation = body[0];
 			byte pool = body[1];
 			if (pool >= PoolCount && operation != OperationGetIpInfo)
 				return StatusFail;
+
 			switch (operation)
 			{
 				case OperationGet:
-					return length >= 4 + ExchangeSize ? Get(pool, body + 4) : StatusFail;
+					return body.Length >= 4 + ExchangeSize ? Get(pool, body.Slice(4, ExchangeSize)) : StatusFail;
 				case OperationSet:
-					return length >= 4 + ExchangeSize ? Set(pool, body + 4) : StatusFail;
+					return body.Length >= 4 + ExchangeSize ? Set(pool, body.Slice(4, ExchangeSize)) : StatusFail;
 				case OperationDelete:
-					return length >= 4 + 4 + KeyBytes ? Delete(pool, body + 4) : StatusFail;
+					return body.Length >= 4 + 4 + KeyBytes ? Delete(pool, body.Slice(4, 4 + KeyBytes)) : StatusFail;
 				case OperationEnumerate:
-					return length >= 4 + 4 + ExchangeSize ? Enumerate(pool, *(uint*)(body + 4), body + 8) : StatusFail;
+					return body.Length >= 4 + 4 + ExchangeSize ? Enumerate(pool, BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(4)), body.Slice(8, ExchangeSize)) : StatusFail;
 				case OperationGetIpInfo:
 				{
 					// The IP info body follows the operation and pool bytes directly, without the pad the other bodies have
-					uint status = length >= IpInfoOffset + IpDns + 2 ? GetIpInfo(body + IpInfoOffset, length - IpInfoOffset) : StatusFail;
+					uint status = body.Length >= IpInfoOffset + IpDns + 2 ? GetIpInfo(body.Slice(IpInfoOffset)) : StatusFail;
 					if (_ipRequests++ == 0)
 						Log.WriteLine(status == StatusOk ? "Kvp: the host read the adapter's IP info" : "Kvp: the host asked for the adapter's IP info before the network stack had an address");
 					return status;
@@ -128,47 +132,45 @@ namespace Alloy.Kernel.Platform
 			}
 		}
 
-		private ulong _ipRequests;
-
 		// The value under a key, from the Auto pool's description or the stored entries
-		private unsafe uint Get(byte pool, byte* exchange)
+		private static uint Get(byte pool, Span<byte> exchange)
 		{
 			Span<char> key = stackalloc char[MaxKey];
-			int keyLength = ReadUtf16(exchange + 12, Math.Min((int)*(uint*)(exchange + 4), KeyBytes), key);
+			int keyLength = ReadUtf16(exchange.Slice(12, Math.Min((int)BinaryPrimitives.ReadUInt32LittleEndian(exchange.Slice(4)), KeyBytes)), key);
 			Span<char> value = stackalloc char[MaxValue];
 			int valueLength = Lookup(pool, key.Slice(0, keyLength), value);
 			if (valueLength < 0)
 				return StatusFail;
 
-			*(uint*)exchange = RegSz;
-			*(uint*)(exchange + 8) = (uint)WriteUtf16(exchange + 12 + KeyBytes, ValueBytes, value.Slice(0, valueLength));
+			BinaryPrimitives.WriteUInt32LittleEndian(exchange, RegSz);
+			BinaryPrimitives.WriteUInt32LittleEndian(exchange.Slice(8), (uint)WriteUtf16(exchange.Slice(12 + KeyBytes, ValueBytes), value.Slice(0, valueLength)));
 			return StatusOk;
 		}
 
 		// A string value, or a number the host sent as one, stored under the key in the pool
-		private unsafe uint Set(byte pool, byte* exchange)
+		private static uint Set(byte pool, Span<byte> exchange)
 		{
 			Span<char> key = stackalloc char[MaxKey];
-			int keyLength = ReadUtf16(exchange + 12, Math.Min((int)*(uint*)(exchange + 4), KeyBytes), key);
+			int keyLength = ReadUtf16(exchange.Slice(12, Math.Min((int)BinaryPrimitives.ReadUInt32LittleEndian(exchange.Slice(4)), KeyBytes)), key);
 			Span<char> value = stackalloc char[MaxValue];
 			int valueLength;
-			uint valueType = *(uint*)exchange;
-			byte* data = exchange + 12 + KeyBytes;
+			uint valueType = BinaryPrimitives.ReadUInt32LittleEndian(exchange);
+			Span<byte> data = exchange.Slice(12 + KeyBytes, ValueBytes);
 			if (valueType == RegU32)
-				valueLength = WriteDecimal(*(uint*)data, value);
+				valueLength = WriteDecimal(BinaryPrimitives.ReadUInt32LittleEndian(data), value);
 			else if (valueType == RegU64)
-				valueLength = WriteDecimal(*(ulong*)data, value);
+				valueLength = WriteDecimal(BinaryPrimitives.ReadUInt64LittleEndian(data), value);
 			else
-				valueLength = ReadUtf16(data, Math.Min((int)*(uint*)(exchange + 8), ValueBytes), value);
+				valueLength = ReadUtf16(data.Slice(0, Math.Min((int)BinaryPrimitives.ReadUInt32LittleEndian(exchange.Slice(8)), ValueBytes)), value);
 			if (keyLength == 0 || keyLength > MaxKey || valueLength > MaxValue)
 				return StatusFail;
 			return Store(pool, key.Slice(0, keyLength), value.Slice(0, valueLength)) ? StatusOk : StatusFail;
 		}
 
-		private unsafe uint Delete(byte pool, byte* request)
+		private static uint Delete(byte pool, Span<byte> request)
 		{
 			Span<char> key = stackalloc char[MaxKey];
-			int keyLength = ReadUtf16(request + 4, Math.Min((int)*(uint*)request, KeyBytes), key);
+			int keyLength = ReadUtf16(request.Slice(4, Math.Min((int)BinaryPrimitives.ReadUInt32LittleEndian(request), KeyBytes)), key);
 			int index = Find(pool, key.Slice(0, keyLength));
 			if (index < 0)
 				return StatusFail;
@@ -177,7 +179,7 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// The index-th name in a pool with its value; past the last the status says to stop
-		private unsafe uint Enumerate(byte pool, uint index, byte* exchange)
+		private static uint Enumerate(byte pool, uint index, Span<byte> exchange)
 		{
 			Span<char> key = stackalloc char[MaxKey];
 			Span<char> value = stackalloc char[MaxValue];
@@ -207,14 +209,14 @@ namespace Alloy.Kernel.Platform
 				((ReadOnlySpan<char>)s_entries[found].Value).Slice(0, valueLength).CopyTo(value);
 			}
 
-			*(uint*)exchange = RegSz;
-			*(uint*)(exchange + 4) = (uint)WriteUtf16(exchange + 12, KeyBytes, key.Slice(0, keyLength));
-			*(uint*)(exchange + 8) = (uint)WriteUtf16(exchange + 12 + KeyBytes, ValueBytes, value.Slice(0, valueLength));
+			BinaryPrimitives.WriteUInt32LittleEndian(exchange, RegSz);
+			BinaryPrimitives.WriteUInt32LittleEndian(exchange.Slice(4), (uint)WriteUtf16(exchange.Slice(12, KeyBytes), key.Slice(0, keyLength)));
+			BinaryPrimitives.WriteUInt32LittleEndian(exchange.Slice(8), (uint)WriteUtf16(exchange.Slice(12 + KeyBytes, ValueBytes), value.Slice(0, valueLength)));
 			return StatusOk;
 		}
 
 		// The one adapter's IPv4 setup as the network stack published it; nothing to say until it has an address
-		private unsafe uint GetIpInfo(byte* info, int available)
+		private static uint GetIpInfo(Span<byte> info)
 		{
 			Span<char> value = stackalloc char[MaxValue];
 			int length = Lookup(PoolAuto, "NetworkAddressIPv4", value);
@@ -223,10 +225,10 @@ namespace Alloy.Kernel.Platform
 
 			info[IpFamily] = FamilyIpv4;
 			info[IpDhcp] = (byte)(Lookup(PoolAuto, "NetworkDhcpIPv4", value) == 1 && value[0] == '1' ? 1 : 0);
-			WriteUtf16(info + IpAddress, IpListBytes, value.Slice(0, Math.Max(Lookup(PoolAuto, "NetworkAddressIPv4", value), 0)));
-			WriteUtf16(info + IpSubnet, IpListBytes, value.Slice(0, Math.Max(Lookup(PoolAuto, "NetworkSubnetIPv4", value), 0)));
-			WriteUtf16(info + IpGateway, IpGatewayBytes, value.Slice(0, Math.Max(Lookup(PoolAuto, "NetworkGatewayIPv4", value), 0)));
-			WriteUtf16(info + IpDns, Math.Min(IpListBytes, available - IpDns), value.Slice(0, Math.Max(Lookup(PoolAuto, "NetworkDnsIPv4", value), 0)));
+			WriteUtf16(info.Slice(IpAddress, IpListBytes), value.Slice(0, Math.Max(Lookup(PoolAuto, "NetworkAddressIPv4", value), 0)));
+			WriteUtf16(info.Slice(IpSubnet, IpListBytes), value.Slice(0, Math.Max(Lookup(PoolAuto, "NetworkSubnetIPv4", value), 0)));
+			WriteUtf16(info.Slice(IpGateway, IpGatewayBytes), value.Slice(0, Math.Max(Lookup(PoolAuto, "NetworkGatewayIPv4", value), 0)));
+			WriteUtf16(info.Slice(IpDns, Math.Min(IpListBytes, info.Length - IpDns)), value.Slice(0, Math.Max(Lookup(PoolAuto, "NetworkDnsIPv4", value), 0)));
 			return StatusOk;
 		}
 
@@ -318,13 +320,13 @@ namespace Alloy.Kernel.Platform
 			return text.Length;
 		}
 
-		// UTF-16 up to its NUL or the size, as ASCII with '?' for the rest; what doesn't fit is dropped
-		private static unsafe int ReadUtf16(byte* bytes, int size, Span<char> destination)
+		// UTF-16 up to its NUL or the end, as ASCII with '?' for the rest; what doesn't fit is dropped
+		private static int ReadUtf16(ReadOnlySpan<byte> bytes, Span<char> destination)
 		{
 			int length = 0;
-			for (int i = 0; i + 1 < size && length < destination.Length; i += 2)
+			for (int i = 0; i + 1 < bytes.Length && length < destination.Length; i += 2)
 			{
-				ushort unit = (ushort)(bytes[i] | (bytes[i + 1] << 8));
+				ushort unit = BinaryPrimitives.ReadUInt16LittleEndian(bytes.Slice(i));
 				if (unit == 0)
 					break;
 				destination[length++] = unit < 0x80 ? (char)unit : '?';
@@ -333,15 +335,12 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// The text and its NUL as UTF-16, the rest of the field cleared; returns the size in bytes with the NUL
-		private static unsafe int WriteUtf16(byte* bytes, int capacity, ReadOnlySpan<char> text)
+		private static int WriteUtf16(Span<byte> field, ReadOnlySpan<char> text)
 		{
-			new Span<byte>(bytes, capacity).Clear();
-			int length = Math.Min(text.Length, capacity / 2 - 1);
+			field.Clear();
+			int length = Math.Min(text.Length, field.Length / 2 - 1);
 			for (int i = 0; i < length; i++)
-			{
-				bytes[2 * i] = (byte)text[i];
-				bytes[2 * i + 1] = (byte)(text[i] >> 8);
-			}
+				BinaryPrimitives.WriteUInt16LittleEndian(field.Slice(2 * i), text[i]);
 			return 2 * (length + 1);
 		}
 
