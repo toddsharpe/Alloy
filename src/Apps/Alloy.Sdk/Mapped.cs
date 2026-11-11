@@ -109,9 +109,15 @@ namespace Alloy.Sdk
 	// Surfaces over memory other than a window's: the screen, back buffers, and windows as the server maps them
 	public static class Surfaces
 	{
-		// Zeroed memory of this process's own, never freed; for back buffers that live as long as the program
+		// Zeroed memory of this process's own, for back buffers; Free gives one back, which a window's does when it is resized
 		public static unsafe Surface Allocate(int width, int height) =>
 			new Surface((uint*)NativeMemory.AllocZeroed((nuint)width * (nuint)height * 4), width, height, width);
+
+		public static unsafe void Free(in Surface surface)
+		{
+			if (surface.Pixels != null)
+				NativeMemory.Free(surface.Pixels);
+		}
 
 		// The screen at the kernel's largest mode, once per system (the window server's); false if another process has it
 		public static unsafe bool TryMapFramebuffer(out Surface screen, out FramebufferInfo info)
