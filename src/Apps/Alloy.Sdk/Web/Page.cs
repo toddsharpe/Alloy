@@ -13,6 +13,9 @@ namespace Alloy.Sdk.Web
 		public Document Document;
 		public string Error;
 		public int Status;
+
+		// Where a redirect the client would not follow points (another scheme, usually https)
+		public string Redirect;
 		public readonly List<string> StylesheetUrls = new List<string>();
 		public readonly List<string> StylesheetText = new List<string>();
 		public LayoutBox Root;
@@ -27,13 +30,28 @@ namespace Alloy.Sdk.Web
 		{
 			Page page = new Page();
 			ulong start = Kernel.TickCount;
+			if (Address.IsSecure(url))
+			{
+				page.Url = Uri.TryCreate(url, UriKind.Absolute, out Uri secure) ? secure : null;
+				page.Error = "https is not supported yet";
+				page.Document = ErrorDocument("This page needs HTTPS", $"{Escape(url)} is only served over TLS, which this browser does not speak yet.");
+				return page;
+			}
 			HttpResponse response = Http.Get(url, timeoutMs);
 			page.Status = response.Status;
 			page.Url = response.Url ?? (Uri.TryCreate(url, UriKind.Absolute, out Uri parsed) ? parsed : null);
 			if (response.Status == 0)
 			{
 				page.Error = response.Error ?? "request failed";
-				page.Document = HtmlParser.Parse($"<html><body><h2>Can't open {Escape(url)}</h2><p>{Escape(page.Error)}</p></body></html>");
+				page.Document = ErrorDocument($"Can't open {Escape(url)}", Escape(page.Error));
+				page.FetchMs = (long)(Kernel.TickCount - start);
+				return page;
+			}
+			if (response.Status >= 300 && response.Status < 400 && response.Header("Location") is string location)
+			{
+				page.Redirect = location;
+				page.Error = $"redirects to {location}";
+				page.Document = ErrorDocument("This page moved", $"{Escape(url)} redirects to <a href=\"{Escape(location)}\">{Escape(location)}</a>{(Address.IsSecure(location) ? ", which needs HTTPS, and this browser does not speak TLS yet." : ".")}");
 				page.FetchMs = (long)(Kernel.TickCount - start);
 				return page;
 			}
@@ -123,6 +141,9 @@ namespace Alloy.Sdk.Web
 		}
 
 		public Uri Resolve(string href) => Url != null && Uri.TryCreate(Url, href, out Uri target) ? target : (Uri.TryCreate(href, UriKind.Absolute, out Uri absolute) ? absolute : null);
+
+		private static Document ErrorDocument(string heading, string detail) =>
+			HtmlParser.Parse($"<html><head><style>body {{ font-family: sans-serif; margin: 48px; color: #333 }} h1 {{ font-size: 24px }} p {{ max-width: 40em; line-height: 1.5 }}</style></head><body><h1>{heading}</h1><p>{detail}</p></body></html>");
 
 		private static string Escape(string text) => text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 	}

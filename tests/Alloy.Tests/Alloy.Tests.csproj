@@ -39,6 +39,7 @@
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Html\*.cs" Link="Shared\Sdk\Web\Html\%(Filename)%(Extension)" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Css\*.cs" Link="Shared\Sdk\Web\Css\%(Filename)%(Extension)" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Layout\*.cs" Link="Shared\Sdk\Web\Layout\%(Filename)%(Extension)" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Address.cs" Link="Shared\Sdk\Web\Address.cs" />
 	</ItemGroup>
 
 </Project>

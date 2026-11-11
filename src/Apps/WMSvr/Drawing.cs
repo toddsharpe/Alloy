@@ -43,6 +43,7 @@ namespace Alloy.Apps.WMSvr
 		private static readonly AppEntry[] s_apps =
 		{
 			new AppEntry("Terminal", "Command shell", "term.exe", Icons.Terminal),
+			new AppEntry("Browser", "Web browser", "browser.exe", Icons.Globe),
 			new AppEntry("Calc", "Four-function calculator", "calc.exe", Icons.Calc),
 			new AppEntry("Fire", "The Doom fire effect", "fire.exe", Icons.Flame),
 			new AppEntry("Doom", "Ultimate Doom, full screen", "doom.exe", Icons.Skull),
