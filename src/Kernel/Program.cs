@@ -141,10 +141,13 @@ namespace Alloy.Kernel
 		private static void StartIntegrationComponents()
 		{
 			bool shutdown = VmBus.TryFind(VmBus.ShutdownLow, VmBus.ShutdownHigh, out VmBusOffer offer) && ShutdownComponent.Start(in offer);
+			bool heartbeat = VmBus.TryFind(VmBus.HeartbeatLow, VmBus.HeartbeatHigh, out offer) && HeartbeatComponent.Start(in offer);
 
 			SpanWriter line = new SpanWriter(stackalloc char[128]);
 			line.Append("VmBus: integration components: shutdown ");
 			line.Append(shutdown ? "ready" : "missing");
+			line.Append(", heartbeat ");
+			line.Append(heartbeat ? "ready" : "missing");
 			Log.WriteLine(ref line);
 		}
 

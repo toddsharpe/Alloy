@@ -56,6 +56,8 @@ namespace Alloy.Kernel.Platform
 		public const ulong ScsiHigh = 0x7FDCB1FFE27205B6;
 		public const ulong ShutdownLow = 0x493452130E0B6031;
 		public const ulong ShutdownHigh = 0xDB39ED0CD9388B81;
+		public const ulong HeartbeatLow = 0x4E78911557164F39;
+		public const ulong HeartbeatHigh = 0x2D42D53B2F3855AB;
 
 		private static uint s_connectionId;
 		private static unsafe VmBusOffer* s_offers;
@@ -297,6 +299,8 @@ namespace Alloy.Kernel.Platform
 				line.Append(" scsi");
 			else if (offer.TypeLow == ShutdownLow && offer.TypeHigh == ShutdownHigh)
 				line.Append(" shutdown");
+			else if (offer.TypeLow == HeartbeatLow && offer.TypeHigh == HeartbeatHigh)
+				line.Append(" heartbeat");
 			Log.WriteLine(ref line);
 		}
 	}
