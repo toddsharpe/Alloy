@@ -93,6 +93,17 @@ namespace Alloy.Kernel.Arch
 					return UserMemory.CopyTo(frame->A0, &status, (ulong)sizeof(MemoryStatus)) ? 0 : Error(SyscallError.InvalidPointer);
 				}
 
+				case Syscall.PublishValue:
+				{
+					// A key and value for the host's key-value pair exchange; an empty value is allowed, an empty key isn't
+					Span<char> key = stackalloc char[256];
+					Span<char> value = stackalloc char[256];
+					int valueLength = 0;
+					if (!UserMemory.ReadPath(frame->A0, frame->A1, key, out int keyLength) || (frame->A3 != 0 && !UserMemory.ReadPath(frame->A2, frame->A3, value, out valueLength)))
+						return Error(SyscallError.InvalidPointer);
+					return Platform.KvpComponent.Publish(key.Slice(0, keyLength), value.Slice(0, valueLength)) ? 0 : Error(SyscallError.InvalidArgument);
+				}
+
 				case Syscall.SetExceptionDispatcher:
 					process.ExceptionDispatcher = frame->A0;
 					return 0;

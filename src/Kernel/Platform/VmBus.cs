@@ -60,6 +60,8 @@ namespace Alloy.Kernel.Platform
 		public const ulong HeartbeatHigh = 0x2D42D53B2F3855AB;
 		public const ulong TimeSyncLow = 0x497BD0AE9527E630;
 		public const ulong TimeSyncHigh = 0xAF5C17B00AE8CEAD;
+		public const ulong KvpLow = 0x4D965A45A9A0F4E7;
+		public const ulong KvpHigh = 0xE6038C1E848A27B8;
 
 		private static uint s_connectionId;
 		private static unsafe VmBusOffer* s_offers;
@@ -305,6 +307,8 @@ namespace Alloy.Kernel.Platform
 				line.Append(" heartbeat");
 			else if (offer.TypeLow == TimeSyncLow && offer.TypeHigh == TimeSyncHigh)
 				line.Append(" timesync");
+			else if (offer.TypeLow == KvpLow && offer.TypeHigh == KvpHigh)
+				line.Append(" kvp");
 			Log.WriteLine(ref line);
 		}
 	}

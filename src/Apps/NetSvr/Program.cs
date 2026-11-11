@@ -153,6 +153,9 @@ namespace Alloy.Apps.NetSvr
 					Stack.Ip = (uint)message.Data[1];
 					Stack.Mask = (uint)message.Data[2];
 					BinaryPrimitives.WriteUInt32LittleEndian(s_address.Span, Stack.Ip);
+					Kernel.PublishValue("NetworkAddressIPv4", Net.FormatIp(Stack.Ip));
+					Kernel.PublishValue("NetworkSubnetIPv4", Net.FormatIp(Stack.Mask));
+					Kernel.PublishValue("NetworkDhcpIPv4", "1");
 					return 0;
 
 				case NetProtocol.GetGateway:
@@ -161,6 +164,7 @@ namespace Alloy.Apps.NetSvr
 
 				case NetProtocol.SetGateway:
 					Stack.Gateway = (uint)message.Data[1];
+					Kernel.PublishValue("NetworkGatewayIPv4", Net.FormatIp(Stack.Gateway));
 					return 0;
 			}
 
