@@ -149,6 +149,8 @@ public class CssTests
 		Assert.Equal("#eeeeee", style.BackgroundColor.ToString());
 		Assert.Equal("a.png", style.BackgroundImage);
 		Assert.Equal("#eeeeee", Style("<div>x</div>", "div { background: linear-gradient(to right, rgb(1, 2, 3), blue) #eee }", "div").BackgroundColor.ToString());
+		Assert.Equal("#010203", Style("<div>x</div>", "div { background: radial-gradient(120% 140% at 50% -20%, rgb(1, 2, 3) 0%, blue 45%) }", "div").BackgroundColor.ToString());
+		Assert.Equal("#0000ff", Style("<div>x</div>", "div { background-image: linear-gradient(135deg, blue, red) }", "div").BackgroundColor.ToString());
 		Assert.Equal("#ff0000", Style("<div>x</div>", "div { background: rgb(255, 0, 0) }", "div").BackgroundColor.ToString());
 	}
 

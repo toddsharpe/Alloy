@@ -309,7 +309,7 @@ namespace Alloy.Apps.WMSvr
 				clientY = y - s_focus.Client.Y;
 			}
 			if (!move || !FullscreenActive)
-				Post(s_focus, WmProtocol.Mouse, buttons, (ulong)clientX, (ulong)clientY);
+				Post(s_focus, WmProtocol.Mouse, buttons, (ulong)clientX, (ulong)clientY, (ulong)(long)input.Wheel);
 			return !FullscreenActive;
 		}
 	}

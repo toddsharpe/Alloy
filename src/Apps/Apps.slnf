@@ -11,6 +11,7 @@
       "src\\Apps\\Hello\\Hello.csproj",
       "src\\Apps\\Http\\Http.csproj",
       "src\\Apps\\CssApp\\CssApp.csproj",
+      "src\\Apps\\PageView\\PageView.csproj",
       "src\\Apps\\HtmlApp\\HtmlApp.csproj",
       "src\\Apps\\Init\\Init.csproj",
       "src\\Apps\\IpcTest\\IpcTest.csproj",

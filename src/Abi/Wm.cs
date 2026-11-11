@@ -18,6 +18,7 @@ namespace Alloy.Abi
 		public const ulong WindowCreated = 101;
 		public const ulong KeyDown = 102;
 		public const ulong KeyUp = 103;
+		// Mouse carries the buttons, the client x and y, and the wheel movement (signed) in Data[1] to Data[4]
 		public const ulong Mouse = 104;
 		public const ulong Close = 105;
 		public const ulong Resize = 106;
