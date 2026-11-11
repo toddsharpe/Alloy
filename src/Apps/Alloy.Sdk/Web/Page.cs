@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Alloy.Sdk.Web.Css;
 using Alloy.Sdk.Web.Html;
+using Alloy.Sdk.Web.Images;
 using Alloy.Sdk.Web.Layout;
 
 namespace Alloy.Sdk.Web
@@ -16,6 +17,11 @@ namespace Alloy.Sdk.Web
 
 		// Where a redirect the client would not follow points (another scheme, usually https)
 		public string Redirect;
+		// Decoded images by absolute URL, and how many img elements asked for one
+		public readonly Dictionary<string, Bitmap> Images = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
+		public int ImageCount;
+		public const int MaxImages = 60;
+		public const int MaxImageBytes = 8 * 1024 * 1024;
 		public readonly List<string> StylesheetUrls = new List<string>();
 		public readonly List<string> StylesheetText = new List<string>();
 		public LayoutBox Root;
@@ -35,6 +41,7 @@ namespace Alloy.Sdk.Web
 				page.Url = Uri.TryCreate(url, UriKind.Absolute, out Uri secure) ? secure : null;
 				page.Error = "https is not supported yet";
 				page.Document = ErrorDocument("This page needs HTTPS", $"{Escape(url)} is only served over TLS, which this browser does not speak yet.");
+				page.CollectStylesheets(timeoutMs);
 				return page;
 			}
 			HttpResponse response = Http.Get(url, timeoutMs);
@@ -44,6 +51,7 @@ namespace Alloy.Sdk.Web
 			{
 				page.Error = response.Error ?? "request failed";
 				page.Document = ErrorDocument($"Can't open {Escape(url)}", Escape(page.Error));
+				page.CollectStylesheets(timeoutMs);
 				page.FetchMs = (long)(Kernel.TickCount - start);
 				return page;
 			}
@@ -52,10 +60,29 @@ namespace Alloy.Sdk.Web
 				page.Redirect = location;
 				page.Error = $"redirects to {location}";
 				page.Document = ErrorDocument("This page moved", $"{Escape(url)} redirects to <a href=\"{Escape(location)}\">{Escape(location)}</a>{(Address.IsSecure(location) ? ", which needs HTTPS, and this browser does not speak TLS yet." : ".")}");
+				page.CollectStylesheets(timeoutMs);
 				page.FetchMs = (long)(Kernel.TickCount - start);
 				return page;
 			}
 			string type = response.ContentType ?? "";
+			if (type.StartsWith("image/", StringComparison.OrdinalIgnoreCase) || (ImageDecoder.Sniff(response.Body) != null && !type.Contains("html", StringComparison.OrdinalIgnoreCase)))
+			{
+				// A bare image: shown on a page of its own, the way browsers do
+				string key = page.Url?.ToString() ?? url;
+				if (ImageDecoder.TryDecode(response.Body, out Bitmap bitmap, out string decodeError))
+				{
+					page.Images[key] = bitmap;
+					page.Document = HtmlParser.Parse($"<html><head><title>{Escape(key)} ({bitmap.Width}x{bitmap.Height})</title><style>body {{ margin: 0; background: #202124; text-align: center }} img {{ margin: 24px }}</style></head><body><img src=\"{Escape(key)}\"></body></html>");
+				}
+				else
+				{
+					page.Error = decodeError;
+					page.Document = ErrorDocument("Can't show this image", $"{Escape(key)}: {Escape(decodeError)}");
+				}
+				page.CollectStylesheets(timeoutMs);
+				page.FetchMs = (long)(Kernel.TickCount - start);
+				return page;
+			}
 			if (type.Contains("text/plain", StringComparison.OrdinalIgnoreCase))
 				page.Document = HtmlParser.Parse("<html><body><pre></pre></body></html>");
 			else
@@ -63,6 +90,7 @@ namespace Alloy.Sdk.Web
 			if (type.Contains("text/plain", StringComparison.OrdinalIgnoreCase))
 				page.Document.Body.FirstElement("pre").AppendChild(new TextNode(response.BodyText()));
 			page.CollectStylesheets(timeoutMs);
+			page.CollectImages(timeoutMs);
 			page.FetchMs = (long)(Kernel.TickCount - start);
 			return page;
 		}
@@ -107,6 +135,47 @@ namespace Alloy.Sdk.Web
 			}
 		}
 
+		// Fetches and decodes the pictures the img elements point at, each URL once, up to the limits
+		private void CollectImages(ulong timeoutMs)
+		{
+			foreach (Element element in Document.DescendantElements())
+			{
+				if (element.TagName != "img")
+					continue;
+				ImageCount++;
+				if (Images.Count >= MaxImages)
+					continue;
+				string key = ImageKey(element);
+				if (key == null || Images.ContainsKey(key))
+					continue;
+				Images[key] = null;
+				HttpResponse response = Http.Get(key, timeoutMs);
+				if (!response.Ok || response.Body.Length == 0 || response.Body.Length > MaxImageBytes)
+					continue;
+				if (ImageDecoder.TryDecode(response.Body, out Bitmap bitmap, out _))
+					Images[key] = bitmap;
+			}
+		}
+
+		// The absolute http URL of an img's src, or null when it is missing, relative to nothing, or another scheme
+		private string ImageKey(Element element)
+		{
+			string src = element.GetAttribute("src");
+			if (string.IsNullOrWhiteSpace(src))
+				return null;
+			Uri target = Resolve(src.Trim());
+			if (target == null || target.Scheme != "http")
+				return null;
+			return target.ToString();
+		}
+
+		// The picture for an img element, if it was fetched and decoded
+		public Bitmap ImageFor(Element element)
+		{
+			string key = ImageKey(element);
+			return key != null && Images.TryGetValue(key, out Bitmap bitmap) ? bitmap : null;
+		}
+
 		private static bool MediaAttributeApplies(Element element)
 		{
 			string media = element.GetAttribute("media");
@@ -125,7 +194,7 @@ namespace Alloy.Sdk.Web
 			StyleResolver resolver = new StyleResolver(media);
 			foreach (string css in StylesheetText)
 				resolver.AddStylesheet(CssParser.Parse(css, media));
-			Root = new BoxBuilder(resolver).Build(Document);
+			Root = new BoxBuilder(resolver, ImageFor).Build(Document);
 			new LayoutEngine(fonts, width, height).Layout(Root);
 			Display = Painter.Paint(Root, width, height);
 			LayoutMs = (long)(Kernel.TickCount - start);

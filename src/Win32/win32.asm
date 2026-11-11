@@ -93,6 +93,29 @@ log PROC
 	ret
 log ENDP
 
+; double cos(double x), sin(double x): the JPEG decoder's IDCT tables import these; the x87 does them in one instruction
+cos PROC
+	sub rsp, 16
+	movsd qword ptr [rsp], xmm0
+	fld qword ptr [rsp]
+	fcos
+	fstp qword ptr [rsp]
+	movsd xmm0, qword ptr [rsp]
+	add rsp, 16
+	ret
+cos ENDP
+
+sin PROC
+	sub rsp, 16
+	movsd qword ptr [rsp], xmm0
+	fld qword ptr [rsp]
+	fsin
+	fstp qword ptr [rsp]
+	movsd xmm0, qword ptr [rsp]
+	add rsp, 16
+	ret
+sin ENDP
+
 ; double sqrt(double x), ceil(double x), floor(double x), fmod: CoreLib's Math imports these in unoptimized (Debug) builds; one SSE instruction each
 sqrt PROC
 	sqrtsd xmm0, xmm0

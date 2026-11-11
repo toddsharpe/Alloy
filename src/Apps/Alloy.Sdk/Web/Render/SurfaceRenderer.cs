@@ -4,6 +4,7 @@ using Alloy.Graphics;
 using Alloy.Sdk.Text;
 using Alloy.Sdk.UI;
 using Alloy.Sdk.Web.Css;
+using Alloy.Sdk.Web.Images;
 using Alloy.Sdk.Web.Layout;
 
 namespace Alloy.Sdk.Web.Render
@@ -140,6 +141,11 @@ namespace Alloy.Sdk.Web.Render
 					case DisplayItemKind.Image:
 					{
 						Rectangle box = ToRectangle(item, scrollX, scrollY, viewport);
+						if (item.Image != null)
+						{
+							DrawBitmap(in surface, item.Image, box, Intersect(clip, box));
+							break;
+						}
 						FillRect(in surface, Intersect(clip, box), Color.FromRgb(0xDD, 0xDD, 0xDD));
 						Rectangle inner = Intersect(clip, box);
 						if (inner.Width > 2 && inner.Height > 2)
@@ -165,6 +171,36 @@ namespace Alloy.Sdk.Web.Render
 							surface.DrawText(x, baseline - 8, item.Text, item.Color.Rgb, 1);
 						break;
 					}
+				}
+			}
+		}
+
+		// Nearest-neighbour scaling into the box, blending pixels with alpha over what is there
+		private static void DrawBitmap(in Surface surface, Bitmap bitmap, Rectangle box, Rectangle clip)
+		{
+			if (clip.Width <= 0 || clip.Height <= 0 || box.Width <= 0 || box.Height <= 0)
+				return;
+			bool opaque = bitmap.IsOpaque;
+			long stepX = ((long)bitmap.Width << 16) / box.Width;
+			long stepY = ((long)bitmap.Height << 16) / box.Height;
+			for (int y = clip.Y; y < clip.Y + clip.Height; y++)
+			{
+				int sourceY = (int)(((long)(y - box.Y) * stepY) >> 16);
+				if (sourceY >= bitmap.Height)
+					sourceY = bitmap.Height - 1;
+				Span<uint> row = surface.Row(y);
+				int sourceRow = sourceY * bitmap.Width;
+				long sx = (long)(clip.X - box.X) * stepX;
+				for (int x = clip.X; x < clip.X + clip.Width; x++, sx += stepX)
+				{
+					int sourceX = (int)(sx >> 16);
+					if (sourceX >= bitmap.Width)
+						sourceX = bitmap.Width - 1;
+					uint pixel = bitmap.Pixels[sourceRow + sourceX];
+					if (opaque || pixel >= 0xFF000000)
+						row[x] = pixel & 0xFFFFFF;
+					else if (pixel >= 0x01000000)
+						row[x] = new Color(pixel).Over(row[x]);
 				}
 			}
 		}
