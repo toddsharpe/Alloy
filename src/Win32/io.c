@@ -100,6 +100,41 @@ BOOL WriteFile(HANDLE file, const void* buffer, DWORD count, DWORD* written, PVO
 	return TRUE;
 }
 
+// Reads from a pipe or file handle the kernel gave the process; 0 bytes at the end, as Windows reports it
+BOOL ReadFile(HANDLE file, void* buffer, DWORD count, DWORD* read, PVOID overlapped)
+{
+	(void)overlapped;
+	if (file == NULL || file == INVALID_HANDLE_VALUE || file == PhxLogHandle || file == PhxCurrentThreadHandle)
+	{
+		SetLastError(ERROR_INVALID_HANDLE);
+		return FALSE;
+	}
+	LONG64 result = PhxSyscall3(PhxSysReadFile, file, buffer, count);
+	if (result < 0)
+	{
+		if (read != NULL)
+			*read = 0;
+		SetLastError(result == PhxErrorClosed ? 109 : ERROR_INVALID_HANDLE);
+		return result == PhxErrorClosed;
+	}
+	if (read != NULL)
+		*read = (DWORD)result;
+	return TRUE;
+}
+
+// There is no console device: standard input is a pipe, which the runtime reads with ReadFile once GetConsoleMode has refused it
+BOOL ReadConsoleW(HANDLE console, void* buffer, DWORD count, DWORD* read, PVOID control)
+{
+	(void)console;
+	(void)buffer;
+	(void)count;
+	(void)control;
+	if (read != NULL)
+		*read = 0;
+	SetLastError(ERROR_INVALID_HANDLE);
+	return FALSE;
+}
+
 static int PhxEncodeUtf8(DWORD code, char* out)
 {
 	if (code < 0x80)

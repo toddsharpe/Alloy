@@ -348,11 +348,11 @@ typedef struct { _PVFV* _first; _PVFV* _last; _PVFV* _end; } _onexit_table_t;
 	X(GetCommandLineW) X(GetConsoleMode) X(GetConsoleOutputCP) X(GetCurrentProcess) X(GetCurrentProcessId) X(GetCurrentProcessorNumber) X(GetCurrentProcessorNumberEx) X(GetCurrentThread) X(GetCurrentThreadId) \
 	X(GetEnabledXStateFeatures) X(GetEnvironmentVariableW) X(GetFileType) X(GetLargePageMinimum) X(GetLastError) X(GetLogicalProcessorInformation) X(GetLogicalProcessorInformationEx) \
 	X(GetModuleFileNameW) X(GetModuleHandleExW) X(GetModuleHandleW) X(GetNumaHighestNodeNumber) X(GetNumaNodeProcessorMaskEx) X(GetNumaProcessorNodeEx) X(GetProcAddress) \
-	X(GetProcessAffinityMask) X(GetProcessGroupAffinity) X(GetStartupInfoW) X(GetStdHandle) X(GetSystemInfo) X(GetSystemTimeAsFileTime) X(GetThreadContext) X(GetThreadIdealProcessorEx) \
-	X(GetThreadPriority) X(GetTickCount64) X(GetWriteWatch) X(GlobalMemoryStatusEx) X(InitializeContext) X(InitializeCriticalSection) X(InitializeCriticalSectionAndSpinCount) \
+	X(GetProcessAffinityMask) X(GetProcessGroupAffinity) X(GetProcessHeap) X(GetStartupInfoW) X(GetStdHandle) X(GetSystemInfo) X(GetSystemTimeAsFileTime) X(GetThreadContext) X(GetThreadIdealProcessorEx) \
+	X(GetThreadPriority) X(GetTickCount64) X(GetWriteWatch) X(GlobalMemoryStatusEx) X(HeapAlloc) X(HeapCreate) X(HeapDestroy) X(HeapFree) X(HeapReAlloc) X(HeapSize) X(InitializeContext) X(InitializeCriticalSection) X(InitializeCriticalSectionAndSpinCount) \
 	X(InitializeCriticalSectionEx) X(InterlockedFlushSList) X(InterlockedPushEntrySList) X(IsDebuggerPresent) X(IsProcessInJob) X(IsProcessorFeaturePresent) X(K32GetProcessMemoryInfo) \
 	X(LeaveCriticalSection) X(LoadLibraryExW) X(LocalFree) X(LocateXStateFeature) X(LookupPrivilegeValueW) X(MultiByteToWideChar) X(OpenProcessToken) X(QueryInformationJobObject) \
-	X(QueryPerformanceCounter) X(QueryPerformanceFrequency) X(RaiseException) X(RaiseFailFastException) X(RegisterEventSourceW) X(ReportEventW) X(ResetEvent) X(ResetWriteWatch) \
+	X(QueryPerformanceCounter) X(QueryPerformanceFrequency) X(RaiseException) X(RaiseFailFastException) X(ReadConsoleW) X(ReadFile) X(RegisterEventSourceW) X(ReportEventW) X(ResetEvent) X(ResetWriteWatch) \
 	X(ResumeThread) X(RtlCaptureContext) X(RtlCaptureStackBackTrace) X(RtlLookupFunctionEntry) X(RtlPcToFileHeader) X(RtlRestoreContext) X(RtlUnwindEx) X(RtlVirtualUnwind) \
 	X(SetEvent) X(SetLastError) X(SetThreadAffinityMask) X(SetThreadContext) X(SetThreadGroupAffinity) X(SetThreadIdealProcessorEx) X(SetThreadPriority) X(SetUnhandledExceptionFilter) \
 	X(SetXStateFeaturesMask) X(Sleep) X(SleepEx) X(SuspendThread) X(SwitchToThread) X(TerminateProcess) X(TlsAlloc) X(TlsFree) X(TlsGetValue) X(TlsSetValue) X(TryEnterCriticalSection) \
@@ -490,6 +490,15 @@ DWORD WaitForSingleObjectEx(HANDLE handle, DWORD milliseconds, BOOL alertable);
 int WideCharToMultiByte(DWORD codePage, DWORD flags, const wchar_t* chars, int charCount, char* bytes, int byteCount, const char* defaultChar, BOOL* usedDefault);
 BOOL WriteConsoleW(HANDLE console, const void* buffer, DWORD count, DWORD* written, PVOID reserved);
 BOOL WriteFile(HANDLE file, const void* buffer, DWORD count, DWORD* written, PVOID overlapped);
+BOOL ReadFile(HANDLE file, void* buffer, DWORD count, DWORD* read, PVOID overlapped);
+BOOL ReadConsoleW(HANDLE console, void* buffer, DWORD count, DWORD* read, PVOID control);
+HANDLE GetProcessHeap(void);
+HANDLE HeapCreate(DWORD options, SIZE_T initialSize, SIZE_T maximumSize);
+BOOL HeapDestroy(HANDLE heap);
+PVOID HeapAlloc(HANDLE heap, DWORD flags, SIZE_T size);
+BOOL HeapFree(HANDLE heap, DWORD flags, PVOID block);
+SIZE_T HeapSize(HANDLE heap, DWORD flags, const void* block);
+PVOID HeapReAlloc(HANDLE heap, DWORD flags, PVOID block, SIZE_T size);
 
 // C runtime pieces libcmt and the runtime import from the UCRT (crt.c)
 void* malloc(size_t size);
@@ -524,6 +533,7 @@ enum PhxSyscallNumber
 	PhxSysGetThreadContext = 0x307,
 	PhxSysSetThreadContext = 0x308,
 	PhxSysGetThreadId = 0x309,
+	PhxSysReadFile = 0x401,
 	PhxSysWriteFile = 0x404,
 	PhxSysCloseHandle = 0x500,
 	PhxSysWaitForObject = 0x600,
