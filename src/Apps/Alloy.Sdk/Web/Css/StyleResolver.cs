@@ -440,6 +440,8 @@ namespace Alloy.Sdk.Web.Css
 					break;
 				case "background-image":
 					_style.BackgroundImage = tokens[0].Type == CssTokenType.Url ? tokens[0].Value : null;
+					if (tokens[0].Type == CssTokenType.Function && tokens[0].Value.EndsWith("gradient", StringComparison.OrdinalIgnoreCase))
+						SkipFunction(tokens, 0, true);
 					break;
 				case "font-size":
 					ApplyFontSize(tokens[0]);
@@ -936,15 +938,7 @@ namespace Alloy.Sdk.Web.Css
 					}
 					if (token.Type == CssTokenType.Function && !IsColorFunction(token.Value))
 					{
-						int nested = 1;
-						while (++i < layer.Count && nested > 0)
-						{
-							if (layer[i].Type == CssTokenType.Function || layer[i].Type == CssTokenType.OpenParen)
-								nested++;
-							else if (layer[i].Type == CssTokenType.CloseParen)
-								nested--;
-						}
-						i--;
+						i = SkipFunction(layer, i, token.Value.EndsWith("gradient", StringComparison.OrdinalIgnoreCase));
 						continue;
 					}
 					if (CssValue.TryColor(layer, i, out Color color, out int consumed))
@@ -957,6 +951,30 @@ namespace Alloy.Sdk.Web.Css
 		}
 
 		private static bool IsColorFunction(string name) => name.ToLowerInvariant() is "rgb" or "rgba" or "hsl" or "hsla" or "light-dark";
+
+		// Steps past a function's arguments; a gradient's first colour stop stands in for the gradient when nothing else paints the background
+		private int SkipFunction(List<CssToken> tokens, int at, bool gradient)
+		{
+			int nested = 1;
+			int i = at;
+			bool found = !_style.BackgroundColor.IsTransparent || !gradient;
+			while (++i < tokens.Count && nested > 0)
+			{
+				CssTokenType type = tokens[i].Type;
+				if (!found && nested == 1 && CssValue.TryColor(tokens, i, out Color stop, out int consumed))
+				{
+					_style.BackgroundColor = stop;
+					found = true;
+					i += consumed - 1;
+					continue;
+				}
+				if (type == CssTokenType.Function || type == CssTokenType.OpenParen)
+					nested++;
+				else if (type == CssTokenType.CloseParen)
+					nested--;
+			}
+			return i - 1;
+		}
 
 		private void ApplyFontSize(CssToken token)
 		{

@@ -1,0 +1,129 @@
+using System;
+using System.Collections.Generic;
+using Alloy.Sdk.Web.Css;
+using Alloy.Sdk.Web.Html;
+using Alloy.Sdk.Web.Layout;
+
+namespace Alloy.Sdk.Web
+{
+	// A fetched page: its document, the stylesheets it linked and embedded, and the layout and display list for a viewport
+	public sealed class Page
+	{
+		public Uri Url;
+		public Document Document;
+		public string Error;
+		public int Status;
+		public readonly List<string> StylesheetUrls = new List<string>();
+		public readonly List<string> StylesheetText = new List<string>();
+		public LayoutBox Root;
+		public DisplayList Display;
+		public long FetchMs;
+		public long LayoutMs;
+
+		public string Title => Document?.Title ?? Url?.Host ?? "";
+
+		// Fetches a URL and its stylesheets; a failure is reported through Error and an empty document
+		public static Page Load(string url, ulong timeoutMs = 15000)
+		{
+			Page page = new Page();
+			ulong start = Kernel.TickCount;
+			HttpResponse response = Http.Get(url, timeoutMs);
+			page.Status = response.Status;
+			page.Url = response.Url ?? (Uri.TryCreate(url, UriKind.Absolute, out Uri parsed) ? parsed : null);
+			if (response.Status == 0)
+			{
+				page.Error = response.Error ?? "request failed";
+				page.Document = HtmlParser.Parse($"<html><body><h2>Can't open {Escape(url)}</h2><p>{Escape(page.Error)}</p></body></html>");
+				page.FetchMs = (long)(Kernel.TickCount - start);
+				return page;
+			}
+			string type = response.ContentType ?? "";
+			if (type.Contains("text/plain", StringComparison.OrdinalIgnoreCase))
+				page.Document = HtmlParser.Parse("<html><body><pre></pre></body></html>");
+			else
+				page.Document = HtmlParser.Parse(response.BodyText());
+			if (type.Contains("text/plain", StringComparison.OrdinalIgnoreCase))
+				page.Document.Body.FirstElement("pre").AppendChild(new TextNode(response.BodyText()));
+			page.CollectStylesheets(timeoutMs);
+			page.FetchMs = (long)(Kernel.TickCount - start);
+			return page;
+		}
+
+		// A page from markup already in hand, for errors and tests
+		public static Page FromHtml(string html, Uri url = null)
+		{
+			Page page = new Page { Url = url, Document = HtmlParser.Parse(html) };
+			foreach (Element element in page.Document.DescendantElements())
+			{
+				if (element.TagName == "style")
+					page.StylesheetText.Add(element.TextContent);
+			}
+			return page;
+		}
+
+		private void CollectStylesheets(ulong timeoutMs)
+		{
+			foreach (Element element in Document.DescendantElements())
+			{
+				if (element.TagName == "style")
+				{
+					if (MediaAttributeApplies(element))
+						StylesheetText.Add(element.TextContent);
+					continue;
+				}
+				if (element.TagName != "link" || StylesheetUrls.Count >= 12)
+					continue;
+				string rel = element.GetAttribute("rel") ?? "";
+				if (!rel.Contains("stylesheet", StringComparison.OrdinalIgnoreCase) || rel.Contains("alternate", StringComparison.OrdinalIgnoreCase))
+					continue;
+				if (!MediaAttributeApplies(element))
+					continue;
+				string href = element.GetAttribute("href");
+				if (string.IsNullOrEmpty(href) || Url == null || !Uri.TryCreate(Url, href, out Uri target))
+					continue;
+				if (target.Scheme != "http")
+					continue;
+				StylesheetUrls.Add(target.ToString());
+				HttpResponse response = Http.Get(target, timeoutMs);
+				StylesheetText.Add(response.Ok ? response.BodyText() : "");
+			}
+		}
+
+		private static bool MediaAttributeApplies(Element element)
+		{
+			string media = element.GetAttribute("media");
+			if (string.IsNullOrWhiteSpace(media))
+				return true;
+			return MediaQuery.Matches(CssTokenizer.Tokenize(media), new MediaEnvironment(CssValue.Viewport.Width, CssValue.Viewport.Height));
+		}
+
+		// Styles, lays out and paints the document for a viewport; call again after a resize
+		public void Layout(int width, int height, IFontProvider fonts)
+		{
+			ulong start = Kernel.TickCount;
+			CssValue.Viewport.Width = width;
+			CssValue.Viewport.Height = height;
+			MediaEnvironment media = new MediaEnvironment(width, height);
+			StyleResolver resolver = new StyleResolver(media);
+			foreach (string css in StylesheetText)
+				resolver.AddStylesheet(CssParser.Parse(css, media));
+			Root = new BoxBuilder(resolver).Build(Document);
+			new LayoutEngine(fonts, width, height).Layout(Root);
+			Display = Painter.Paint(Root, width, height);
+			LayoutMs = (long)(Kernel.TickCount - start);
+		}
+
+		// The link under a document point, if any
+		public Element LinkAt(float x, float y)
+		{
+			if (Root == null)
+				return null;
+			LayoutBox hit = Painter.HitTest(Root, x, y);
+			return hit == null ? null : Painter.LinkFor(hit.Node);
+		}
+
+		public Uri Resolve(string href) => Url != null && Uri.TryCreate(Url, href, out Uri target) ? target : (Uri.TryCreate(href, UriKind.Absolute, out Uri absolute) ? absolute : null);
+
+		private static string Escape(string text) => text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+	}
+}

@@ -272,7 +272,7 @@ namespace Alloy.Apps.WMSvr
 		}
 
 		// A message for a window to its owner's port, stamped with the window's id; a full port drops it
-		private static void Post(WmWindow window, ulong type, ulong a = 0, ulong b = 0, ulong c = 0)
+		private static void Post(WmWindow window, ulong type, ulong a = 0, ulong b = 0, ulong c = 0, ulong d = 0)
 		{
 			IpcMessage message = default;
 			message.Type = type;
@@ -280,6 +280,7 @@ namespace Alloy.Apps.WMSvr
 			message.Data[1] = a;
 			message.Data[2] = b;
 			message.Data[3] = c;
+			message.Data[4] = d;
 			Port.Send(window.Owner.Reply, message);
 		}
 
