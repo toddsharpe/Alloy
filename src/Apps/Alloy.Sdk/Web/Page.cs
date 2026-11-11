@@ -22,6 +22,7 @@ namespace Alloy.Sdk.Web
 		public int ImageCount;
 		public const int MaxImages = 60;
 		public const int MaxImageBytes = 8 * 1024 * 1024;
+		public const int ImageThreads = 4;
 		public readonly List<string> StylesheetUrls = new List<string>();
 		public readonly List<string> StylesheetText = new List<string>();
 		public LayoutBox Root;
@@ -127,26 +128,57 @@ namespace Alloy.Sdk.Web
 			}
 		}
 
-		// Fetches and decodes the pictures the img elements point at, each URL once, up to the limits
+		// Fetches and decodes the pictures the img elements point at, each URL once, up to the limits, on a few threads at once
 		private void CollectImages(ulong timeoutMs)
 		{
+			List<string> keys = new List<string>();
 			foreach (Element element in Document.DescendantElements())
 			{
 				if (element.TagName != "img")
 					continue;
 				ImageCount++;
-				if (Images.Count >= MaxImages)
+				if (keys.Count >= MaxImages)
 					continue;
 				string key = ImageKey(element);
 				if (key == null || Images.ContainsKey(key))
 					continue;
 				Images[key] = null;
-				HttpResponse response = Http.Get(key, timeoutMs);
-				if (!response.Ok || response.Body.Length == 0 || response.Body.Length > MaxImageBytes)
-					continue;
-				if (ImageDecoder.TryDecode(response.Body, out Bitmap bitmap, out _))
-					Images[key] = bitmap;
+				keys.Add(key);
 			}
+			if (keys.Count == 0)
+				return;
+			int next = 0;
+			void Worker()
+			{
+				while (true)
+				{
+					string key;
+					lock (keys)
+					{
+						if (next >= keys.Count)
+							return;
+						key = keys[next++];
+					}
+					HttpResponse response = Http.Get(key, timeoutMs);
+					if (!response.Ok || response.Body.Length == 0 || response.Body.Length > MaxImageBytes)
+						continue;
+					if (ImageDecoder.TryDecode(response.Body, out Bitmap bitmap, out _))
+					{
+						lock (Images)
+							Images[key] = bitmap;
+					}
+				}
+			}
+			int threads = Math.Min(ImageThreads, keys.Count);
+			System.Threading.Thread[] workers = new System.Threading.Thread[threads - 1];
+			for (int i = 0; i < workers.Length; i++)
+			{
+				workers[i] = new System.Threading.Thread(Worker) { IsBackground = true };
+				workers[i].Start();
+			}
+			Worker();
+			foreach (System.Threading.Thread worker in workers)
+				worker.Join();
 		}
 
 		// The absolute http URL of an img's src, or null when it is missing, relative to nothing, or another scheme

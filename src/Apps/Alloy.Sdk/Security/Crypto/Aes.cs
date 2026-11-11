@@ -3,12 +3,30 @@ using System.Buffers.Binary;
 
 namespace Alloy.Sdk.Security.Crypto
 {
-	// AES block encryption (FIPS 197) for 128, 192 and 256-bit keys; only the forward cipher, which is all GCM needs
+	// AES block encryption (FIPS 197) for 128, 192 and 256-bit keys with the usual T-tables; only the forward cipher, which is all GCM needs
 	public sealed class Aes
 	{
 		private static readonly byte[] SBox = BuildSBox();
-		private readonly byte[] _roundKeys;
+		private static readonly uint[] Te0 = new uint[256];
+		private static readonly uint[] Te1 = new uint[256];
+		private static readonly uint[] Te2 = new uint[256];
+		private static readonly uint[] Te3 = new uint[256];
+		private readonly uint[] _roundKeys;
 		private readonly int _rounds;
+
+		static Aes()
+		{
+			for (int i = 0; i < 256; i++)
+			{
+				uint s = SBox[i];
+				uint s2 = Xtime((byte)s);
+				uint s3 = s2 ^ s;
+				Te0[i] = s2 << 24 | s << 16 | s << 8 | s3;
+				Te1[i] = s3 << 24 | s2 << 16 | s << 8 | s;
+				Te2[i] = s << 24 | s3 << 16 | s2 << 8 | s;
+				Te3[i] = s << 24 | s << 16 | s3 << 8 | s2;
+			}
+		}
 
 		public Aes(ReadOnlySpan<byte> key)
 		{
@@ -16,87 +34,54 @@ namespace Alloy.Sdk.Security.Crypto
 				throw new ArgumentException("AES keys are 16, 24 or 32 bytes");
 			int nk = key.Length / 4;
 			_rounds = nk + 6;
-			_roundKeys = new byte[16 * (_rounds + 1)];
-			key.CopyTo(_roundKeys);
-			byte rcon = 1;
-			for (int i = nk; i < 4 * (_rounds + 1); i++)
+			_roundKeys = new uint[4 * (_rounds + 1)];
+			for (int i = 0; i < nk; i++)
+				_roundKeys[i] = BinaryPrimitives.ReadUInt32BigEndian(key.Slice(i * 4));
+			uint rcon = 1;
+			for (int i = nk; i < _roundKeys.Length; i++)
 			{
-				byte t0 = _roundKeys[(i - 1) * 4];
-				byte t1 = _roundKeys[(i - 1) * 4 + 1];
-				byte t2 = _roundKeys[(i - 1) * 4 + 2];
-				byte t3 = _roundKeys[(i - 1) * 4 + 3];
+				uint t = _roundKeys[i - 1];
 				if (i % nk == 0)
 				{
-					(t0, t1, t2, t3) = ((byte)(SBox[t1] ^ rcon), SBox[t2], SBox[t3], SBox[t0]);
-					rcon = Xtime(rcon);
+					t = SubWord(t << 8 | t >> 24) ^ rcon << 24;
+					rcon = Xtime((byte)rcon);
 				}
 				else if (nk > 6 && i % nk == 4)
-					(t0, t1, t2, t3) = (SBox[t0], SBox[t1], SBox[t2], SBox[t3]);
-				_roundKeys[i * 4] = (byte)(_roundKeys[(i - nk) * 4] ^ t0);
-				_roundKeys[i * 4 + 1] = (byte)(_roundKeys[(i - nk) * 4 + 1] ^ t1);
-				_roundKeys[i * 4 + 2] = (byte)(_roundKeys[(i - nk) * 4 + 2] ^ t2);
-				_roundKeys[i * 4 + 3] = (byte)(_roundKeys[(i - nk) * 4 + 3] ^ t3);
+					t = SubWord(t);
+				_roundKeys[i] = _roundKeys[i - nk] ^ t;
 			}
 		}
+
+		private static uint SubWord(uint w) => (uint)(SBox[w >> 24] << 24 | SBox[(w >> 16) & 0xFF] << 16 | SBox[(w >> 8) & 0xFF] << 8 | SBox[w & 0xFF]);
 
 		public void Encrypt(ReadOnlySpan<byte> input, Span<byte> output)
 		{
-			Span<byte> s = stackalloc byte[16];
-			input.Slice(0, 16).CopyTo(s);
-			AddRoundKey(s, 0);
-			for (int round = 1; round < _rounds; round++)
+			uint[] rk = _roundKeys;
+			uint s0 = BinaryPrimitives.ReadUInt32BigEndian(input) ^ rk[0];
+			uint s1 = BinaryPrimitives.ReadUInt32BigEndian(input.Slice(4)) ^ rk[1];
+			uint s2 = BinaryPrimitives.ReadUInt32BigEndian(input.Slice(8)) ^ rk[2];
+			uint s3 = BinaryPrimitives.ReadUInt32BigEndian(input.Slice(12)) ^ rk[3];
+			int k = 4;
+			for (int round = 1; round < _rounds; round++, k += 4)
 			{
-				SubBytes(s);
-				ShiftRows(s);
-				MixColumns(s);
-				AddRoundKey(s, round);
+				uint t0 = Te0[s0 >> 24] ^ Te1[(s1 >> 16) & 0xFF] ^ Te2[(s2 >> 8) & 0xFF] ^ Te3[s3 & 0xFF] ^ rk[k];
+				uint t1 = Te0[s1 >> 24] ^ Te1[(s2 >> 16) & 0xFF] ^ Te2[(s3 >> 8) & 0xFF] ^ Te3[s0 & 0xFF] ^ rk[k + 1];
+				uint t2 = Te0[s2 >> 24] ^ Te1[(s3 >> 16) & 0xFF] ^ Te2[(s0 >> 8) & 0xFF] ^ Te3[s1 & 0xFF] ^ rk[k + 2];
+				uint t3 = Te0[s3 >> 24] ^ Te1[(s0 >> 16) & 0xFF] ^ Te2[(s1 >> 8) & 0xFF] ^ Te3[s2 & 0xFF] ^ rk[k + 3];
+				s0 = t0;
+				s1 = t1;
+				s2 = t2;
+				s3 = t3;
 			}
-			SubBytes(s);
-			ShiftRows(s);
-			AddRoundKey(s, _rounds);
-			s.CopyTo(output);
-		}
-
-		private void AddRoundKey(Span<byte> s, int round)
-		{
-			for (int i = 0; i < 16; i++)
-				s[i] ^= _roundKeys[round * 16 + i];
-		}
-
-		private static void SubBytes(Span<byte> s)
-		{
-			for (int i = 0; i < 16; i++)
-				s[i] = SBox[s[i]];
-		}
-
-		// State is column-major: byte i sits at row i % 4, column i / 4
-		private static void ShiftRows(Span<byte> s)
-		{
-			byte t = s[1];
-			s[1] = s[5];
-			s[5] = s[9];
-			s[9] = s[13];
-			s[13] = t;
-			(s[2], s[10]) = (s[10], s[2]);
-			(s[6], s[14]) = (s[14], s[6]);
-			t = s[15];
-			s[15] = s[11];
-			s[11] = s[7];
-			s[7] = s[3];
-			s[3] = t;
-		}
-
-		private static void MixColumns(Span<byte> s)
-		{
-			for (int c = 0; c < 4; c++)
-			{
-				int i = c * 4;
-				byte a0 = s[i], a1 = s[i + 1], a2 = s[i + 2], a3 = s[i + 3];
-				s[i] = (byte)(Xtime(a0) ^ (Xtime(a1) ^ a1) ^ a2 ^ a3);
-				s[i + 1] = (byte)(a0 ^ Xtime(a1) ^ (Xtime(a2) ^ a2) ^ a3);
-				s[i + 2] = (byte)(a0 ^ a1 ^ Xtime(a2) ^ (Xtime(a3) ^ a3));
-				s[i + 3] = (byte)((Xtime(a0) ^ a0) ^ a1 ^ a2 ^ Xtime(a3));
-			}
+			// The last round has no MixColumns: SubBytes and ShiftRows only
+			uint r0 = (uint)(SBox[s0 >> 24] << 24 | SBox[(s1 >> 16) & 0xFF] << 16 | SBox[(s2 >> 8) & 0xFF] << 8 | SBox[s3 & 0xFF]) ^ rk[k];
+			uint r1 = (uint)(SBox[s1 >> 24] << 24 | SBox[(s2 >> 16) & 0xFF] << 16 | SBox[(s3 >> 8) & 0xFF] << 8 | SBox[s0 & 0xFF]) ^ rk[k + 1];
+			uint r2 = (uint)(SBox[s2 >> 24] << 24 | SBox[(s3 >> 16) & 0xFF] << 16 | SBox[(s0 >> 8) & 0xFF] << 8 | SBox[s1 & 0xFF]) ^ rk[k + 2];
+			uint r3 = (uint)(SBox[s3 >> 24] << 24 | SBox[(s0 >> 16) & 0xFF] << 16 | SBox[(s1 >> 8) & 0xFF] << 8 | SBox[s2 & 0xFF]) ^ rk[k + 3];
+			BinaryPrimitives.WriteUInt32BigEndian(output, r0);
+			BinaryPrimitives.WriteUInt32BigEndian(output.Slice(4), r1);
+			BinaryPrimitives.WriteUInt32BigEndian(output.Slice(8), r2);
+			BinaryPrimitives.WriteUInt32BigEndian(output.Slice(12), r3);
 		}
 
 		private static byte Xtime(byte x) => (byte)((x << 1) ^ ((x & 0x80) != 0 ? 0x1b : 0));
@@ -125,20 +110,48 @@ namespace Alloy.Sdk.Security.Crypto
 		private static byte RotateLeft(byte x, int n) => (byte)((x << n) | (x >> (8 - n)));
 	}
 
-	// AES-GCM (NIST SP 800-38D) with 12-byte nonces and 16-byte tags, as TLS uses it
+	// AES-GCM (NIST SP 800-38D) with 12-byte nonces and 16-byte tags, as TLS uses it; GHASH runs four bits at a time from a table of H's multiples
 	public sealed class AesGcm : IAead
 	{
+		private static readonly ulong[] Reduction =
+		{
+			0x0000, 0x1c20, 0x3840, 0x2460, 0x7080, 0x6ca0, 0x48c0, 0x54e0, 0xe100, 0xfd20, 0xd940, 0xc560, 0x9180, 0x8da0, 0xa9c0, 0xb5e0,
+		};
+
 		private readonly Aes _aes;
-		private readonly ulong _hHigh;
-		private readonly ulong _hLow;
+		private readonly ulong[] _tableHigh = new ulong[16];
+		private readonly ulong[] _tableLow = new ulong[16];
 
 		public AesGcm(ReadOnlySpan<byte> key)
 		{
 			_aes = new Aes(key);
 			Span<byte> h = stackalloc byte[16];
 			_aes.Encrypt(new byte[16], h);
-			_hHigh = BinaryPrimitives.ReadUInt64BigEndian(h);
-			_hLow = BinaryPrimitives.ReadUInt64BigEndian(h.Slice(8));
+			ulong hHigh = BinaryPrimitives.ReadUInt64BigEndian(h);
+			ulong hLow = BinaryPrimitives.ReadUInt64BigEndian(h.Slice(8));
+			// Table entry i holds i times H in GCM's bit order, built by doubling from the top bit down
+			_tableHigh[8] = hHigh;
+			_tableLow[8] = hLow;
+			for (int i = 4; i > 0; i >>= 1)
+			{
+				ulong high = _tableHigh[i * 2];
+				ulong low = _tableLow[i * 2];
+				bool lsb = (low & 1) != 0;
+				low = (low >> 1) | (high << 63);
+				high >>= 1;
+				if (lsb)
+					high ^= 0xe100000000000000;
+				_tableHigh[i] = high;
+				_tableLow[i] = low;
+			}
+			for (int i = 2; i < 16; i <<= 1)
+			{
+				for (int j = 1; j < i; j++)
+				{
+					_tableHigh[i + j] = _tableHigh[i] ^ _tableHigh[j];
+					_tableLow[i + j] = _tableLow[i] ^ _tableLow[j];
+				}
+			}
 		}
 
 		public int TagSize => 16;
@@ -204,37 +217,46 @@ namespace Alloy.Sdk.Security.Crypto
 
 		private void Ghash(ref ulong high, ref ulong low, ReadOnlySpan<byte> data)
 		{
-			Span<byte> block = stackalloc byte[16];
-			for (int offset = 0; offset < data.Length; offset += 16)
+			int full = data.Length & ~15;
+			for (int offset = 0; offset < full; offset += 16)
 			{
+				high ^= BinaryPrimitives.ReadUInt64BigEndian(data.Slice(offset));
+				low ^= BinaryPrimitives.ReadUInt64BigEndian(data.Slice(offset + 8));
+				Multiply(ref high, ref low);
+			}
+			if (full < data.Length)
+			{
+				Span<byte> block = stackalloc byte[16];
 				block.Clear();
-				data.Slice(offset, Math.Min(16, data.Length - offset)).CopyTo(block);
+				data.Slice(full).CopyTo(block);
 				high ^= BinaryPrimitives.ReadUInt64BigEndian(block);
 				low ^= BinaryPrimitives.ReadUInt64BigEndian(block.Slice(8));
 				Multiply(ref high, ref low);
 			}
 		}
 
-		// Multiplication in GF(2^128) with GCM's bit order: x times H, bit by bit
+		// Shoup's 4-bit method: x times H, nibbles from the least significant up, the product shifted four bits with a reduction table between them
 		private void Multiply(ref ulong xHigh, ref ulong xLow)
 		{
 			ulong zHigh = 0;
 			ulong zLow = 0;
-			ulong vHigh = _hHigh;
-			ulong vLow = _hLow;
-			for (int i = 0; i < 128; i++)
+			bool first = true;
+			for (int word = 0; word < 2; word++)
 			{
-				bool bit = i < 64 ? ((xHigh >> (63 - i)) & 1) != 0 : ((xLow >> (127 - i)) & 1) != 0;
-				if (bit)
+				ulong x = word == 0 ? xLow : xHigh;
+				for (int shift = 0; shift < 64; shift += 4)
 				{
-					zHigh ^= vHigh;
-					zLow ^= vLow;
+					if (!first)
+					{
+						int rem = (int)(zLow & 15);
+						zLow = (zLow >> 4) | (zHigh << 60);
+						zHigh = (zHigh >> 4) ^ (Reduction[rem] << 48);
+					}
+					first = false;
+					int nibble = (int)(x >> shift) & 15;
+					zHigh ^= _tableHigh[nibble];
+					zLow ^= _tableLow[nibble];
 				}
-				bool lsb = (vLow & 1) != 0;
-				vLow = (vLow >> 1) | (vHigh << 63);
-				vHigh >>= 1;
-				if (lsb)
-					vHigh ^= 0xe100000000000000;
 			}
 			xHigh = zHigh;
 			xLow = zLow;
