@@ -42,6 +42,8 @@ namespace Alloy.Abi
 		MoveFile = 0x408,
 		CreateDirectory = 0x409,
 		ListDirectory = 0x40A,
+		GetCurrentDirectory = 0x40B,
+		SetCurrentDirectory = 0x40C,
 
 		CloseHandle = 0x500,
 

@@ -29,6 +29,9 @@ namespace Alloy.Kernel.Ps
 		public ulong ExceptionDispatcher;
 		public ulong Peb;
 
+		// Where this process's relative paths start, absolute and tidy; inherited from the parent, "/" for the first process
+		public string CurrentDirectory = "/";
+
 		private readonly ulong _root;
 		private ulong _imageBase;
 		private ulong _stackSize = MinimumStack;
@@ -49,23 +52,26 @@ namespace Alloy.Kernel.Ps
 
 		public override bool IsSignaled => _exited;
 
-		// The image is the command line's first word, looked up as given, then under bin/, then with .exe added; the file read whole into a heap block the caller frees
-		private static unsafe bool TryResolve(ReadOnlySpan<char> name, Span<char> path, out int length, out byte* data, out long size)
+		// The image is the command line's first word, looked up from the current directory, then under /bin, then with .exe added; the file read whole into a heap block the caller frees
+		private static unsafe bool TryResolve(ReadOnlySpan<char> directory, ReadOnlySpan<char> name, Span<char> path, out int length, out byte* data, out long size)
 		{
 			length = 0;
 			data = null;
 			size = 0;
-			bool bare = name.IndexOf('/') < 0;
+			bool bare = name.IndexOf('/') < 0 && name.IndexOf('\\') < 0;
+			Span<char> candidate = stackalloc char[300];
 			for (int attempt = 0; attempt < 3; attempt++)
 			{
-				SpanWriter candidate = new SpanWriter(path);
+				SpanWriter writer = new SpanWriter(candidate);
 				if (attempt > 0 && bare)
-					candidate.Append("bin/");
-				candidate.Append(name);
+					writer.Append("/bin/");
+				writer.Append(name);
 				if (attempt == 2)
-					candidate.Append(".exe");
-				length = candidate.Length;
-				data = Storage.LoadFile(candidate.Written, out size);
+					writer.Append(".exe");
+				length = Paths.Resolve(directory, writer.Written, path);
+				if (length < 0)
+					continue;
+				data = Storage.LoadFile(path.Slice(0, length), out size);
 				if (data != null)
 					return true;
 			}
@@ -73,18 +79,18 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// Loads a PE from the root file system into a fresh address space and starts its first thread; null if the image is unusable
-		public static unsafe KProcess Create(ReadOnlySpan<char> commandLine, ulong argument, KObject stdInput = null, KObject stdOutput = null, KObject stdError = null)
+		public static unsafe KProcess Create(ReadOnlySpan<char> commandLine, ulong argument, ReadOnlySpan<char> currentDirectory, KObject stdInput = null, KObject stdOutput = null, KObject stdError = null)
 		{
 			int space = commandLine.IndexOf(' ');
 			Span<char> resolved = stackalloc char[300];
-			if (commandLine.Length == 0 || !TryResolve(space < 0 ? commandLine : commandLine.Slice(0, space), resolved, out int pathLength, out byte* data, out long size))
+			if (commandLine.Length == 0 || !TryResolve(currentDirectory, space < 0 ? commandLine : commandLine.Slice(0, space), resolved, out int pathLength, out byte* data, out long size))
 				return null;
-			KProcess process = CreateFrom(resolved.Slice(0, pathLength), new ReadOnlySpan<byte>(data, (int)size), commandLine, argument, stdInput, stdOutput, stdError);
+			KProcess process = CreateFrom(resolved.Slice(0, pathLength), new ReadOnlySpan<byte>(data, (int)size), commandLine, argument, currentDirectory, stdInput, stdOutput, stdError);
 			Heap.Free(data);
 			return process;
 		}
 
-		private static unsafe KProcess CreateFrom(ReadOnlySpan<char> path, ReadOnlySpan<byte> file, ReadOnlySpan<char> commandLine, ulong argument, KObject stdInput, KObject stdOutput, KObject stdError)
+		private static unsafe KProcess CreateFrom(ReadOnlySpan<char> path, ReadOnlySpan<byte> file, ReadOnlySpan<char> commandLine, ulong argument, ReadOnlySpan<char> currentDirectory, KObject stdInput, KObject stdOutput, KObject stdError)
 		{
 			if (!PeImage.TryParse(file, out PeImage pe) || pe.Machine != PeImage.MachineAmd64 || pe.ImageBase < AddressSpace.UserStart || pe.ImageBase + pe.SizeOfImage > AddressSpace.UserEnd)
 				return null;
@@ -96,6 +102,7 @@ namespace Alloy.Kernel.Ps
 			((ulong*)BootInfo.ToVirtual(root))[256] = ((ulong*)BootInfo.ToVirtual(KernelSpace.Root))[256];
 			int slash = path.LastIndexOf('/');
 			KProcess process = new KProcess(new string(path.Slice(slash + 1)), root);
+			process.CurrentDirectory = new string(currentDirectory);
 			process._stackSize = Math.Max(AlignUp(pe.SizeOfStackReserve, Memory.AllocationGranularity), MinimumStack);
 			if (!process.LoadImage(in pe) || !process.CreateProcessBlock(commandLine, stdInput, stdOutput, stdError)
 				|| process.StartThread(pe.ImageBase + pe.EntryPoint, argument, 0, false) == null)

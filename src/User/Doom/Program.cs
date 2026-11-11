@@ -38,6 +38,8 @@ namespace Alloy.User.Doom
 
 		private static unsafe int Main()
 		{
+			// The WAD and default.cfg are at the root, wherever the terminal that started Doom was
+			Process.SetCurrentDirectory("/");
 			byte** argv = (byte**)Process.Allocate(4 * 8);
 			argv[0] = CString("doom");
 			argv[1] = CString("-iwad");

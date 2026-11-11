@@ -90,7 +90,7 @@ namespace Alloy.Kernel
 
 			if (HasArgument(info, "usertest"))
 				RunUserTest("bin/ktest.exe");
-			if (KProcess.Create("bin/init.exe", 0) == null)
+			if (KProcess.Create("bin/init.exe", 0, "/") == null)
 				Environment.FailFast("FAILFAST: cannot start bin/init.exe from the Alloy partition");
 			while (true)
 				Scheduler.Sleep(1000);
@@ -99,7 +99,7 @@ namespace Alloy.Kernel
 		// boot_test's -KernelArgs usertest: a ring-3 test program runs to completion before init starts
 		private static void RunUserTest(string path)
 		{
-			KProcess test = KProcess.Create(path, 0);
+			KProcess test = KProcess.Create(path, 0, "/");
 			if (test == null)
 				Log.WriteLine("usertest: could not start the test program");
 			else

@@ -16,6 +16,14 @@ namespace Alloy.Runtime
 
 		public static void Exit(int code) => SystemCall.ExitProcess(code);
 
+		// Where relative paths start, inherited from the parent; false if the path isn't a directory
+		public static unsafe bool SetCurrentDirectory(string path)
+		{
+			byte* bytes = stackalloc byte[256];
+			int length = Ascii(path, bytes, 256);
+			return SystemCall.Invoke(Syscall.SetCurrentDirectory, (ulong)bytes, (ulong)length) == 0;
+		}
+
 		// Starts the program the command line's first word names on the Alloy partition (bin/ and .exe are tried); returns a handle, or a negative error
 		public static unsafe long Create(string commandLine, ulong argument = 0) => Create(commandLine, argument, null);
 

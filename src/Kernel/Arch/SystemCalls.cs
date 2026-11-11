@@ -186,7 +186,7 @@ namespace Alloy.Kernel.Arch
 				{
 					// FAT32 matches names in any case, so the path keeps the case a new file is given
 					Span<char> path = stackalloc char[256];
-					if (!UserMemory.ReadPath(frame->A0, frame->A1, path, out int length))
+					if (!ReadResolvedPath(process, frame->A0, frame->A1, path, out int length))
 						return Error(SyscallError.InvalidPointer);
 					FileAccess access = (FileAccess)frame->A2;
 					FileCreate create = (FileCreate)frame->A3;
@@ -208,7 +208,7 @@ namespace Alloy.Kernel.Arch
 				case Syscall.DeleteFile:
 				{
 					Span<char> path = stackalloc char[256];
-					if (!UserMemory.ReadPath(frame->A0, frame->A1, path, out int length))
+					if (!ReadResolvedPath(process, frame->A0, frame->A1, path, out int length))
 						return Error(SyscallError.InvalidPointer);
 					return Storage.Delete(path.Slice(0, length)) ? 0 : Error(SyscallError.NotFound);
 				}
@@ -217,7 +217,7 @@ namespace Alloy.Kernel.Arch
 				{
 					Span<char> from = stackalloc char[256];
 					Span<char> to = stackalloc char[256];
-					if (!UserMemory.ReadPath(frame->A0, frame->A1, from, out int fromLength) || !UserMemory.ReadPath(frame->A2, frame->A3, to, out int toLength))
+					if (!ReadResolvedPath(process, frame->A0, frame->A1, from, out int fromLength) || !ReadResolvedPath(process, frame->A2, frame->A3, to, out int toLength))
 						return Error(SyscallError.InvalidPointer);
 					return Storage.Move(from.Slice(0, fromLength), to.Slice(0, toLength)) ? 0 : Error(SyscallError.NotFound);
 				}
@@ -225,13 +225,35 @@ namespace Alloy.Kernel.Arch
 				case Syscall.CreateDirectory:
 				{
 					Span<char> path = stackalloc char[256];
-					if (!UserMemory.ReadPath(frame->A0, frame->A1, path, out int length))
+					if (!ReadResolvedPath(process, frame->A0, frame->A1, path, out int length))
 						return Error(SyscallError.InvalidPointer);
 					return Storage.CreateDirectory(path.Slice(0, length)) ? 0 : Error(SyscallError.NotFound);
 				}
 
 				case Syscall.ListDirectory:
-					return ListDirectory(frame->A0, frame->A1, frame->A2);
+					return ListDirectory(process, frame->A0, frame->A1, frame->A2);
+
+				case Syscall.GetCurrentDirectory:
+				{
+					// The whole length comes back however much fit, so a caller can size its buffer
+					string directory = process.CurrentDirectory;
+					byte* bytes = stackalloc byte[256];
+					int length = Math.Min(directory.Length, 255);
+					for (int i = 0; i < length; i++)
+						bytes[i] = (byte)directory[i];
+					return UserMemory.CopyTo(frame->A0, bytes, Math.Min((ulong)length, frame->A1)) ? length : Error(SyscallError.InvalidPointer);
+				}
+
+				case Syscall.SetCurrentDirectory:
+				{
+					Span<char> path = stackalloc char[256];
+					if (!ReadResolvedPath(process, frame->A0, frame->A1, path, out int length))
+						return Error(SyscallError.InvalidPointer);
+					if (!Storage.IsDirectory(path.Slice(0, length)))
+						return Error(SyscallError.NotFound);
+					process.CurrentDirectory = new string(path.Slice(0, length));
+					return 0;
+				}
 
 				case Syscall.CreatePipe:
 				{
@@ -468,8 +490,19 @@ namespace Alloy.Kernel.Arch
 			KObject error = info.StdError == 0 ? null : process.Handles.Get(info.StdError);
 			if ((info.StdInput != 0 && input == null) || (info.StdOutput != 0 && output == null) || (info.StdError != 0 && error == null))
 				return Error(SyscallError.InvalidHandle);
-			KProcess child = KProcess.Create(commandLine.Slice(0, count), argument, input, output, error);
+			KProcess child = KProcess.Create(commandLine.Slice(0, count), argument, process.CurrentDirectory, input, output, error);
 			return child == null ? Error(SyscallError.NotFound) : process.Handles.Add(child);
+		}
+
+		// A path from the caller made absolute against the process's current directory; false if it can't be read or is too long once resolved
+		private static bool ReadResolvedPath(KProcess process, ulong address, ulong length, Span<char> result, out int written)
+		{
+			Span<char> given = stackalloc char[256];
+			written = 0;
+			if (!UserMemory.ReadPath(address, length, given, out int givenLength))
+				return false;
+			written = Paths.Resolve(process.CurrentDirectory, given.Slice(0, givenLength), result);
+			return written > 0;
 		}
 
 		// Through a kernel buffer a piece at a time: what the file gave up to count, 0 at its end
@@ -529,12 +562,12 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// The names in a directory from the listing's index on, up to 16 a call into its entries; the index moves past those returned, so fewer than asked means the end
-		private static unsafe long ListDirectory(ulong pathAddress, ulong pathLength, ulong listingAddress)
+		private static unsafe long ListDirectory(KProcess process, ulong pathAddress, ulong pathLength, ulong listingAddress)
 		{
 			const int MaxEntries = 16;
 			Span<char> path = stackalloc char[256];
 			DirectoryListing listing;
-			if (!UserMemory.ReadPath(pathAddress, pathLength, path, out int length) || !UserMemory.CopyFrom(&listing, listingAddress, (ulong)sizeof(DirectoryListing)))
+			if (!ReadResolvedPath(process, pathAddress, pathLength, path, out int length) || !UserMemory.CopyFrom(&listing, listingAddress, (ulong)sizeof(DirectoryListing)))
 				return Error(SyscallError.InvalidPointer);
 			if (listing.Index > 0x7FFFFFFF)
 				return Error(SyscallError.InvalidArgument);
