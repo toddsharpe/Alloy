@@ -122,7 +122,7 @@ namespace Alloy.Sdk.Web.Layout
 	}
 
 	// CSS 2.1 visual formatting, the parts static pages use: block stacking with margin collapsing, inline formatting with line boxes, floats and clear, tables, lists, relative and absolute positioning
-	public sealed class LayoutEngine
+	public sealed partial class LayoutEngine
 	{
 		private const float Spacing = 2;
 		private const int MaxItems = 200000;
@@ -170,12 +170,14 @@ namespace Alloy.Sdk.Web.Layout
 		// The children of a block whose position and width are settled; sets its height
 		private void LayoutContents(LayoutBox box, float containingHeight, FloatContext floats, bool formattingRoot)
 		{
-			bool ownContext = formattingRoot || box.IsFloat || box.IsAbsolute || box.Kind == BoxKind.InlineBlock || box.Kind == BoxKind.TableCell || box.Style.Overflow != Overflow.Visible;
+			bool ownContext = formattingRoot || box.IsFloat || box.IsAbsolute || box.Kind == BoxKind.InlineBlock || box.Kind == BoxKind.TableCell || box.Style.Overflow != Overflow.Visible || box.Style.IsFlexContainer;
 			if (ownContext)
 				floats = new FloatContext();
 			float contentHeight;
 			if (box.IsReplaced && box.Children.Count == 0)
 				contentHeight = 0;
+			else if (box.Style.IsFlexContainer && box.Kind != BoxKind.Inline)
+				contentHeight = LayoutFlex(box, containingHeight);
 			else if (HasInlineContent(box))
 				contentHeight = LayoutInline(box, floats);
 			else
@@ -619,6 +621,8 @@ namespace Alloy.Sdk.Web.Layout
 				TableGrid grid = BuildGrid(box);
 				(min, max) = (grid.MinWidth, grid.MaxWidth);
 			}
+			else if (box.Style.IsFlexContainer && box.Kind != BoxKind.Inline)
+				(min, max) = FlexIntrinsicWidths(box);
 			else if (HasInlineContent(box))
 			{
 				List<InlineItem> items = new List<InlineItem>();
