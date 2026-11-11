@@ -192,7 +192,7 @@ DWORD GetFileType(HANDLE file)
 	return FILE_TYPE_PIPE;
 }
 
-// The image's initrd path with a root and Windows separators, so Environment.ProcessPath and AppContext.BaseDirectory have something sensible
+// The image's path on the Alloy partition with a root and Windows separators, so Environment.ProcessPath and AppContext.BaseDirectory have something sensible
 DWORD GetModuleFileNameW(HMODULE module, wchar_t* buffer, DWORD size)
 {
 	(void)module;

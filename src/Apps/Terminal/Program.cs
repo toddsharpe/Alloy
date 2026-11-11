@@ -189,7 +189,7 @@ namespace Alloy.Apps.Terminal
 			Write("Run: ", ConsoleAttribute.Dim);
 			Write("hello ps time calc fire doom dhcp ping nettest ipctest crash\n", ConsoleAttribute.Normal);
 			Write("Built in: ", ConsoleAttribute.Dim);
-			Write("help clear\n", ConsoleAttribute.Normal);
+			Write("help clear ls cat write append mkdir rm mv\n", ConsoleAttribute.Normal);
 			Write("Keys: ", ConsoleAttribute.Dim);
 			Write("Up/Down history, PgUp/PgDn scroll, Ctrl+L clear\n", ConsoleAttribute.Normal);
 		}
@@ -224,6 +224,13 @@ namespace Alloy.Apps.Terminal
 				ClearScreen();
 				return;
 			}
+			if (RunFileCommand(typed))
+			{
+				if (s_console.Text.CurrentLength != 0)
+					s_console.Text.Write('\n');
+				ShowPrompt();
+				return;
+			}
 
 			// The program name gets .exe when it has no extension, so "ps" runs ps.exe
 			int space = typed.IndexOf(' ');
@@ -235,6 +242,124 @@ namespace Alloy.Apps.Terminal
 				Write(": could not run\n", ConsoleAttribute.Error);
 				ShowPrompt();
 			}
+		}
+
+		// The built-in file commands, through the SDK as a program would use it; false if the line isn't one
+		private static bool RunFileCommand(string typed)
+		{
+			string[] words = typed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+			string verb = words[0];
+			bool isWrite = verb == "write" || verb == "append";
+			if (!(verb == "ls" || verb == "cat" || isWrite || verb == "mkdir" || verb == "rm" || verb == "mv"))
+				return false;
+
+			string first = words.Length > 1 ? words[1] : null;
+			if (verb == "ls")
+			{
+				ListFiles(first ?? "/");
+				return true;
+			}
+
+			string second = words.Length > 2 ? words[2] : null;
+			if (first == null || (verb == "mv" && second == null))
+			{
+				Write("usage: ls [dir], cat file, write file text, append file text, mkdir dir, rm path, mv from to\n", ConsoleAttribute.Error);
+				return true;
+			}
+
+			if (verb == "cat")
+				ShowFile(first);
+			else if (isWrite)
+				WriteText(first, RestOfLine(typed, first), verb == "append");
+			else if (verb == "mkdir" && !Directory.Create(first))
+				Fail("mkdir", "make", first);
+			else if (verb == "rm" && !File.Delete(first))
+				Fail("rm", "delete", first);
+			else if (verb == "mv" && !File.Move(first, second))
+				Fail("mv", "move", first);
+			return true;
+		}
+
+		// write and append take the rest of the line after the file name as their text
+		private static string RestOfLine(string typed, string first)
+		{
+			int at = typed.IndexOf(first, StringComparison.Ordinal) + first.Length;
+			return typed.Substring(at).TrimStart(' ');
+		}
+
+		private static void Fail(string verb, string what, string path)
+		{
+			Write(verb + ": can't " + what + " " + path + "\n", ConsoleAttribute.Error);
+		}
+
+		// A directory's names a page of entries at a time, directories marked and files with their size
+		private static void ListFiles(string path)
+		{
+			DirectoryEntry[] entries = new DirectoryEntry[16];
+			ulong index = 0;
+			while (true)
+			{
+				int listed = Directory.List(path, entries, ref index);
+				if (listed < 0)
+				{
+					Fail("ls", "list", path);
+					return;
+				}
+
+				for (int i = 0; i < listed; i++)
+				{
+					bool directory = entries[i].Directory != 0;
+					Write((directory ? "<dir>" : entries[i].Size.ToString()).PadLeft(10) + "  ", ConsoleAttribute.Dim);
+					Write(File.Name(in entries[i]), directory ? ConsoleAttribute.Prompt : ConsoleAttribute.Normal);
+					s_console.Text.Write('\n');
+				}
+				if (listed < entries.Length)
+					return;
+			}
+		}
+
+		// A file's text, up to a limit so a large one doesn't stall the terminal
+		private static void ShowFile(string path)
+		{
+			const int MaxShown = 64 * 1024;
+			long handle = File.Open(path);
+			if (handle <= 0)
+			{
+				Fail("cat", "open", path);
+				return;
+			}
+
+			Span<byte> buffer = stackalloc byte[256];
+			Span<char> text = stackalloc char[256];
+			int shown = 0;
+			long read;
+			while (shown < MaxShown && (read = File.Read(handle, buffer)) > 0)
+			{
+				for (int i = 0; i < read; i++)
+					text[i] = buffer[i] == '\r' ? ' ' : (char)buffer[i];
+				Write(text.Slice(0, (int)read), ConsoleAttribute.Normal);
+				shown += (int)read;
+			}
+			if (shown >= MaxShown && File.Read(handle, buffer.Slice(0, 1)) == 1)
+				Write("\n(only the first 64 KB)", ConsoleAttribute.Dim);
+			File.Close(handle);
+		}
+
+		// The text and a newline as the file's contents, or after them
+		private static void WriteText(string path, string text, bool append)
+		{
+			string verb = append ? "append" : "write";
+			long handle = File.Open(path, append ? FileAccess.Append : FileAccess.Write, append ? FileCreate.OpenAlways : FileCreate.CreateAlways);
+			if (handle <= 0)
+			{
+				Fail(verb, "open", path);
+				return;
+			}
+
+			byte[] bytes = System.Text.Encoding.ASCII.GetBytes(text + "\n");
+			if (File.Write(handle, bytes) != bytes.Length)
+				Fail(verb, "write", path);
+			File.Close(handle);
 		}
 
 		private static void OnKey(ushort key, bool pressed)

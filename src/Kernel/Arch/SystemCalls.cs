@@ -173,10 +173,15 @@ namespace Alloy.Kernel.Arch
 
 				case Syscall.OpenFile:
 				{
+					// FAT32 matches names in any case, so the path keeps the case a new file is given
 					Span<char> path = stackalloc char[256];
 					if (!UserMemory.ReadPath(frame->A0, frame->A1, path, out int length))
 						return Error(SyscallError.InvalidPointer);
-					KFile file = KFile.Open(path.Slice(0, length));
+					FileAccess access = (FileAccess)frame->A2;
+					FileCreate create = (FileCreate)frame->A3;
+					if ((access & FileAccess.ReadWrite) == 0 || (access & ~FileAccess.ReadAppend) != 0 || (ulong)create > (ulong)FileCreate.OpenAlways)
+						return Error(SyscallError.InvalidArgument);
+					KFile file = Storage.Open(path.Slice(0, length), access, create);
 					return file == null ? Error(SyscallError.NotFound) : process.Handles.Add(file);
 				}
 
@@ -184,8 +189,38 @@ namespace Alloy.Kernel.Arch
 				{
 					if (process.Handles.Get(frame->A0) is KPipeEnd writer && writer.Writes)
 						return WritePipe(writer, frame->A1, frame->A2);
+					if (process.Handles.Get(frame->A0) is KFile file)
+						return WriteFile(file, frame->A1, frame->A2);
 					return Error(SyscallError.InvalidHandle);
 				}
+
+				case Syscall.DeleteFile:
+				{
+					Span<char> path = stackalloc char[256];
+					if (!UserMemory.ReadPath(frame->A0, frame->A1, path, out int length))
+						return Error(SyscallError.InvalidPointer);
+					return Storage.Delete(path.Slice(0, length)) ? 0 : Error(SyscallError.NotFound);
+				}
+
+				case Syscall.MoveFile:
+				{
+					Span<char> from = stackalloc char[256];
+					Span<char> to = stackalloc char[256];
+					if (!UserMemory.ReadPath(frame->A0, frame->A1, from, out int fromLength) || !UserMemory.ReadPath(frame->A2, frame->A3, to, out int toLength))
+						return Error(SyscallError.InvalidPointer);
+					return Storage.Move(from.Slice(0, fromLength), to.Slice(0, toLength)) ? 0 : Error(SyscallError.NotFound);
+				}
+
+				case Syscall.CreateDirectory:
+				{
+					Span<char> path = stackalloc char[256];
+					if (!UserMemory.ReadPath(frame->A0, frame->A1, path, out int length))
+						return Error(SyscallError.InvalidPointer);
+					return Storage.CreateDirectory(path.Slice(0, length)) ? 0 : Error(SyscallError.NotFound);
+				}
+
+				case Syscall.ListDirectory:
+					return ListDirectory(frame->A0, frame->A1, frame->A2);
 
 				case Syscall.CreatePipe:
 				{
@@ -213,17 +248,9 @@ namespace Alloy.Kernel.Arch
 				{
 					if (process.Handles.Get(frame->A0) is KPipeEnd pipeEnd && !pipeEnd.Writes)
 						return ReadPipe(pipeEnd, frame->A1, frame->A2);
-					if (process.Handles.Get(frame->A0) is not KFile file)
-						return Error(SyscallError.InvalidHandle);
-					ReadOnlySpan<byte> remaining = file.Remaining;
-					ulong count = Math.Min(frame->A2, (ulong)remaining.Length);
-					fixed (byte* source = remaining)
-					{
-						if (!UserMemory.CopyTo(frame->A1, source, count))
-							return Error(SyscallError.InvalidPointer);
-					}
-					file.Advance((long)count);
-					return (long)count;
+					if (process.Handles.Get(frame->A0) is KFile file)
+						return ReadFile(file, frame->A1, frame->A2);
+					return Error(SyscallError.InvalidHandle);
 				}
 
 				case Syscall.SeekFile:
@@ -432,6 +459,85 @@ namespace Alloy.Kernel.Arch
 				return Error(SyscallError.InvalidHandle);
 			KProcess child = KProcess.Create(commandLine.Slice(0, count), argument, input, output, error);
 			return child == null ? Error(SyscallError.NotFound) : process.Handles.Add(child);
+		}
+
+		// Through a kernel buffer a piece at a time: what the file gave up to count, 0 at its end
+		private static unsafe long ReadFile(KFile file, ulong buffer, ulong count)
+		{
+			if (count == 0)
+				return 0;
+			int chunkSize = (int)Math.Min(count, Storage.ChunkSize);
+			byte* chunk = (byte*)Mm.Heap.Allocate((nuint)chunkSize);
+			if (chunk == null)
+				return Error(SyscallError.OutOfMemory);
+			long result = 0;
+			while ((ulong)result < count)
+			{
+				int size = (int)Math.Min(count - (ulong)result, (ulong)chunkSize);
+				int read = Storage.Read(file, new Span<byte>(chunk, size));
+				if (read <= 0)
+					break;
+				if (!UserMemory.CopyTo(buffer + (ulong)result, chunk, (ulong)read))
+				{
+					result = result > 0 ? result : Error(SyscallError.InvalidPointer);
+					break;
+				}
+				result += read;
+				if (read < size)
+					break;
+			}
+			Mm.Heap.Free(chunk);
+			return result;
+		}
+
+		// Everything if the volume has room; fewer bytes when it fills
+		private static unsafe long WriteFile(KFile file, ulong buffer, ulong count)
+		{
+			if (count == 0)
+				return 0;
+			int chunkSize = (int)Math.Min(count, Storage.ChunkSize);
+			byte* chunk = (byte*)Mm.Heap.Allocate((nuint)chunkSize);
+			if (chunk == null)
+				return Error(SyscallError.OutOfMemory);
+			long result = 0;
+			while ((ulong)result < count)
+			{
+				int size = (int)Math.Min(count - (ulong)result, (ulong)chunkSize);
+				if (!UserMemory.CopyFrom(chunk, buffer + (ulong)result, (ulong)size))
+				{
+					result = result > 0 ? result : Error(SyscallError.InvalidPointer);
+					break;
+				}
+				int written = Storage.Write(file, new ReadOnlySpan<byte>(chunk, size));
+				result += written;
+				if (written < size)
+					break;
+			}
+			Mm.Heap.Free(chunk);
+			return result;
+		}
+
+		// The names in a directory from the listing's index on, up to 16 a call into its entries; the index moves past those returned, so fewer than asked means the end
+		private static unsafe long ListDirectory(ulong pathAddress, ulong pathLength, ulong listingAddress)
+		{
+			const int MaxEntries = 16;
+			Span<char> path = stackalloc char[256];
+			DirectoryListing listing;
+			if (!UserMemory.ReadPath(pathAddress, pathLength, path, out int length) || !UserMemory.CopyFrom(&listing, listingAddress, (ulong)sizeof(DirectoryListing)))
+				return Error(SyscallError.InvalidPointer);
+			if (listing.Index > 0x7FFFFFFF)
+				return Error(SyscallError.InvalidArgument);
+
+			int count = (int)Math.Min(listing.Count, MaxEntries);
+			DirectoryEntry* entries = stackalloc DirectoryEntry[MaxEntries];
+			int listed = Storage.List(path.Slice(0, length), (int)listing.Index, new Span<DirectoryEntry>(entries, count));
+			if (listed < 0)
+				return Error(SyscallError.NotFound);
+
+			listing.Index += (ulong)listed;
+			if (!UserMemory.CopyTo(listing.Entries, entries, (ulong)(listed * sizeof(DirectoryEntry))) || !UserMemory.CopyTo(listingAddress, &listing, (ulong)sizeof(DirectoryListing)))
+				return Error(SyscallError.InvalidPointer);
+			return listed;
 		}
 
 		// Returns what was there, up to 256 bytes, blocking while the pipe is empty and still has a writer; 0 is end of file

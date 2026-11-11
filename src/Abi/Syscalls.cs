@@ -1,3 +1,5 @@
+using System;
+
 namespace Alloy.Abi
 {
 	// The one definition of the syscall table, grouped like MetalOS's; rax = number, args in r10 rdx r8 r9 then [rsp+0x30], [rsp+0x38]
@@ -35,6 +37,10 @@ namespace Alloy.Abi
 		WriteFile = 0x404,
 		CreatePipe = 0x405,
 		PeekPipe = 0x406,
+		DeleteFile = 0x407,
+		MoveFile = 0x408,
+		CreateDirectory = 0x409,
+		ListDirectory = 0x40A,
 
 		CloseHandle = 0x500,
 
@@ -137,5 +143,51 @@ namespace Alloy.Abi
 		Begin,
 		Current,
 		End,
+	}
+
+	// OpenFile's access: Append writes, each at the end however the position moved
+	[Flags]
+	public enum FileAccess
+	{
+		None = 0,
+		Read = 1 << 0,
+		Write = 1 << 1,
+		ReadWrite = Read | Write,
+		Append = Write | (1 << 2),
+		ReadAppend = ReadWrite | Append,
+	}
+
+	// What OpenFile does when the file is there, or isn't: fopen's r, w and a
+	public enum FileCreate
+	{
+		OpenExisting,
+		CreateAlways,
+		OpenAlways,
+	}
+
+	// One name in a directory, from ListDirectory
+	public struct DirectoryEntry
+	{
+		public const int MaxName = 256;
+
+		public FileNameBytes Name;
+		public ulong Size;
+		public uint Directory;
+		public uint Reserved;
+	}
+
+	// A file name as ASCII, NUL padded
+	[System.Runtime.CompilerServices.InlineArray(DirectoryEntry.MaxName)]
+	public struct FileNameBytes
+	{
+		private byte _element0;
+	}
+
+	// ListDirectory's third argument: where the entries go and how many fit, and the index to list from, moved past those returned
+	public struct DirectoryListing
+	{
+		public ulong Entries;
+		public ulong Count;
+		public ulong Index;
 	}
 }

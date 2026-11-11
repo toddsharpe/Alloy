@@ -32,9 +32,12 @@ namespace Alloy.Kernel.Platform
 	{
 		public const ushort PacketInband = 6;
 		public const ushort PacketTransferPages = 7;
+		public const ushort PacketGpaDirect = 9;
 		public const ushort PacketCompletion = 11;
 		public const ushort CompletionRequested = 1;
+		public const int GpaDirectMaxPages = 32;
 		private const uint TrailerSize = 8;
+		private const int GpaRangeHeaderSize = 16;
 
 		private VmBusOffer _offer;
 		private unsafe VmBusRingHeader* _outbound;
@@ -67,8 +70,51 @@ namespace Alloy.Kernel.Platform
 		// False when the host hasn't freed enough room; one byte always stays free so a full ring never looks empty
 		protected unsafe bool Send(void* data, uint length, ulong requestId, ushort type, ushort flags)
 		{
-			uint packetLength = (uint)sizeof(VmBusPacket) + length;
-			uint aligned = (packetLength + 7) & ~7u;
+			VmBusPacket packet;
+			packet.Type = type;
+			packet.Offset8 = (ushort)(sizeof(VmBusPacket) >> 3);
+			packet.Length8 = (ushort)(Align8((uint)sizeof(VmBusPacket) + length) >> 3);
+			packet.Flags = flags;
+			packet.TransactionId = requestId;
+			return Write(new ReadOnlySpan<byte>(&packet, sizeof(VmBusPacket)), new ReadOnlySpan<byte>(data, (int)length));
+		}
+
+		// A packet whose data the host reads or writes in guest memory: byteCount bytes of physically contiguous pages at physical, completion requested (one gpa_range after the descriptor)
+		protected unsafe bool SendGpaDirect(void* data, uint length, ulong requestId, ulong physical, uint byteCount)
+		{
+			uint offset = (uint)(physical & (MemoryLayout.PageSize - 1));
+			int pages = (int)MemoryLayout.PagesFor(offset + byteCount);
+			if (pages == 0 || pages > GpaDirectMaxPages)
+				return false;
+
+			int headerSize = sizeof(VmBusPacket) + GpaRangeHeaderSize + 8 * pages;
+			byte* header = stackalloc byte[sizeof(VmBusPacket) + GpaRangeHeaderSize + 8 * GpaDirectMaxPages];
+			VmBusPacket* packet = (VmBusPacket*)header;
+			packet->Type = PacketGpaDirect;
+			packet->Offset8 = (ushort)(headerSize >> 3);
+			packet->Length8 = (ushort)(Align8((uint)headerSize + length) >> 3);
+			packet->Flags = CompletionRequested;
+			packet->TransactionId = requestId;
+
+			// Reserved, the range count, then the range's byte count, offset into its first page and page numbers
+			uint* range = (uint*)(header + sizeof(VmBusPacket));
+			range[0] = 0;
+			range[1] = 1;
+			range[2] = byteCount;
+			range[3] = offset;
+			ulong* pfns = (ulong*)(header + sizeof(VmBusPacket) + GpaRangeHeaderSize);
+			for (int i = 0; i < pages; i++)
+				pfns[i] = (physical >> MemoryLayout.PageShift) + (ulong)i;
+			return Write(new ReadOnlySpan<byte>(header, headerSize), new ReadOnlySpan<byte>(data, (int)length));
+		}
+
+		private static uint Align8(uint length) => (length + 7) & ~7u;
+
+		// The descriptor and whatever follows it, then the payload, padded to 8 bytes and followed by the write index the host expects
+		private unsafe bool Write(ReadOnlySpan<byte> header, ReadOnlySpan<byte> payload)
+		{
+			uint packetLength = (uint)(header.Length + payload.Length);
+			uint aligned = Align8(packetLength);
 			ulong state = Ke.Scheduler.Lock();
 			uint write = _outbound->WriteIndex;
 			uint read = _outbound->ReadIndex;
@@ -80,13 +126,8 @@ namespace Alloy.Kernel.Platform
 			}
 
 			byte* at = (byte*)_outbound + MemoryLayout.PageSize + write;
-			VmBusPacket* packet = (VmBusPacket*)at;
-			packet->Type = type;
-			packet->Offset8 = (ushort)(sizeof(VmBusPacket) >> 3);
-			packet->Length8 = (ushort)(aligned >> 3);
-			packet->Flags = flags;
-			packet->TransactionId = requestId;
-			new ReadOnlySpan<byte>(data, (int)length).CopyTo(new Span<byte>(at + sizeof(VmBusPacket), (int)length));
+			header.CopyTo(new Span<byte>(at, header.Length));
+			payload.CopyTo(new Span<byte>(at + header.Length, payload.Length));
 			new Span<byte>(at + packetLength, (int)(aligned - packetLength)).Clear();
 			*(ulong*)(at + aligned) = (ulong)write << 32;
 

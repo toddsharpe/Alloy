@@ -1,73 +1,40 @@
-using System;
 using Alloy.Abi;
 using Alloy.Kernel.Ob;
 
 namespace Alloy.Kernel.Io
 {
-	// A read-only view of one initrd file with a seek position
+	// An open file on the root file system with its position; the last handle to go closes the file system's open
 	internal sealed class KFile : KObject
 	{
-		private readonly unsafe byte* _data;
-		private readonly long _size;
-		private long _position;
+		public readonly FileSystem System;
+		public FileState State;
 
-		private unsafe KFile(byte* data, long size)
+		public KFile(FileSystem system, in FileState state)
 		{
-			_data = data;
-			_size = size;
+			System = system;
+			State = state;
 		}
 
-		public long Size => _size;
+		public long Size => State.Length;
 
-		public static unsafe KFile Open(ReadOnlySpan<char> path)
-		{
-			if (!Initrd.TryFind(path, out byte* data, out long size))
-				return null;
-			return new KFile(data, size);
-		}
+		public long Position => State.Position;
 
-		public unsafe ReadOnlySpan<byte> Remaining => new ReadOnlySpan<byte>(_data + _position, (int)(_size - _position));
-
-		public void Advance(long count) => _position += count;
-
+		// The end itself is a valid position (reads there return nothing); past it only for a write, which fills the gap with zeros
 		public long Seek(long offset, SeekOrigin origin)
 		{
-			long target = origin switch
+			long basis = origin switch
 			{
-				SeekOrigin.Begin => offset,
-				SeekOrigin.Current => _position + offset,
-				_ => _size + offset,
+				SeekOrigin.Begin => 0,
+				SeekOrigin.Current => State.Position,
+				_ => State.Length,
 			};
-			if (target < 0 || target > _size)
+			long target = basis + offset;
+			if (target < 0 || (target > State.Length && !State.Writable))
 				return -(long)SyscallError.InvalidArgument;
-			_position = target;
+			State.Position = target;
 			return target;
 		}
-	}
 
-	// The initrd the loader handed over, reached through the physical window
-	internal static class Initrd
-	{
-		private static unsafe byte* s_image;
-		private static int s_size;
-
-		public static unsafe void Initialize(BootInfo* info)
-		{
-			s_image = (byte*)BootInfo.ToVirtual(info->Initrd);
-			s_size = (int)info->InitrdSize;
-		}
-
-		public static unsafe bool TryFind(ReadOnlySpan<char> path, out byte* data, out long size)
-		{
-			data = null;
-			size = 0;
-			ReadOnlySpan<byte> image = new ReadOnlySpan<byte>(s_image, s_size);
-			if (!InitrdReader.TryOpen(image, out InitrdReader reader) || !reader.TryFind(path, out ReadOnlySpan<byte> file))
-				return false;
-			fixed (byte* start = file)
-				data = start;
-			size = file.Length;
-			return true;
-		}
+		protected override void Close() => Storage.Close(this);
 	}
 }

@@ -35,7 +35,6 @@ namespace Alloy.Boot
 			info->KernelPhysical = kernel.Physical;
 			info->KernelVirtual = kernel.ImageBase;
 			info->KernelImageSize = kernel.SizeOfImage;
-			Uefi.ReadFile(root, "\\EFI\\ALLOY\\initrd.img", false, out info->Initrd, out info->InitrdSize);
 			Uefi.ReadFile(root, "\\EFI\\ALLOY\\kernel.sym", true, out info->Symbols, out info->SymbolsSize);
 			Uefi.ReadFile(root, "\\EFI\\ALLOY\\cmdline.txt", true, out info->CommandLine, out info->CommandLineSize);
 
@@ -133,8 +132,8 @@ namespace Alloy.Boot
 			line.AppendHex(kernel.ImageBase, 16);
 			line.Append(" (");
 			line.Append(kernel.SizeOfImage / 1024);
-			line.Append(" KB), initrd ");
-			line.Append(info->InitrdSize / 1024);
+			line.Append(" KB), symbols ");
+			line.Append(info->SymbolsSize / 1024);
 			line.Append(" KB, framebuffer ");
 			line.Append(info->FramebufferWidth);
 			line.Append('x');

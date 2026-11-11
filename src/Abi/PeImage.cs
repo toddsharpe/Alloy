@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace Alloy.Abi
 {
-	// PE32+ images from link.exe; every read is bounds checked since user images will come from the initrd
+	// PE32+ images from link.exe; every read is bounds checked since user images come off the disk
 	public readonly ref struct PeImage
 	{
 		public const ushort MachineAmd64 = 0x8664;

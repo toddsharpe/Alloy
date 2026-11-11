@@ -172,6 +172,15 @@ namespace Alloy.Kernel.Ke
 			}
 		}
 
+		// At the end of a device interrupt whose handler woke a thread: it runs now, as it would after a tick, rather than up to a tick later
+		internal static void Preempt()
+		{
+			if (!s_running || s_readyHead == null)
+				return;
+			MakeReady(s_current);
+			Switch();
+		}
+
 		private static void MakeReady(KThread thread)
 		{
 			if (thread == s_idle)
