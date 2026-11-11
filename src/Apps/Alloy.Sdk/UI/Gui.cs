@@ -25,6 +25,9 @@ namespace Alloy.Sdk.UI
 		private ushort _prevButtons;
 		private Control _pressed;
 
+		// Drawn into, then copied to the shared surface in one pass, so the server never composites a half-drawn frame
+		private Surface _back;
+
 		private Gui(Window window)
 		{
 			Window = window;
@@ -58,10 +61,14 @@ namespace Alloy.Sdk.UI
 						if (message.Type == WmProtocol.Close)
 							return;
 						if (message.Type == WmProtocol.Resize)
+						{
 							Window.Resize((int)message.Data[1], (int)message.Data[2]);
-						if (OnEvent == null || !OnEvent(this, in message))
-							Default(in message);
-						dirty = true;
+							dirty = true;
+						}
+						if (OnEvent != null && OnEvent(this, in message))
+							dirty = true;
+						else
+							dirty |= Default(in message);
 					}
 					while (Window.TryGetEvent(out message));
 				}
@@ -75,17 +82,21 @@ namespace Alloy.Sdk.UI
 		public void Draw()
 		{
 			Surface surface = Window.Surface;
-			surface.Fill(Background);
+			if (_back.Width != surface.Width || _back.Height != surface.Height)
+			{
+				Surfaces.Free(in _back);
+				_back = Surfaces.Allocate(surface.Width, surface.Height);
+			}
+			_back.Fill(Background);
 			foreach (Control child in _children)
-				child.Draw(in surface);
+				child.Draw(in _back);
+			surface.Blit(0, 0, in _back);
 			Window.Present();
 		}
 
-		private void Default(in IpcMessage message)
-		{
-			if (message.Type == WmProtocol.Mouse)
-				OnMouse((ushort)message.Data[1], (int)(long)message.Data[2], (int)(long)message.Data[3]);
-		}
+		// A mouse event redraws only when it changed what a control shows; a key the app didn't handle changes nothing
+		private bool Default(in IpcMessage message) =>
+			message.Type == WmProtocol.Mouse && OnMouse((ushort)message.Data[1], (int)(long)message.Data[2], (int)(long)message.Data[3]);
 
 		// The child drawn last under a point, since it is the one on top
 		private Control HitTest(int x, int y)
@@ -99,30 +110,40 @@ namespace Alloy.Sdk.UI
 		}
 
 		// A click is the left button going down and coming back up over the same child; the child under the mouse shows as hovered
-		private void OnMouse(ushort buttons, int x, int y)
+		private bool OnMouse(ushort buttons, int x, int y)
 		{
+			bool changed = false;
 			Control under = HitTest(x, y);
 			foreach (Control child in _children)
-				child.Hovered = child == under;
+			{
+				bool hovered = child == under;
+				changed |= child.Hovered != hovered;
+				child.Hovered = hovered;
+			}
 			bool left = (buttons & InputEvent.LeftButton) != 0;
 			bool wasLeft = (_prevButtons & InputEvent.LeftButton) != 0;
 			if (left && !wasLeft)
 			{
 				_pressed = under;
 				if (_pressed != null)
+				{
 					_pressed.Pressed = true;
+					changed = true;
+				}
 			}
 			else if (!left && wasLeft)
 			{
 				if (_pressed != null)
 				{
 					_pressed.Pressed = false;
+					changed = true;
 					if (under == _pressed)
 						_pressed.OnClick();
 				}
 				_pressed = null;
 			}
 			_prevButtons = buttons;
+			return changed;
 		}
 	}
 }
