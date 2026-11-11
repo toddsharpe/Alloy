@@ -14,7 +14,7 @@ namespace Alloy.Sdk.Web.Layout
 		// Everything until the matching Unclip is cut to the rectangle
 		Clip,
 		Unclip,
-		// A placeholder for an image, with its alt text
+		// An image: its bitmap scaled into the rectangle, or a placeholder with the alt text while there is none
 		Image,
 	}
 
@@ -29,8 +29,9 @@ namespace Alloy.Sdk.Web.Layout
 		public readonly Color Color;
 		public readonly string Text;
 		public readonly LayoutFont Font;
+		public readonly Alloy.Sdk.Web.Images.Bitmap Image;
 
-		public DisplayItem(DisplayItemKind kind, float x, float y, float width, float height, Color color, string text = null, LayoutFont font = null)
+		public DisplayItem(DisplayItemKind kind, float x, float y, float width, float height, Color color, string text = null, LayoutFont font = null, Alloy.Sdk.Web.Images.Bitmap image = null)
 		{
 			Kind = kind;
 			X = x;
@@ -40,6 +41,7 @@ namespace Alloy.Sdk.Web.Layout
 			Color = color;
 			Text = text;
 			Font = font;
+			Image = image;
 		}
 
 		public override string ToString() => Kind switch
@@ -105,7 +107,7 @@ namespace Alloy.Sdk.Web.Layout
 			if (clip)
 				list.Items.Add(new DisplayItem(DisplayItemKind.Clip, box.X, box.Y, box.Width, box.Height, default));
 			if (box.IsReplaced && box.Children.Count == 0 && box.TagName == "img" && box.Width > 0 && box.Height > 0 && style.Visible)
-				list.Items.Add(new DisplayItem(DisplayItemKind.Image, box.ContentX, box.ContentY, box.ContentWidth, box.ContentHeight, style.Color, box.Alt, null));
+				list.Items.Add(new DisplayItem(DisplayItemKind.Image, box.ContentX, box.ContentY, box.ContentWidth, box.ContentHeight, style.Color, box.Alt, null, box.Image));
 			if (box.Marker != null && style.Visible)
 				PaintMarker(list, box);
 			if (box.Lines != null)

@@ -21,6 +21,11 @@
 		<Using Remove="System.IO" />
 	</ItemGroup>
 
+	<!-- Small images the decoder tests read back -->
+	<ItemGroup>
+		<EmbeddedResource Include="Fixtures\*" />
+	</ItemGroup>
+
 	<!-- The same files the images compile -->
 	<ItemGroup>
 		<Compile Include="..\..\src\CoreLib\Alloy\**\*.cs" Link="Shared\CoreLib\%(RecursiveDir)%(Filename)%(Extension)" />
@@ -40,6 +45,7 @@
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Css\*.cs" Link="Shared\Sdk\Web\Css\%(Filename)%(Extension)" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Layout\*.cs" Link="Shared\Sdk\Web\Layout\%(Filename)%(Extension)" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Address.cs" Link="Shared\Sdk\Web\Address.cs" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Images\*.cs" Link="Shared\Sdk\Web\Images\%(Filename)%(Extension)" />
 	</ItemGroup>
 
 </Project>

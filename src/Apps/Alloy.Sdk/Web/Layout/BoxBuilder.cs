@@ -10,10 +10,12 @@ namespace Alloy.Sdk.Web.Layout
 	public sealed class BoxBuilder
 	{
 		private readonly StyleResolver _styles;
+		private readonly Func<Element, Alloy.Sdk.Web.Images.Bitmap> _images;
 
-		public BoxBuilder(StyleResolver styles)
+		public BoxBuilder(StyleResolver styles, Func<Element, Alloy.Sdk.Web.Images.Bitmap> images = null)
 		{
 			_styles = styles;
+			_images = images;
 		}
 
 		public LayoutBox Build(Document document)
@@ -51,7 +53,7 @@ namespace Alloy.Sdk.Web.Layout
 				ComputedStyle style = _styles.Resolve(child);
 				if (style.Display == Display.None)
 					continue;
-				LayoutBox box = CreateBox(child, style, parent);
+				LayoutBox box = CreateBox(child, style, parent, _images);
 				if (box == null)
 					continue;
 				parent.Add(box);
@@ -64,7 +66,7 @@ namespace Alloy.Sdk.Web.Layout
 		// Elements whose DOM children never become boxes: replaced elements and the form controls drawn as widgets
 		private static bool IsLeaf(string tag) => tag is "br" or "img" or "input" or "select" or "textarea" or "iframe" or "video" or "canvas" or "embed" or "object" or "svg" or "audio";
 
-		private static LayoutBox CreateBox(Element element, ComputedStyle style, LayoutBox parent)
+		private static LayoutBox CreateBox(Element element, ComputedStyle style, LayoutBox parent, Func<Element, Alloy.Sdk.Web.Images.Bitmap> images)
 		{
 			string tag = element.TagName;
 			switch (tag)
@@ -74,15 +76,16 @@ namespace Alloy.Sdk.Web.Layout
 				case "img":
 				{
 					string alt = element.GetAttribute("alt") ?? "";
+					Alloy.Sdk.Web.Images.Bitmap bitmap = images?.Invoke(element);
 					bool sized = !style.Width.IsAuto || !style.Height.IsAuto;
-					if (!sized && alt.Length > 0)
+					if (bitmap == null && !sized && alt.Length > 0)
 					{
-						// No size and no image yet: the alt text stands in, inline, as browsers show it
+						// No size and no picture: the alt text stands in, inline, as browsers show it
 						LayoutBox text = new LayoutBox(BoxKind.Inline, element, style);
 						text.Add(new LayoutBox(BoxKind.Text, element, style) { Text = alt });
 						return text;
 					}
-					LayoutBox image = new LayoutBox(BoxKind.InlineBlock, element, style) { Alt = alt, IntrinsicWidth = 0, IntrinsicHeight = 0 };
+					LayoutBox image = new LayoutBox(BoxKind.InlineBlock, element, style) { Alt = alt, Image = bitmap, IntrinsicWidth = bitmap?.Width ?? 0, IntrinsicHeight = bitmap?.Height ?? 0 };
 					if (style.Display == Display.Block || style.Display == Display.ListItem)
 						image.Kind = BoxKind.Block;
 					return image;

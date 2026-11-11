@@ -635,7 +635,7 @@ namespace Alloy.Sdk.Web.Layout
 						case InlineItemKind.Atomic:
 						case InlineItemKind.Edge:
 							line += pendingSpace + item.Width;
-							unbreakable += pendingSpace * (nowrap || (item.Style != null && item.Style.WhiteSpace is WhiteSpace.NoWrap or WhiteSpace.Pre) ? 1 : 0) + item.Width;
+							unbreakable += pendingSpace * (nowrap || (item.Style != null && item.Style.WhiteSpace is WhiteSpace.NoWrap or WhiteSpace.Pre) ? 1 : 0) + (item.Kind == InlineItemKind.Atomic ? item.MinWidth : item.Width);
 							pendingSpace = 0;
 							break;
 						case InlineItemKind.Space:
@@ -985,6 +985,8 @@ namespace Alloy.Sdk.Web.Layout
 			public LayoutFont Font;
 			public ComputedStyle Style;
 			public float Width;
+			// An atomic item's narrowest width, for min-content measuring; Width is its widest
+			public float MinWidth;
 			public bool Preserved;
 			public bool NoWrap;
 			public bool IsMarker;
@@ -1055,8 +1057,8 @@ namespace Alloy.Sdk.Web.Layout
 						{
 							if (!_measuring)
 								_engine.LayoutAtomic(child, _block.ContentWidth, -1);
-							float width = _measuring ? _engine.OuterIntrinsicWidths(child).Max : child.MarginBoxWidth;
-							_items.Add(new InlineItem { Kind = InlineItemKind.Atomic, Box = child, Inline = _inline, Style = child.Style, Width = width });
+							(float min, float max) = _measuring ? _engine.OuterIntrinsicWidths(child) : (child.MarginBoxWidth, child.MarginBoxWidth);
+							_items.Add(new InlineItem { Kind = InlineItemKind.Atomic, Box = child, Inline = _inline, Style = child.Style, Width = max, MinWidth = min });
 							_lastWasSpace = false;
 							break;
 						}

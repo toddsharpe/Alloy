@@ -294,6 +294,40 @@ public class LayoutTests
 	}
 
 	[Fact]
+	public void KeepsTablesNarrowWhenInlinesHoldBlocks()
+	{
+		LayoutBox root = Lay("<table width=200><tr><td><font color=green>intro text <p>On deeper inspection this paragraph is far longer than the two hundred pixel table it sits in</p></font></td></tr></table>", "td { padding: 0 }");
+		LayoutBox table = Find(root, "table");
+		Assert.Equal(200, table.Width);
+		LayoutBox p = Find(root, "p");
+		Assert.True(p.Width <= 196);
+		Assert.True(p.Lines.Count >= 4);
+	}
+
+	[Fact]
+	public void SizesAndPaintsImagesFromTheirBitmaps()
+	{
+		Alloy.Sdk.Web.Images.Bitmap picture = new Alloy.Sdk.Web.Images.Bitmap(40, 30);
+		Document document = HtmlParser.Parse("<p><img id=a src=a.png alt=A> <img id=b src=a.png width=80> <img id=c src=missing.png alt=Missing></p>");
+		StyleResolver resolver = new StyleResolver(new MediaEnvironment(Width, Height));
+		resolver.AddStylesheet(CssParser.Parse("body, p { margin: 0 }", new MediaEnvironment(Width, Height)));
+		LayoutBox root = new BoxBuilder(resolver, e => e.GetAttribute("src") == "a.png" ? picture : null).Build(document);
+		new LayoutEngine(new FixedFontProvider(), Width, Height).Layout(root);
+		LayoutBox a = FindId(root, "a");
+		LayoutBox b = FindId(root, "b");
+		Assert.Equal(40, a.Width);
+		Assert.Equal(30, a.Height);
+		Assert.Equal(80, b.Width);
+		Assert.Equal(60, b.Height);
+		Assert.Equal(a.Y + a.Height, b.Y + b.Height);
+		Assert.Equal(0, b.Y);
+		Assert.Equal(BoxKind.Inline, FindId(root, "c").Kind);
+		DisplayList list = Painter.Paint(root, Width, Height);
+		Assert.Equal(2, list.Items.Count(i => i.Kind == DisplayItemKind.Image && i.Image == picture));
+		Assert.Contains(list.Items, i => i.Kind == DisplayItemKind.Text && i.Text == "Missing");
+	}
+
+	[Fact]
 	public void HandlesHeadingsParagraphsAndTheFirstWebsite()
 	{
 		const string html = "<html><head><title>t</title></head><body><header><h1>World Wide Web</h1></header><p>The WorldWideWeb (W3) is a wide-area <a href=a>hypermedia</a> information retrieval initiative aiming to give universal access to a large universe of documents.</p><ul><li><a href=b>What's out there?</a></li><li>Help</li></ul></body></html>";

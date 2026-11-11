@@ -68,6 +68,9 @@ namespace Alloy.Sdk.Web.Layout
 		public float IntrinsicHeight = -1;
 		public string Alt;
 
+		// The decoded picture of an img that has arrived
+		public Alloy.Sdk.Web.Images.Bitmap Image;
+
 		// Table cells
 		public int ColumnSpan = 1;
 		public int RowSpan = 1;
