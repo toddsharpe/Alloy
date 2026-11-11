@@ -14,6 +14,7 @@
       "src\\Apps\\Alloy.Sdk\\Alloy.Sdk.csproj",
       "src\\Apps\\Ping\\Ping.csproj",
       "src\\Apps\\Ps\\Ps.csproj",
+      "src\\Apps\\Tcp\\Tcp.csproj",
       "src\\Apps\\Terminal\\Terminal.csproj",
       "src\\Apps\\Time\\Time.csproj",
       "src\\Apps\\WMSvr\\WMSvr.csproj"

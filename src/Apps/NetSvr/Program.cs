@@ -19,6 +19,9 @@ namespace Alloy.Apps.NetSvr
 		private const ulong TickMs = 10;
 		private const ulong ReapMs = 500;
 
+		// Serve's answer when the reply waits on the network: a connect or read the loop completes later
+		private const long Deferred = long.MinValue;
+
 		private static readonly Connection[] s_connections = new Connection[MaxConnections];
 		private static Memory<byte> s_address;
 
@@ -63,11 +66,15 @@ namespace Alloy.Apps.NetSvr
 				long transferred;
 				while ((transferred = Port.Receive(port, out IpcMessage message, 0)) >= 0)
 					Handle(in message, transferred);
+				ulong now = Kernel.TickCount;
+				Tcp.Tick(now);
 				Stack.Dispatch();
-				if (Kernel.TickCount - lastReap >= ReapMs)
+				CompletePending(now);
+				FreeClosedSockets();
+				if (now - lastReap >= ReapMs)
 				{
 					ReapDeadConnections();
-					lastReap = Kernel.TickCount;
+					lastReap = now;
 				}
 			}
 		}
@@ -96,7 +103,10 @@ namespace Alloy.Apps.NetSvr
 
 			IpcMessage reply = default;
 			reply.Type = message.Type + NetProtocol.Reply;
-			reply.Data[0] = (ulong)Serve(connection, client, in message, ref reply);
+			long result = Serve(connection, client, in message, ref reply);
+			if (result == Deferred)
+				return;
+			reply.Data[0] = (ulong)result;
 			Port.Send(connection.Reply, reply);
 		}
 
@@ -126,6 +136,7 @@ namespace Alloy.Apps.NetSvr
 				{
 					SocketProtocol protocol = message.Data[1] == NetProtocol.ProtocolUdp || (message.Data[1] == 0 && message.Data[0] == NetProtocol.SocketDatagram) ? SocketProtocol.Udp
 						: message.Data[1] == NetProtocol.ProtocolIcmp || (message.Data[1] == 0 && message.Data[0] == NetProtocol.SocketRaw) ? SocketProtocol.Icmp
+						: message.Data[1] == NetProtocol.ProtocolTcp || (message.Data[1] == 0 && message.Data[0] == NetProtocol.SocketStream) ? SocketProtocol.Tcp
 						: SocketProtocol.None;
 					if (protocol == SocketProtocol.None)
 						return Error(SyscallError.InvalidArgument);
@@ -138,6 +149,13 @@ namespace Alloy.Apps.NetSvr
 							socket.Port = 0;
 							socket.Owner = client;
 							socket.Head = socket.Count = 0;
+							socket.Pending = null;
+							if (protocol == SocketProtocol.Tcp)
+							{
+								socket.Tcp ??= new TcpConnection();
+								socket.Tcp.State = TcpState.Closed;
+								socket.Tcp.Reset = false;
+							}
 							return i;
 						}
 					}
@@ -179,7 +197,7 @@ namespace Alloy.Apps.NetSvr
 
 				case NetProtocol.SendTo:
 				{
-					if (connection.Buffer.IsEmpty)
+					if (connection.Buffer.IsEmpty || target.Protocol == SocketProtocol.Tcp)
 						return Error(SyscallError.InvalidPointer);
 					int length = (int)Math.Min(message.Data[3], NetProtocol.MaxPayload);
 					ReadOnlySpan<byte> data = connection.Buffer.Span.Slice(0, length);
@@ -192,7 +210,7 @@ namespace Alloy.Apps.NetSvr
 				case NetProtocol.RecvFrom:
 				{
 					// Empty answers Timeout at once; the client retries until its own timeout, as MetalOS's does
-					if (target.Count == 0 || connection.Buffer.IsEmpty)
+					if (target.Count == 0 || connection.Buffer.IsEmpty || target.Protocol == SocketProtocol.Tcp)
 						return Error(SyscallError.Timeout);
 					int slot = target.Head;
 					int length = Math.Min(target.Length[slot], (int)Math.Min(message.Data[1], NetProtocol.MaxPayload));
@@ -204,13 +222,125 @@ namespace Alloy.Apps.NetSvr
 					return length;
 				}
 
+				case NetProtocol.StreamConnect:
+				{
+					if (target.Protocol != SocketProtocol.Tcp || target.Tcp.State != TcpState.Closed || target.Pending != null || Stack.Ip == 0)
+						return Error(SyscallError.InvalidArgument);
+					if (!Tcp.Connect(target, (uint)message.Data[1], (ushort)message.Data[2]))
+						return Error(SyscallError.Busy);
+					Defer(target, connection, message.Type, 0, message.Data[3]);
+					return Deferred;
+				}
+
+				case NetProtocol.StreamSend:
+				{
+					if (target.Protocol != SocketProtocol.Tcp || connection.Buffer.IsEmpty)
+						return Error(SyscallError.InvalidArgument);
+					if (target.Tcp.Reset)
+						return Error(SyscallError.Closed);
+					int length = (int)Math.Min(message.Data[1], NetProtocol.BufferSize);
+					int queued = Tcp.Send(target, connection.Buffer.Span.Slice(0, length));
+					return queued < 0 ? Error(SyscallError.Closed) : queued;
+				}
+
+				case NetProtocol.StreamRecv:
+				{
+					if (target.Protocol != SocketProtocol.Tcp || connection.Buffer.IsEmpty || target.Pending != null)
+						return Error(SyscallError.InvalidArgument);
+					int length = (int)Math.Min(message.Data[1], NetProtocol.BufferSize);
+					if (target.Tcp.Readable)
+						return Read(target, connection, length);
+					if (message.Data[3] == 0)
+						return Error(SyscallError.Timeout);
+					Defer(target, connection, message.Type, length, message.Data[3]);
+					return Deferred;
+				}
+
 				case NetProtocol.Close:
+					if (target.Protocol == SocketProtocol.Tcp)
+					{
+						// The slot stays taken while the FIN exchange runs; FreeClosedSockets reclaims it
+						Tcp.Close(target);
+						target.Owner = -1;
+						target.Pending = null;
+						return 0;
+					}
 					target.Protocol = SocketProtocol.None;
 					target.Port = 0;
 					return 0;
 
 				default:
 					return Error(SyscallError.NotImplemented);
+			}
+		}
+
+		private static void Defer(Socket socket, Connection connection, ulong type, int length, ulong timeoutMs)
+		{
+			socket.Pending = connection;
+			socket.PendingType = type;
+			socket.PendingLength = length;
+			socket.PendingDeadline = timeoutMs == ulong.MaxValue ? ulong.MaxValue : Kernel.TickCount + timeoutMs;
+		}
+
+		// Bytes waiting on the connection, 0 once the peer has closed, or Closed after a reset
+		private static long Read(Socket socket, Connection connection, int length)
+		{
+			TcpConnection tcp = socket.Tcp;
+			if (tcp.RecvCount > 0)
+				return tcp.Read(connection.Buffer.Span.Slice(0, length));
+			if (tcp.FinReceived)
+				return 0;
+			return Error(SyscallError.Closed);
+		}
+
+		// Connects and reads that were waiting on the network: answered once the connection can, or with Timeout at their deadline
+		private static void CompletePending(ulong now)
+		{
+			foreach (Socket socket in Stack.Sockets)
+			{
+				if (socket.Pending == null)
+					continue;
+				TcpConnection tcp = socket.Tcp;
+				long result;
+				if (socket.PendingType == NetProtocol.StreamConnect)
+				{
+					if (tcp.State == TcpState.Established)
+						result = 0;
+					else if (tcp.State == TcpState.Closed)
+						result = Error(SyscallError.Closed);
+					else if (now >= socket.PendingDeadline)
+					{
+						Tcp.Abort(socket);
+						result = Error(SyscallError.Timeout);
+					}
+					else
+						continue;
+				}
+				else
+				{
+					if (tcp.Readable)
+						result = Read(socket, socket.Pending, socket.PendingLength);
+					else if (now >= socket.PendingDeadline)
+						result = Error(SyscallError.Timeout);
+					else
+						continue;
+				}
+				Connection connection = socket.Pending;
+				socket.Pending = null;
+				Reply(connection, socket.PendingType, result);
+			}
+		}
+
+		// A closed stream socket's slot goes back once its connection has finished closing
+		private static void FreeClosedSockets()
+		{
+			foreach (Socket socket in Stack.Sockets)
+			{
+				if (socket.Protocol == SocketProtocol.Tcp && socket.Owner < 0 && socket.Tcp.State == TcpState.Closed)
+				{
+					socket.Protocol = SocketProtocol.None;
+					socket.Port = 0;
+				}
 			}
 		}
 
@@ -232,8 +362,12 @@ namespace Alloy.Apps.NetSvr
 					continue;
 				foreach (Socket socket in Stack.Sockets)
 				{
-					if (socket.Owner == i && socket.Protocol != SocketProtocol.None)
-						socket.Protocol = SocketProtocol.None;
+					if (socket.Owner != i || socket.Protocol == SocketProtocol.None)
+						continue;
+					if (socket.Protocol == SocketProtocol.Tcp)
+						Tcp.Abort(socket);
+					socket.Protocol = SocketProtocol.None;
+					socket.Pending = null;
 				}
 				if (connection.Process > 0)
 					Kernel.Close(connection.Process);

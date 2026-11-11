@@ -10,6 +10,7 @@ namespace Alloy.Apps.NetSvr
 		None,
 		Udp,
 		Icmp,
+		Tcp,
 	}
 
 	// One socket; received datagrams wait in a small ring of fixed slots, so nothing is allocated per packet
@@ -26,6 +27,15 @@ namespace Alloy.Apps.NetSvr
 		public readonly ushort[] FromPort = new ushort[QueueDepth];
 		public readonly int[] Length = new int[QueueDepth];
 		public readonly byte[] Data = new byte[QueueDepth * NetProtocol.MaxPayload];
+
+		// A stream socket's connection, made on first use and kept with the slot since nothing frees it
+		public TcpConnection Tcp;
+
+		// The app's read or connect waiting for the connection, answered by the server loop
+		public Connection Pending;
+		public ulong PendingType;
+		public int PendingLength;
+		public ulong PendingDeadline;
 
 		public void Enqueue(uint ip, ushort port, ReadOnlySpan<byte> data)
 		{
@@ -46,6 +56,7 @@ namespace Alloy.Apps.NetSvr
 		private const ushort EthIpv4 = 0x0800;
 		private const ushort EthArp = 0x0806;
 		private const byte ProtoIcmp = 1;
+		public const byte ProtoTcp = 6;
 		private const byte ProtoUdp = 17;
 		private const int ArpEntries = 32;
 		private const ulong ArpRetryMs = 1000;
@@ -74,6 +85,9 @@ namespace Alloy.Apps.NetSvr
 		private static ushort s_nextPort = FirstEphemeral;
 
 		public static void Initialize(ReadOnlySpan<byte> mac) => mac.CopyTo(Mac);
+
+		// Where a transport builds its segment, right after the IPv4 header SendIpv4 fills in
+		public static Span<byte> TxPayload => s_tx.AsSpan(EthernetHeader + Ipv4Header);
 
 		public static ushort EphemeralPort()
 		{
@@ -178,6 +192,8 @@ namespace Alloy.Apps.NetSvr
 				ReceiveIcmp(source, payload);
 			else if (ip[9] == ProtoUdp)
 				ReceiveUdp(source, payload);
+			else if (ip[9] == ProtoTcp)
+				Tcp.Receive(source, destination, payload);
 		}
 
 		private static void ReceiveIcmp(uint source, ReadOnlySpan<byte> icmp)
@@ -224,7 +240,7 @@ namespace Alloy.Apps.NetSvr
 		}
 
 		// The IPv4 header goes in front of a payload already at s_tx + 34
-		private static bool SendIpv4(uint destination, byte protocol, int length)
+		public static bool SendIpv4(uint destination, byte protocol, int length)
 		{
 			Span<byte> ip = s_tx.AsSpan(EthernetHeader, Ipv4Header);
 			ip[0] = 0x45;

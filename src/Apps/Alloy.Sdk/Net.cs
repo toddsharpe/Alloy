@@ -11,6 +11,9 @@ namespace Alloy.Sdk
 		private static ulong s_client;
 		private static unsafe byte* s_buffer;
 
+		// One request at a time per process: the shared page and the reply port are shared by every thread
+		private static readonly object s_lock = new object();
+
 		// Interface enumeration is a kernel syscall; the address configuration belongs to NetSvr
 		public static unsafe int GetInterfaces(Span<InterfaceInfo> interfaces)
 		{
@@ -24,10 +27,13 @@ namespace Alloy.Sdk
 
 		public static unsafe long SendTo(long socket, ReadOnlySpan<byte> data, uint ip, ushort port)
 		{
-			if (!Connect() || data.Length > NetProtocol.MaxPayload)
-				return SystemCall.Error(SyscallError.InvalidArgument);
-			data.CopyTo(new Span<byte>(s_buffer, NetProtocol.MaxPayload));
-			return Call(NetProtocol.SendTo, (ulong)socket, ip, out _, port, (ulong)data.Length);
+			lock (s_lock)
+			{
+				if (!Connect() || data.Length > NetProtocol.MaxPayload)
+					return SystemCall.Error(SyscallError.InvalidArgument);
+				data.CopyTo(new Span<byte>(s_buffer, NetProtocol.MaxPayload));
+				return Call(NetProtocol.SendTo, (ulong)socket, ip, out _, port, (ulong)data.Length);
+			}
 		}
 
 		// The next datagram's length, retrying every few milliseconds until one arrives or the timeout passes
@@ -36,13 +42,17 @@ namespace Alloy.Sdk
 			ulong start = Kernel.TickCount;
 			while (true)
 			{
-				long result = Call(NetProtocol.RecvFrom, (ulong)socket, (ulong)buffer.Length, out IpcMessage reply);
-				if (result >= 0)
+				long result;
+				lock (s_lock)
 				{
-					new ReadOnlySpan<byte>(s_buffer, (int)result).CopyTo(buffer);
-					ip = (uint)reply.Data[1];
-					port = (ushort)reply.Data[2];
-					return result;
+					result = Call(NetProtocol.RecvFrom, (ulong)socket, (ulong)buffer.Length, out IpcMessage reply);
+					if (result >= 0)
+					{
+						new ReadOnlySpan<byte>(s_buffer, (int)result).CopyTo(buffer);
+						ip = (uint)reply.Data[1];
+						port = (ushort)reply.Data[2];
+						return result;
+					}
 				}
 				if (result != SystemCall.Error(SyscallError.Timeout) || Kernel.TickCount - start >= timeoutMs)
 				{
@@ -55,6 +65,47 @@ namespace Alloy.Sdk
 		}
 
 		public static long Close(long socket) => Call(NetProtocol.Close, (ulong)socket, 0, out _);
+
+		// A stream socket to ip:port; 0 once the handshake is done, -Timeout or -Closed (refused) otherwise
+		public static long Connect(long socket, uint ip, ushort port, ulong timeoutMs = 5000) =>
+			Call(NetProtocol.StreamConnect, (ulong)socket, ip, out _, port, timeoutMs);
+
+		// Everything, a page at a time, waiting while the connection's send buffer is full; negative once the peer has gone
+		public static unsafe long Send(long socket, ReadOnlySpan<byte> data)
+		{
+			long total = 0;
+			lock (s_lock)
+			{
+				while (!data.IsEmpty)
+				{
+					int chunk = (int)Math.Min((ulong)data.Length, NetProtocol.BufferSize);
+					if (!Connect())
+						return SystemCall.Error(SyscallError.NotFound);
+					data.Slice(0, chunk).CopyTo(new Span<byte>(s_buffer, chunk));
+					long queued = Call(NetProtocol.StreamSend, (ulong)socket, (ulong)chunk, out _);
+					if (queued < 0)
+						return total > 0 ? total : queued;
+					if (queued == 0)
+						Kernel.Sleep(1);
+					data = data.Slice((int)queued);
+					total += queued;
+				}
+			}
+			return total;
+		}
+
+		// What has arrived, up to a page; 0 once the peer has closed, -Timeout if nothing came in time, -Closed after a reset
+		public static unsafe long Receive(long socket, Span<byte> buffer, ulong timeoutMs = ulong.MaxValue)
+		{
+			lock (s_lock)
+			{
+				int length = (int)Math.Min((ulong)buffer.Length, NetProtocol.BufferSize);
+				long result = Call(NetProtocol.StreamRecv, (ulong)socket, (ulong)length, out _, 0, timeoutMs);
+				if (result > 0)
+					new ReadOnlySpan<byte>(s_buffer, (int)result).CopyTo(buffer);
+				return result;
+			}
+		}
 
 		public static bool GetInterfaceIp(out uint ip, out uint mask)
 		{
@@ -109,23 +160,26 @@ namespace Alloy.Sdk
 
 		private static long Call(ulong type, ulong a0, ulong a1, out IpcMessage reply, ulong a2 = 0, ulong a3 = 0)
 		{
-			reply = default;
-			if (!Connect())
-				return SystemCall.Error(SyscallError.NotFound);
-			IpcMessage message = default;
-			message.Type = type;
-			message.Data[0] = a0;
-			message.Data[1] = a1;
-			message.Data[2] = a2;
-			message.Data[3] = a3;
-			message.Data[6] = s_client;
-			Port.Send(s_server, message);
-			while (Port.Receive(s_reply, out reply) >= 0)
+			lock (s_lock)
 			{
-				if (reply.Type == type + NetProtocol.Reply)
-					return (long)reply.Data[0];
+				reply = default;
+				if (!Connect())
+					return SystemCall.Error(SyscallError.NotFound);
+				IpcMessage message = default;
+				message.Type = type;
+				message.Data[0] = a0;
+				message.Data[1] = a1;
+				message.Data[2] = a2;
+				message.Data[3] = a3;
+				message.Data[6] = s_client;
+				Port.Send(s_server, message);
+				while (Port.Receive(s_reply, out reply) >= 0)
+				{
+					if (reply.Type == type + NetProtocol.Reply)
+						return (long)reply.Data[0];
+				}
+				return SystemCall.Error(SyscallError.InvalidHandle);
 			}
-			return SystemCall.Error(SyscallError.InvalidHandle);
 		}
 
 		// Once per process: the reply port with Connect, then the shared page datagrams travel in

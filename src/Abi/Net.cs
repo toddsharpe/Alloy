@@ -64,12 +64,19 @@ namespace Alloy.Abi
 		public const ulong GetGateway = 10;
 		public const ulong SetGateway = 11;
 
+		// Stream sockets: Connect, Send and Recv move up to BufferSize bytes per call through the shared page; Recv and Connect answer when there is something to say or Data[3] ms pass
+		public const ulong StreamConnect = 12;
+		public const ulong StreamSend = 13;
+		public const ulong StreamRecv = 14;
+
 		// Every reply has Type = the request's + Reply; Data[0] is the result, >= 0 or a negated SyscallError
 		public const ulong Reply = 100;
 
+		public const ulong SocketStream = 1;
 		public const ulong SocketDatagram = 2;
 		public const ulong SocketRaw = 3;
 		public const ulong ProtocolIcmp = 1;
+		public const ulong ProtocolTcp = 6;
 		public const ulong ProtocolUdp = 17;
 	}
 }
