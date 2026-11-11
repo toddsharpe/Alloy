@@ -10,6 +10,7 @@
       "src\\Apps\\FontTest\\FontTest.csproj",
       "src\\Apps\\Hello\\Hello.csproj",
       "src\\Apps\\Http\\Http.csproj",
+      "src\\Apps\\HtmlApp\\HtmlApp.csproj",
       "src\\Apps\\Init\\Init.csproj",
       "src\\Apps\\IpcTest\\IpcTest.csproj",
       "src\\Apps\\NetSvr\\NetSvr.csproj",
