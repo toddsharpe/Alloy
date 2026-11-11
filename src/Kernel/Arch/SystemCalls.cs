@@ -130,7 +130,7 @@ namespace Alloy.Kernel.Arch
 
 				case Syscall.GetSystemTime:
 				{
-					SystemTime time = Platform.Rtc.Read();
+					SystemTime time = Clock.Now();
 					return UserMemory.CopyTo(frame->A0, &time, (ulong)sizeof(SystemTime)) ? 0 : Error(SyscallError.InvalidPointer);
 				}
 
