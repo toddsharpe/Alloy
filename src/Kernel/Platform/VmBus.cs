@@ -54,6 +54,8 @@ namespace Alloy.Kernel.Platform
 		public const ulong NetworkHigh = 0x0EED65F9D2F23F91;
 		public const ulong ScsiLow = 0x4D2904A1BA6163D9;
 		public const ulong ScsiHigh = 0x7FDCB1FFE27205B6;
+		public const ulong ShutdownLow = 0x493452130E0B6031;
+		public const ulong ShutdownHigh = 0xDB39ED0CD9388B81;
 
 		private static uint s_connectionId;
 		private static unsafe VmBusOffer* s_offers;
@@ -293,6 +295,8 @@ namespace Alloy.Kernel.Platform
 				line.Append(" network");
 			else if (offer.TypeLow == ScsiLow && offer.TypeHigh == ScsiHigh)
 				line.Append(" scsi");
+			else if (offer.TypeLow == ShutdownLow && offer.TypeHigh == ShutdownHigh)
+				line.Append(" shutdown");
 			Log.WriteLine(ref line);
 		}
 	}
