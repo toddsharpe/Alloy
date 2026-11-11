@@ -121,6 +121,10 @@ namespace Alloy.Sdk
 
 		public static bool SetGateway(uint gateway) => Call(NetProtocol.SetGateway, 0, gateway, out _) >= 0;
 
+		public static uint DnsServer => Call(NetProtocol.GetDns, 0, 0, out IpcMessage reply) >= 0 ? (uint)reply.Data[1] : 0;
+
+		public static bool SetDnsServer(uint server) => Call(NetProtocol.SetDns, 0, server, out _) >= 0;
+
 		// The DHCP gateway, or a network|.1 guess when there is none (MetalOS NetUtil GatewayOrGuess)
 		public static uint GatewayOrGuess(uint ip, uint mask)
 		{

@@ -70,6 +70,7 @@ namespace Alloy.Apps.NetSvr
 		public static uint Ip;
 		public static uint Mask;
 		public static uint Gateway;
+		public static uint Dns;
 		public static readonly Socket[] Sockets = new Socket[MaxSockets];
 
 		private static readonly uint[] s_arpIp = new uint[ArpEntries];
