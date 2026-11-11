@@ -6,6 +6,7 @@
       "src\\Apps\\Crash\\Crash.csproj",
       "src\\Apps\\Dhcp\\Dhcp.csproj",
       "src\\Apps\\Fire\\Fire.csproj",
+      "src\\Apps\\FontTest\\FontTest.csproj",
       "src\\Apps\\Hello\\Hello.csproj",
       "src\\Apps\\Init\\Init.csproj",
       "src\\Apps\\IpcTest\\IpcTest.csproj",

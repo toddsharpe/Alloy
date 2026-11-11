@@ -39,6 +39,15 @@ Copy-Item (Join-Path $root 'src\Root') $os -Recurse
 $osBin = New-Item -ItemType Directory -Force (Join-Path $os 'bin')
 Get-ChildItem $bin -Filter '*.exe' | Where-Object { $_.Name -ne 'kernel.exe' } | Copy-Item -Destination $osBin
 
+# Typefaces come from the host's Windows fonts, local only like the game data; apps fall back to the 8x8 font when one is missing
+$fontDir = New-Item -ItemType Directory -Force (Join-Path $os 'fonts')
+$fonts = @{ 'sans' = 'segoeui.ttf'; 'sans-bold' = 'segoeuib.ttf'; 'serif' = 'times.ttf'; 'serif-bold' = 'timesbd.ttf'; 'mono' = 'consola.ttf' }
+foreach ($name in $fonts.Keys)
+{
+	$source = Join-Path $env:WINDIR ('Fonts' + [IO.Path]::DirectorySeparatorChar + $fonts[$name])
+	if (Test-Path $source) { Copy-Item $source (Join-Path $fontDir "$name.ttf") } else { "build: $($fonts[$name]) not found, skipping the $name face" }
+}
+
 # Game data is optional and local only, as in MetalOS's build_vhd.cmd: never committed, never in CI
 $doomData = 'C:\Program Files (x86)\Steam\steamapps\common\Ultimate Doom\base'
 if (Test-Path (Join-Path $doomData 'DOOM.WAD')) { Copy-Item (Join-Path $doomData 'DOOM.WAD') (Join-Path $os 'DOOM.WAD') } else { 'build: DOOM.WAD not found, skipping game data' }
