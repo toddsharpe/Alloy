@@ -40,9 +40,10 @@ namespace Internal.Runtime.CompilerHelpers
 {
 	internal static class UserStartup
 	{
+		// The thread environment block gs points at; the kernel fills it per thread (Abi Teb)
 		[RuntimeImport("*", "PhxTeb")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		private static extern unsafe byte* PhxTeb();
+		internal static extern unsafe byte* PhxTeb();
 
 		[RuntimeImport("*", "__managed__Main")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -92,12 +93,27 @@ namespace System.Runtime
 			return memory;
 		}
 
+		private static unsafe partial void Free(void* memory)
+		{
+		}
+
 		// Fresh pages from the kernel are already zero
 		private static unsafe void* Reserve(nuint size)
 		{
 			long address = Alloy.Runtime.SystemCall.Invoke(Syscall.VirtualAlloc, 0, size, Memory.Commit | Memory.Reserve, Memory.ReadWrite);
 			return address <= 0 ? null : (void*)address;
 		}
+	}
+}
+
+namespace System.Threading
+{
+	public static partial class Monitor
+	{
+		// The kernel's thread id from the TEB, offset by one so no thread is ever id 0
+		private static unsafe partial uint CurrentThreadId() => *(uint*)(UserStartup.PhxTeb() + Teb.ThreadId) + 1;
+
+		private static unsafe partial void Yield() => Alloy.Runtime.SystemCall.Invoke(Syscall.Yield);
 	}
 }
 

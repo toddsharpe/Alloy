@@ -116,6 +116,61 @@ memcpy PROC
 	jmp memmove
 memcpy ENDP
 
+; Interface dispatch for calls ILC couldn't devirtualize: r11 holds the call site's cell (stub pointer, then a cache or the interface), rcx the object
+; The cache object (System.Runtime.InterfaceDispatch.Cache) keeps (MethodTable, target) pairs at 24 + 16n; misses resolve in managed code
+EXTERN PhxResolveInterfaceDispatch : PROC
+
+RhpInitialInterfaceDispatch PROC
+	mov r10, [r11 + 8]
+	test r10b, 3
+	jnz Resolve
+	cmp r10, 1000h
+	jb Resolve
+	mov rax, [rcx]
+	cmp rax, [r10 + 24]
+	jne Entry1
+	jmp qword ptr [r10 + 32]
+Entry1:
+	cmp rax, [r10 + 40]
+	jne Entry2
+	jmp qword ptr [r10 + 48]
+Entry2:
+	cmp rax, [r10 + 56]
+	jne Entry3
+	jmp qword ptr [r10 + 64]
+Entry3:
+	cmp rax, [r10 + 72]
+	jne Resolve
+	jmp qword ptr [r10 + 80]
+Resolve:
+	; Keep the call's arguments across the managed resolver, then tail-jump to the implementation it found
+	sub rsp, 88h
+	mov [rsp + 20h], rcx
+	mov [rsp + 28h], rdx
+	mov [rsp + 30h], r8
+	mov [rsp + 38h], r9
+	movdqa xmmword ptr [rsp + 40h], xmm0
+	movdqa xmmword ptr [rsp + 50h], xmm1
+	movdqa xmmword ptr [rsp + 60h], xmm2
+	movdqa xmmword ptr [rsp + 70h], xmm3
+	mov rdx, r11
+	call PhxResolveInterfaceDispatch
+	mov rcx, [rsp + 20h]
+	mov rdx, [rsp + 28h]
+	mov r8, [rsp + 30h]
+	mov r9, [rsp + 38h]
+	movdqa xmm0, xmmword ptr [rsp + 40h]
+	movdqa xmm1, xmmword ptr [rsp + 50h]
+	movdqa xmm2, xmmword ptr [rsp + 60h]
+	movdqa xmm3, xmmword ptr [rsp + 70h]
+	add rsp, 88h
+	jmp rax
+RhpInitialInterfaceDispatch ENDP
+
+RhpInitialDynamicInterfaceDispatch PROC
+	jmp RhpInitialInterfaceDispatch
+RhpInitialDynamicInterfaceDispatch ENDP
+
 _TEXT ENDS
 
 END

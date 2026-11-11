@@ -3,11 +3,14 @@ using Internal.Runtime;
 
 namespace System.Runtime
 {
-	// The platform supplies zeroed memory; with no GC nothing is reclaimed
+	// The platform supplies zeroed memory; with no GC an object lives until something frees it
 	internal static partial class Allocator
 	{
 		// Returns zeroed, 8-byte aligned memory, or null when exhausted
 		private static unsafe partial void* AllocateZeroed(nuint size);
+
+		// Gives memory from AllocateZeroed back; a platform without a freeing heap ignores it
+		private static unsafe partial void Free(void* memory);
 
 		internal static unsafe object NewObject(MethodTable* pMT)
 		{
@@ -26,6 +29,13 @@ namespace System.Runtime
 			object array = Place(pMT, (nuint)size);
 			Unsafe.As<RawArrayData>(array).Length = (uint)length;
 			return array;
+		}
+
+		// For CoreLib's own temporaries (string builders, list buffers): the object must not be used afterwards
+		internal static unsafe void FreeObject(object value)
+		{
+			if (value != null)
+				Free((byte*)Unsafe.As<object, nint>(ref value) - sizeof(ObjHeader));
 		}
 
 		private static unsafe object Place(MethodTable* pMT, nuint size)

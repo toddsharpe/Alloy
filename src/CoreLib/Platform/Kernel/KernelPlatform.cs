@@ -12,8 +12,13 @@ namespace Alloy.Kernel
 		// Handed over by the loader in rcx, addressed through the physical window
 		public static unsafe BootInfo* BootInfo { get; internal set; }
 
-		// Set once the kernel heap is up; until then `new` is served from the boot arena
+		// Set once the kernel heap is up; until then `new` is served from the boot arena and nothing is freed
 		public static unsafe delegate*<nuint, void*> HeapAllocate;
+		public static unsafe delegate*<void*, void> HeapFree;
+
+		// Set once the scheduler runs: the current thread's nonzero id, and a way to let another thread run, for Monitor
+		public static unsafe delegate*<uint> CurrentThreadId;
+		public static unsafe delegate*<void> Yield;
 	}
 }
 
@@ -61,6 +66,33 @@ namespace System.Runtime
 			void* memory = arena + s_bootArenaUsed;
 			s_bootArenaUsed += size;
 			return memory;
+		}
+
+		// Arena memory is never reused; everything else goes back to the kernel heap
+		private static unsafe partial void Free(void* memory)
+		{
+			nuint arenaSize;
+			byte* arena = PhxBootArena(&arenaSize);
+			if ((byte*)memory >= arena && (byte*)memory < arena + arenaSize)
+				return;
+			if (Alloy.Kernel.KernelEnvironment.HeapFree != null)
+				Alloy.Kernel.KernelEnvironment.HeapFree(memory);
+		}
+	}
+}
+
+namespace System.Threading
+{
+	public static partial class Monitor
+	{
+		private static unsafe partial uint CurrentThreadId() =>
+			Alloy.Kernel.KernelEnvironment.CurrentThreadId != null ? Alloy.Kernel.KernelEnvironment.CurrentThreadId() : 1;
+
+		private static unsafe partial void Yield()
+		{
+			if (Alloy.Kernel.KernelEnvironment.Yield == null)
+				Environment.FailFast("FAILFAST: a lock contended before the scheduler started");
+			Alloy.Kernel.KernelEnvironment.Yield();
 		}
 	}
 }

@@ -25,6 +25,7 @@ namespace Alloy.Kernel
 			Check("threads ping-pong 1000 events", PingPong());
 			Check("a busy thread is preempted", Preemption());
 			Check("wait times out", WaitTimeout());
+			FeatureTests.Run();
 			Check("exited threads are reaped", Reaped());
 
 			SpanWriter line = new SpanWriter(stackalloc char[64]);
@@ -37,7 +38,7 @@ namespace Alloy.Kernel
 			return s_failed == 0;
 		}
 
-		private static void Check(string name, bool passed)
+		internal static void Check(string name, bool passed)
 		{
 			if (passed)
 				s_passed++;
