@@ -4,7 +4,7 @@ namespace Alloy.Abi
 	public struct BootInfo
 	{
 		public const ulong ExpectedMagic = 0x31544F4F42584850; // "PHXBOOT1"
-		public const uint CurrentVersion = 1;
+		public const uint CurrentVersion = 2;
 
 		public ulong Magic;
 		public uint Version;
@@ -20,9 +20,6 @@ namespace Alloy.Abi
 		public ulong KernelPhysical;
 		public ulong KernelVirtual;
 		public ulong KernelImageSize;
-
-		public ulong Initrd;
-		public ulong InitrdSize;
 
 		// Optional files; zero when absent
 		public ulong Symbols;

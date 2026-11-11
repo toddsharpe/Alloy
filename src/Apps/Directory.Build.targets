@@ -42,7 +42,7 @@
 		</PropertyGroup>
 	</Target>
 
-	<!-- build.ps1 packs build\bin into the initrd -->
+	<!-- build.ps1 copies build\bin onto the Alloy partition -->
 	<Target Name="AlloyCopyApp" AfterTargets="Publish" Condition="'$(OutputType)' == 'Exe'">
 		<Copy SourceFiles="$(PublishDir)$(AssemblyName).exe" DestinationFolder="$(AlloyBin)" />
 	</Target>

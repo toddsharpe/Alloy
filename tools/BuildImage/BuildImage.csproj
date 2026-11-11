@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-	<!-- Host tool: packs initrd.img and builds the boot VHDX (no admin, no diskpart) -->
+	<!-- Host tool: writes the kernel's symbol table and builds the boot VHDX (no admin, no diskpart) -->
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
 		<TargetFramework>net10.0</TargetFramework>
@@ -16,7 +16,6 @@
 
 	<!-- The on-disk formats are defined once, in the image sources -->
 	<ItemGroup>
-		<Compile Include="..\..\src\Abi\Initrd.cs" Link="Abi\Initrd.cs" />
 		<Compile Include="..\..\src\Abi\SymbolTable.cs" Link="Abi\SymbolTable.cs" />
 	</ItemGroup>
 

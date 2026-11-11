@@ -15,8 +15,10 @@
 		<PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
 	</ItemGroup>
 
+	<!-- System.IO stays out of the implicit usings: the ABI has its own FileAccess, and the SDK its own File and Directory -->
 	<ItemGroup>
 		<Using Include="Xunit" />
+		<Using Remove="System.IO" />
 	</ItemGroup>
 
 	<!-- The same files the images compile -->
@@ -25,7 +27,12 @@
 		<Compile Include="..\..\src\Abi\**\*.cs" Link="Shared\Abi\%(RecursiveDir)%(Filename)%(Extension)" />
 		<Compile Include="..\..\src\Arch\x64\Paging.cs" Link="Shared\Arch\Paging.cs" />
 		<Compile Include="..\..\src\Kernel\Mm\BitmapAllocator.cs" Link="Shared\Kernel\BitmapAllocator.cs" />
-		<Compile Include="..\..\tools\BuildImage\InitrdWriter.cs" Link="Shared\Tools\InitrdWriter.cs" />
+		<Compile Include="..\..\src\Kernel\Io\BlockDevice.cs" Link="Shared\Kernel\Io\BlockDevice.cs" />
+		<Compile Include="..\..\src\Kernel\Io\Crc32.cs" Link="Shared\Kernel\Io\Crc32.cs" />
+		<Compile Include="..\..\src\Kernel\Io\Gpt.cs" Link="Shared\Kernel\Io\Gpt.cs" />
+		<Compile Include="..\..\src\Kernel\Io\SectorCache.cs" Link="Shared\Kernel\Io\SectorCache.cs" />
+		<Compile Include="..\..\src\Kernel\Io\FileSystem.cs" Link="Shared\Kernel\Io\FileSystem.cs" />
+		<Compile Include="..\..\src\Kernel\Io\Fat32.cs" Link="Shared\Kernel\Io\Fat32.cs" />
 		<Compile Include="..\..\tools\BuildImage\SymbolWriter.cs" Link="Shared\Tools\SymbolWriter.cs" />
 	</ItemGroup>
 

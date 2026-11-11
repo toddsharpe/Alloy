@@ -89,15 +89,40 @@ namespace Alloy.User.Doom
 		{
 		}
 
-		// The C runtime's file layer: read-only initrd files; handles are offset past the stdio streams 0-2
+		// The C runtime's file layer over the kernel's files; handles are offset past the stdio streams 0-2
 		[RuntimeExport("fopen")]
 		private static unsafe void* FileOpen(byte* name, byte* mode)
 		{
+			// r opens a file that's there, w empties or makes one, and a makes one if need be and writes each time at its end; + adds the other direction
+			bool both = false;
 			for (byte* m = mode; *m != 0; m++)
+				both |= *m == '+';
+			FileAccess access;
+			FileCreate create;
+			switch (mode[0])
 			{
-				if (*m == 'w' || *m == 'a' || *m == '+')
+				case (byte)'r':
+					access = both ? FileAccess.ReadWrite : FileAccess.Read;
+					create = FileCreate.OpenExisting;
+					break;
+				case (byte)'w':
+					access = both ? FileAccess.ReadWrite : FileAccess.Write;
+					create = FileCreate.CreateAlways;
+					break;
+				case (byte)'a':
+					access = both ? FileAccess.ReadAppend : FileAccess.Append;
+					create = FileCreate.OpenAlways;
+					break;
+				default:
 					return null;
 			}
+			long handle = File.Open(CPath(name), access, create);
+			return handle <= 0 ? null : (void*)(handle + HandleOffset);
+		}
+
+		// A C path as a string, without a leading "./"
+		private static unsafe string CPath(byte* name)
+		{
 			Span<char> path = stackalloc char[256];
 			int length = 0;
 			while (name[length] != 0 && length < 255)
@@ -110,8 +135,7 @@ namespace Alloy.User.Doom
 				path = path.Slice(2);
 				length -= 2;
 			}
-			long handle = File.Open(new string(path.Slice(0, length)));
-			return handle <= 0 ? null : (void*)(handle + HandleOffset);
+			return new string(path.Slice(0, length));
 		}
 
 		[RuntimeExport("fread")]
@@ -132,7 +156,11 @@ namespace Alloy.User.Doom
 				PhxWrite((byte*)buffer, size * count);
 				return count;
 			}
-			return 0;
+			long handle = (long)file - HandleOffset;
+			if (size == 0 || handle <= 0)
+				return 0;
+			long written = File.Write(handle, buffer, (ulong)(size * count));
+			return written <= 0 ? 0 : (nuint)written / size;
 		}
 
 		[RuntimeExport("fseek")]
@@ -148,10 +176,10 @@ namespace Alloy.User.Doom
 		private static unsafe int FileFlush(void* file) => 0;
 
 		[RuntimeExport("remove")]
-		private static unsafe int Remove(byte* name) => -1;
+		private static unsafe int Remove(byte* name) => File.Delete(CPath(name)) ? 0 : -1;
 
 		[RuntimeExport("rename")]
-		private static unsafe int Rename(byte* from, byte* to) => -1;
+		private static unsafe int Rename(byte* from, byte* to) => File.Move(CPath(from), CPath(to)) ? 0 : -1;
 
 		[RuntimeExport("exit")]
 		private static void Exit(int code) => Process.Exit(code);

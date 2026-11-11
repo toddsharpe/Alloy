@@ -29,7 +29,7 @@ namespace Alloy.Sdk
 
 		public static void Yield() => SystemCall.Invoke(Syscall.Yield);
 
-		// Starts an initrd image named by the command line's first word (bin/ and .exe are tried); a handle to the process, or a negative error
+		// Starts the program the command line's first word names on the Alloy partition (bin/ and .exe are tried); a handle to the process, or a negative error
 		public static long CreateProcess(string commandLine, ulong argument = 0) => CreateProcess(commandLine, argument, null);
 
 		public static unsafe long CreateProcess(string commandLine, ulong argument, StartInfo? startInfo)

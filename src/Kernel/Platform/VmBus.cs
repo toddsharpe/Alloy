@@ -52,6 +52,8 @@ namespace Alloy.Kernel.Platform
 		public const ulong VideoHigh = 0xF87310EB5805778E;
 		public const ulong NetworkLow = 0x46C5DF3EF8615163;
 		public const ulong NetworkHigh = 0x0EED65F9D2F23F91;
+		public const ulong ScsiLow = 0x4D2904A1BA6163D9;
+		public const ulong ScsiHigh = 0x7FDCB1FFE27205B6;
 
 		private static uint s_connectionId;
 		private static unsafe VmBusOffer* s_offers;
@@ -224,6 +226,9 @@ namespace Alloy.Kernel.Platform
 			}
 
 			HyperV.EndOfInterrupt();
+
+			// A channel callback may have woken a thread (a disk request's completion), which runs now rather than at the next timer tick
+			Scheduler.Preempt();
 		}
 
 		private static unsafe void OnMessage(byte* payload)
@@ -286,6 +291,8 @@ namespace Alloy.Kernel.Platform
 				line.Append(" video");
 			else if (offer.TypeLow == NetworkLow && offer.TypeHigh == NetworkHigh)
 				line.Append(" network");
+			else if (offer.TypeLow == ScsiLow && offer.TypeHigh == ScsiHigh)
+				line.Append(" scsi");
 			Log.WriteLine(ref line);
 		}
 	}

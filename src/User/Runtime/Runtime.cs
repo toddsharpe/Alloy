@@ -16,7 +16,7 @@ namespace Alloy.Runtime
 
 		public static void Exit(int code) => SystemCall.ExitProcess(code);
 
-		// Starts an initrd image named by the command line's first word (bin/ and .exe are tried); returns a handle, or a negative error
+		// Starts the program the command line's first word names on the Alloy partition (bin/ and .exe are tried); returns a handle, or a negative error
 		public static unsafe long Create(string commandLine, ulong argument = 0) => Create(commandLine, argument, null);
 
 		public static unsafe long Create(string commandLine, ulong argument, StartInfo* startInfo)
@@ -85,11 +85,28 @@ namespace Alloy.Runtime
 
 	public static class File
 	{
-		public static unsafe long Open(string path)
+		// A handle, or a negative error; a write access with CreateAlways or OpenAlways makes the file
+		public static unsafe long Open(string path, FileAccess access = FileAccess.Read, FileCreate create = FileCreate.OpenExisting)
 		{
 			byte* bytes = stackalloc byte[256];
 			int length = Process.Ascii(path, bytes, 256);
-			return SystemCall.Invoke(Syscall.OpenFile, (ulong)bytes, (ulong)length);
+			return SystemCall.Invoke(Syscall.OpenFile, (ulong)bytes, (ulong)length, (ulong)access, (ulong)create);
+		}
+
+		public static unsafe bool Delete(string path)
+		{
+			byte* bytes = stackalloc byte[256];
+			int length = Process.Ascii(path, bytes, 256);
+			return SystemCall.Invoke(Syscall.DeleteFile, (ulong)bytes, (ulong)length) == 0;
+		}
+
+		public static unsafe bool Move(string from, string to)
+		{
+			byte* fromBytes = stackalloc byte[256];
+			byte* toBytes = stackalloc byte[256];
+			int fromLength = Process.Ascii(from, fromBytes, 256);
+			int toLength = Process.Ascii(to, toBytes, 256);
+			return SystemCall.Invoke(Syscall.MoveFile, (ulong)fromBytes, (ulong)fromLength, (ulong)toBytes, (ulong)toLength) == 0;
 		}
 
 		public static unsafe long Read(long handle, void* buffer, ulong count) => SystemCall.Invoke(Syscall.ReadFile, (ulong)handle, (ulong)buffer, count);

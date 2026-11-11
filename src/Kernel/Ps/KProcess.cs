@@ -49,7 +49,7 @@ namespace Alloy.Kernel.Ps
 
 		public override bool IsSignaled => _exited;
 
-		// The image is the command line's first word, looked up as given, then under bin/, then with .exe added
+		// The image is the command line's first word, looked up as given, then under bin/, then with .exe added; the file read whole into a heap block the caller frees
 		private static unsafe bool TryResolve(ReadOnlySpan<char> name, Span<char> path, out int length, out byte* data, out long size)
 		{
 			length = 0;
@@ -65,21 +65,27 @@ namespace Alloy.Kernel.Ps
 				if (attempt == 2)
 					candidate.Append(".exe");
 				length = candidate.Length;
-				if (Initrd.TryFind(candidate.Written, out data, out size))
+				data = Storage.LoadFile(candidate.Written, out size);
+				if (data != null)
 					return true;
 			}
 			return false;
 		}
 
-		// Loads a PE from the initrd into a fresh address space and starts its first thread; null if the image is unusable
+		// Loads a PE from the root file system into a fresh address space and starts its first thread; null if the image is unusable
 		public static unsafe KProcess Create(ReadOnlySpan<char> commandLine, ulong argument, KObject stdInput = null, KObject stdOutput = null, KObject stdError = null)
 		{
 			int space = commandLine.IndexOf(' ');
 			Span<char> resolved = stackalloc char[300];
 			if (commandLine.Length == 0 || !TryResolve(space < 0 ? commandLine : commandLine.Slice(0, space), resolved, out int pathLength, out byte* data, out long size))
 				return null;
-			ReadOnlySpan<char> path = resolved.Slice(0, pathLength);
-			ReadOnlySpan<byte> file = new ReadOnlySpan<byte>(data, (int)size);
+			KProcess process = CreateFrom(resolved.Slice(0, pathLength), new ReadOnlySpan<byte>(data, (int)size), commandLine, argument, stdInput, stdOutput, stdError);
+			Heap.Free(data);
+			return process;
+		}
+
+		private static unsafe KProcess CreateFrom(ReadOnlySpan<char> path, ReadOnlySpan<byte> file, ReadOnlySpan<char> commandLine, ulong argument, KObject stdInput, KObject stdOutput, KObject stdError)
+		{
 			if (!PeImage.TryParse(file, out PeImage pe) || pe.Machine != PeImage.MachineAmd64 || pe.ImageBase < AddressSpace.UserStart || pe.ImageBase + pe.SizeOfImage > AddressSpace.UserEnd)
 				return null;
 

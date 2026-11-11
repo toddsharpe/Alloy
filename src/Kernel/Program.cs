@@ -86,12 +86,12 @@ namespace Alloy.Kernel
 			Log.WriteLine(passed ? "Alloy Kernel: ready" : "Alloy Kernel: SELFTEST FAILED");
 			Scheduler.Start("status", &StatusLoop, null);
 			StartDevices();
+			Storage.Mount(SyntheticScsi.Active);
 
-			Initrd.Initialize(info);
 			if (HasArgument(info, "usertest"))
 				RunUserTest("bin/ktest.exe");
 			if (KProcess.Create("bin/init.exe", 0) == null)
-				Environment.FailFast("FAILFAST: cannot start bin/init.exe from the initrd");
+				Environment.FailFast("FAILFAST: cannot start bin/init.exe from the Alloy partition");
 			while (true)
 				Scheduler.Sleep(1000);
 		}
@@ -110,7 +110,7 @@ namespace Alloy.Kernel
 		{
 		}
 
-		// Keyboard, mouse and NIC arrive over VMBus; without them the system still boots, just without input or network
+		// Keyboard, mouse, NIC and the boot disk arrive over VMBus; without the first three the system still boots, without the disk it has no files
 		private static void StartDevices()
 		{
 			Input.Initialize();
@@ -120,6 +120,7 @@ namespace Alloy.Kernel
 			bool keyboard = VmBus.TryFind(VmBus.KeyboardLow, VmBus.KeyboardHigh, out VmBusOffer offer) && SyntheticKeyboard.Start(in offer);
 			bool mouse = VmBus.TryFind(VmBus.MouseLow, VmBus.MouseHigh, out offer) && SyntheticMouse.Start(in offer);
 			bool nic = VmBus.TryFind(VmBus.NetworkLow, VmBus.NetworkHigh, out offer) && SyntheticNic.Start(in offer);
+			bool disk = VmBus.TryFind(VmBus.ScsiLow, VmBus.ScsiHigh, out offer) && SyntheticScsi.Start(in offer);
 
 			SpanWriter line = new SpanWriter(stackalloc char[128]);
 			line.Append("VmBus: ");
@@ -130,6 +131,8 @@ namespace Alloy.Kernel
 			line.Append(mouse ? "ready" : "missing");
 			line.Append(", network ");
 			line.Append(nic ? "ready" : "missing");
+			line.Append(", disk ");
+			line.Append(disk ? "ready" : "missing");
 			Log.WriteLine(ref line);
 		}
 
