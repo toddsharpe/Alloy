@@ -22,6 +22,10 @@ namespace Alloy.Sdk.Web
 		// The TLS cipher suite the connection used, or null over plain http
 		public string CipherSuite;
 
+		// Whether the response came over a connection kept from an earlier request, and whether it may carry another
+		public bool ReusedConnection;
+		public bool KeepAlive;
+
 		public bool Ok => Status >= 200 && Status < 300;
 
 		public string Header(string name) => Headers.TryGetValue(name, out string value) ? value : null;
@@ -89,6 +93,7 @@ namespace Alloy.Sdk.Web
 			return response;
 		}
 
+		// One request on a pooled connection; a kept-alive connection the server dropped is retried once on a fresh one
 		private static HttpResponse Exchange(string method, Uri url, byte[] body, string contentType, ulong timeoutMs)
 		{
 			HttpResponse response = new HttpResponse { Url = url };
@@ -97,59 +102,62 @@ namespace Alloy.Sdk.Web
 				return Failed(response, $"{url.Scheme} is not supported, only http and https");
 			if (!Dns.TryResolve(url.Host, out uint address))
 				return Failed(response, $"can't resolve {url.Host}");
-
-			long socket = Alloy.Sdk.Net.Socket(Abi.NetProtocol.SocketStream, Abi.NetProtocol.ProtocolTcp);
-			if (socket < 0)
-				return Failed(response, "no socket");
-			try
+			byte[] request = BuildRequest(method, url, body, contentType);
+			string key = HttpConnection.KeyFor(url);
+			for (int attempt = 0; attempt < 2; attempt++)
 			{
-				long connected = Alloy.Sdk.Net.Connect(socket, address, (ushort)url.Port, timeoutMs);
-				if (connected < 0)
-					return Failed(response, connected == SystemCall.Error(Abi.SyscallError.Timeout) ? $"connect to {url.Host} timed out" : $"connect to {url.Host} refused");
-
-				NetStream network = new NetStream(socket, timeoutMs);
-				Stream stream = network;
-				if (url.Scheme == "https")
+				HttpConnection connection = attempt == 0 ? ConnectionPool.Take(key) : null;
+				bool reused = connection != null;
+				if (connection == null)
 				{
-					TlsClient tls = new TlsClient(network, url.Host, Tls.Roots, Tls.Now);
-					try
-					{
-						tls.Handshake();
-					}
-					catch (TlsException e)
-					{
-						return Failed(response, network.Error != null ? network.Error : e.Message);
-					}
-					catch (IOException e)
-					{
-						return Failed(response, e.Message);
-					}
-					response.CipherSuite = tls.CipherSuiteName;
-					stream = tls;
+					connection = HttpConnection.Open(url, address, timeoutMs, out string error);
+					if (connection == null)
+						return Finish(Failed(response, error), started);
 				}
-				byte[] request = BuildRequest(method, url, body, contentType);
+				response.CipherSuite = connection.CipherSuite;
+				response.ReusedConnection = reused;
+				long before = connection.Reader.Received;
 				try
 				{
-					stream.Write(request);
+					connection.Stream.Write(request);
 				}
 				catch (IOException e)
 				{
-					return Failed(response, e.Message);
+					connection.Close();
+					if (reused)
+						continue;
+					return Finish(Failed(response, e.Message), started);
 				}
-
-				SocketReader reader = new SocketReader(stream, network);
-				if (!ReadHead(reader, response))
-					return response;
-				byte[] raw = ReadBody(reader, response, method == "HEAD");
+				if (!ReadHead(connection.Reader, response))
+				{
+					connection.Close();
+					if (reused && connection.Reader.Received == before)
+					{
+						response = new HttpResponse { Url = url };
+						continue;
+					}
+					return Finish(response, started);
+				}
+				byte[] raw = ReadBody(connection.Reader, response, method == "HEAD");
 				if (raw == null)
-					return response;
+				{
+					connection.Close();
+					return Finish(response, started);
+				}
 				response.Body = Decode(raw, response.Header("Content-Encoding"), response);
+				string connectionHeader = response.Header("Connection");
+				if (response.KeepAlive && (connectionHeader == null || connectionHeader.IndexOf("close", StringComparison.OrdinalIgnoreCase) < 0))
+					ConnectionPool.Return(connection);
+				else
+					connection.Close();
+				return Finish(response, started);
 			}
-			finally
-			{
-				Alloy.Sdk.Net.Close(socket);
-				response.ElapsedMs = (long)(Kernel.TickCount - started);
-			}
+			return Finish(Failed(response, "the connection was lost"), started);
+		}
+
+		private static HttpResponse Finish(HttpResponse response, ulong started)
+		{
+			response.ElapsedMs = (long)(Kernel.TickCount - started);
 			return response;
 		}
 
@@ -161,7 +169,7 @@ namespace Alloy.Sdk.Web
 			head.Append("User-Agent: ").Append(UserAgent).Append("\r\n");
 			head.Append("Accept: text/html,application/xhtml+xml,image/*,*/*;q=0.8\r\n");
 			head.Append("Accept-Encoding: gzip, deflate\r\n");
-			head.Append("Connection: close\r\n");
+			head.Append("Connection: keep-alive\r\n");
 			if (body != null)
 			{
 				head.Append("Content-Type: ").Append(contentType ?? "application/octet-stream").Append("\r\n");
@@ -193,6 +201,7 @@ namespace Alloy.Sdk.Web
 			}
 			response.Status = status;
 			response.Reason = statusLine.Length > 13 ? statusLine.Substring(13).Trim() : "";
+			response.KeepAlive = statusLine[7] == '1';
 
 			string lastName = null;
 			while (true)
@@ -245,6 +254,8 @@ namespace Alloy.Sdk.Web
 				}
 				return body;
 			}
+			// Nothing delimits the body but the close, so this connection cannot carry another request
+			response.KeepAlive = false;
 			using MemoryStream all = new MemoryStream();
 			byte[] buffer = new byte[16384];
 			while (all.Length < MaxBody)
@@ -390,6 +401,9 @@ namespace Alloy.Sdk.Web
 
 		public string Error { get; private set; }
 
+		// Bytes taken from the connection so far, which tells a retry whether the server ever answered
+		public long Received { get; private set; }
+
 		public SocketReader(Stream stream, NetStream network)
 		{
 			_stream = stream;
@@ -426,6 +440,7 @@ namespace Alloy.Sdk.Web
 				return false;
 			}
 			_end += got;
+			Received += got;
 			return true;
 		}
 
