@@ -343,3 +343,85 @@ int _callnewh(size_t size)
 	(void)size;
 	return 0;
 }
+
+// Win32 heaps over malloc: every heap handle is the one process heap, so blocks can move between them freely
+#define PhxProcessHeap ((HANDLE)(LONG_PTR)0x50484850)
+#define HEAP_ZERO_MEMORY 0x8
+
+HANDLE GetProcessHeap(void)
+{
+	return PhxProcessHeap;
+}
+
+HANDLE HeapCreate(DWORD options, SIZE_T initialSize, SIZE_T maximumSize)
+{
+	(void)options;
+	(void)initialSize;
+	(void)maximumSize;
+	return PhxProcessHeap;
+}
+
+BOOL HeapDestroy(HANDLE heap)
+{
+	(void)heap;
+	return TRUE;
+}
+
+PVOID HeapAlloc(HANDLE heap, DWORD flags, SIZE_T size)
+{
+	(void)heap;
+	void* block = malloc(size);
+	if (block != NULL && (flags & HEAP_ZERO_MEMORY) != 0)
+		memset(block, 0, size);
+	return block;
+}
+
+BOOL HeapFree(HANDLE heap, DWORD flags, PVOID block)
+{
+	(void)heap;
+	(void)flags;
+	free(block);
+	return TRUE;
+}
+
+SIZE_T HeapSize(HANDLE heap, DWORD flags, const void* block)
+{
+	(void)heap;
+	(void)flags;
+	if (block == NULL)
+		return (SIZE_T)-1;
+	const PhxBlockHeader* header = (const PhxBlockHeader*)block - 1;
+	return header->Class == PhxLargeClass ? header->Size - sizeof(PhxBlockHeader) : header->Size;
+}
+
+PVOID HeapReAlloc(HANDLE heap, DWORD flags, PVOID block, SIZE_T size)
+{
+	if (block == NULL)
+		return HeapAlloc(heap, flags, size);
+	SIZE_T old = HeapSize(heap, 0, block);
+	void* moved = HeapAlloc(heap, flags, size);
+	if (moved == NULL)
+		return NULL;
+	memcpy(moved, block, old < size ? old : size);
+	free(block);
+	return moved;
+}
+
+// The CRT's aligned allocation: the real block's address sits just below the aligned one so _aligned_free can find it
+void* _aligned_malloc(size_t size, size_t alignment)
+{
+	if (alignment < 16)
+		alignment = 16;
+	BYTE* raw = (BYTE*)malloc(size + alignment + sizeof(void*));
+	if (raw == NULL)
+		return NULL;
+	BYTE* aligned = (BYTE*)(((ULONG_PTR)raw + sizeof(void*) + alignment - 1) & ~(ULONG_PTR)(alignment - 1));
+	((void**)aligned)[-1] = raw;
+	return aligned;
+}
+
+void _aligned_free(void* block)
+{
+	if (block != NULL)
+		free(((void**)block)[-1]);
+}

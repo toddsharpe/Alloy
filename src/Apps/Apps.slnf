@@ -17,7 +17,8 @@
       "src\\Apps\\Tcp\\Tcp.csproj",
       "src\\Apps\\Terminal\\Terminal.csproj",
       "src\\Apps\\Time\\Time.csproj",
-      "src\\Apps\\WMSvr\\WMSvr.csproj"
+      "src\\Apps\\WMSvr\\WMSvr.csproj",
+      "src\\Apps\\ZipTest\\ZipTest.csproj"
     ]
   }
 }
