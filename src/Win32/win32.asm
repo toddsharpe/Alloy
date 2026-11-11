@@ -93,7 +93,7 @@ log PROC
 	ret
 log ENDP
 
-; double sqrt(double x), ceil(double x), floor(double x): CoreLib's Math imports these in unoptimized (Debug) builds; one SSE instruction each
+; double sqrt(double x), ceil(double x), floor(double x), fmod: CoreLib's Math imports these in unoptimized (Debug) builds; one SSE instruction each
 sqrt PROC
 	sqrtsd xmm0, xmm0
 	ret
@@ -108,6 +108,16 @@ floor PROC
 	roundsd xmm0, xmm0, 1
 	ret
 floor ENDP
+
+; double fmod(double x, double y): x minus the truncated quotient times y, which is exact while the quotient fits a double
+fmod PROC
+	movapd xmm2, xmm0
+	divsd xmm2, xmm1
+	roundsd xmm2, xmm2, 3
+	mulsd xmm2, xmm1
+	subsd xmm0, xmm2
+	ret
+fmod ENDP
 
 ; BOOL PhxRandom64(ULONG64* value): one rdrand, FALSE when the hardware had nothing ready
 PhxRandom64 PROC

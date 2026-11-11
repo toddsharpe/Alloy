@@ -1,0 +1,1214 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+using Alloy.Sdk.Web.Html;
+
+namespace Alloy.Sdk.Web.Css
+{
+	// The cascade: the user-agent sheet, the page's sheets in order, then style attributes, by importance, specificity and order, into one ComputedStyle per element
+	public sealed class StyleResolver
+	{
+		private struct MatchedDeclaration
+		{
+			public Declaration Declaration;
+			public int Origin;
+			public int Specificity;
+			public int Order;
+		}
+
+		private readonly List<StyleRule> _userAgent;
+		private readonly List<StyleRule> _author = new List<StyleRule>();
+		private readonly Dictionary<Element, ComputedStyle> _styles = new Dictionary<Element, ComputedStyle>();
+		private readonly List<MatchedDeclaration> _matched = new List<MatchedDeclaration>();
+
+		public StyleResolver(MediaEnvironment media)
+		{
+			_userAgent = CssParser.Parse(UserAgentStylesheet.Css, media).Rules;
+		}
+
+		public void AddStylesheet(Stylesheet sheet) => _author.AddRange(sheet.Rules);
+
+		public float RootFontSize { get; private set; } = ComputedStyle.DefaultFontSize;
+
+		// The style of an element, computing its ancestors' first since most properties inherit
+		public ComputedStyle Resolve(Element element)
+		{
+			if (_styles.TryGetValue(element, out ComputedStyle cached))
+				return cached;
+			ComputedStyle parent = element.ParentElement == null ? null : Resolve(element.ParentElement);
+			ComputedStyle style = Compute(element, parent);
+			_styles[element] = style;
+			if (element.TagName == "html")
+				RootFontSize = style.FontSize;
+			return style;
+		}
+
+		private ComputedStyle Compute(Element element, ComputedStyle parent)
+		{
+			ComputedStyle style = ComputedStyle.Inherit(parent);
+			_matched.Clear();
+			Collect(element, _userAgent, 0);
+			Collect(element, _author, 1);
+			string inline = element.GetAttribute("style");
+			if (inline != null)
+			{
+				int order = _matched.Count;
+				foreach (Declaration declaration in CssParser.ParseDeclarations(inline))
+					_matched.Add(new MatchedDeclaration { Declaration = declaration, Origin = 2, Specificity = int.MaxValue, Order = order++ });
+			}
+			string hints = PresentationalHints(element);
+			if (hints != null)
+			{
+				int order = -1000;
+				foreach (Declaration declaration in CssParser.ParseDeclarations(hints))
+					_matched.Add(new MatchedDeclaration { Declaration = declaration, Origin = 1, Specificity = 0, Order = order++ });
+			}
+			_matched.Sort(Compare);
+
+			float parentFontSize = parent?.FontSize ?? ComputedStyle.DefaultFontSize;
+			PropertyApplier applier = new PropertyApplier(style, parent, parentFontSize, RootFontSize);
+
+			// Custom properties first so var() can see them, then font size since em lengths measure against it, then the rest
+			foreach (MatchedDeclaration match in _matched)
+			{
+				if (match.Declaration.Property.StartsWith("--", StringComparison.Ordinal))
+					applier.Apply(match.Declaration);
+			}
+			foreach (MatchedDeclaration match in _matched)
+			{
+				if (match.Declaration.Property == "font-size" || match.Declaration.Property == "font")
+					applier.Apply(match.Declaration);
+			}
+			applier.FontSizeSettled();
+			foreach (MatchedDeclaration match in _matched)
+			{
+				if (match.Declaration.Property != "font-size" && !match.Declaration.Property.StartsWith("--", StringComparison.Ordinal))
+					applier.Apply(match.Declaration);
+			}
+			applier.Finish(element);
+			return style;
+		}
+
+		private void Collect(Element element, List<StyleRule> rules, int origin)
+		{
+			for (int r = 0; r < rules.Count; r++)
+			{
+				StyleRule rule = rules[r];
+				int best = -1;
+				foreach (Selector selector in rule.Selectors)
+				{
+					if (selector.PseudoElement == null && selector.Matches(element))
+						best = Math.Max(best, selector.Specificity);
+				}
+				if (best < 0)
+					continue;
+				foreach (Declaration declaration in rule.Declarations)
+					_matched.Add(new MatchedDeclaration { Declaration = declaration, Origin = origin, Specificity = best, Order = _matched.Count });
+			}
+		}
+
+		// Later entries win: normal before important, user agent before author, lower specificity before higher, earlier before later
+		private static int Compare(MatchedDeclaration a, MatchedDeclaration b)
+		{
+			if (a.Declaration.Important != b.Declaration.Important)
+				return a.Declaration.Important ? 1 : -1;
+			if (a.Declaration.Important && a.Origin != b.Origin)
+				return a.Origin < b.Origin ? 1 : -1;
+			if (a.Origin != b.Origin)
+				return a.Origin.CompareTo(b.Origin);
+			if (a.Specificity != b.Specificity)
+				return a.Specificity.CompareTo(b.Specificity);
+			return a.Order.CompareTo(b.Order);
+		}
+
+		// The old HTML attributes that still style things, as author declarations that any stylesheet rule beats: width, height, align, bgcolor, color, border, cellpadding and the font tag
+		private static string PresentationalHints(Element element)
+		{
+			StringBuilder css = null;
+			void Add(string declaration) => (css ??= new StringBuilder()).Append(declaration).Append(';');
+			string tag = element.TagName;
+			string width = element.GetAttribute("width");
+			if (width != null && (tag == "img" || tag == "table" || tag == "td" || tag == "th" || tag == "iframe" || tag == "hr" || tag == "col"))
+				Add("width: " + ParseHintLength(width));
+			string height = element.GetAttribute("height");
+			if (height != null && (tag == "img" || tag == "table" || tag == "td" || tag == "th" || tag == "iframe" || tag == "tr"))
+				Add("height: " + ParseHintLength(height));
+			string align = element.GetAttribute("align");
+			if (align != null)
+			{
+				bool box = tag == "table" || tag == "img";
+				switch (align.ToLowerInvariant())
+				{
+					case "center":
+					case "middle":
+						Add(box ? "margin-left: auto; margin-right: auto" : "text-align: center");
+						break;
+					case "right":
+						Add(box ? "float: right" : "text-align: right");
+						break;
+					case "left":
+						Add(box ? "float: left" : "text-align: left");
+						break;
+				}
+			}
+			string bgcolor = element.GetAttribute("bgcolor");
+			if (bgcolor != null && TryHintColor(bgcolor, out Color background))
+				Add("background-color: " + background);
+			if (tag == "font")
+			{
+				string color = element.GetAttribute("color");
+				if (color != null && TryHintColor(color, out Color fontColor))
+					Add("color: " + fontColor);
+				string size = element.GetAttribute("size");
+				if (size != null && int.TryParse(size.TrimStart('+'), out int fontSize))
+				{
+					if (size.StartsWith("+") || size.StartsWith("-"))
+						fontSize += 3;
+					string[] sizes = { "10px", "13px", "16px", "18px", "24px", "32px", "48px" };
+					Add("font-size: " + sizes[Math.Clamp(fontSize, 1, 7) - 1]);
+				}
+			}
+			if (tag == "body")
+			{
+				string text = element.GetAttribute("text");
+				if (text != null && TryHintColor(text, out Color textColor))
+					Add("color: " + textColor);
+			}
+			if (tag == "table")
+			{
+				string border = element.GetAttribute("border");
+				if (border != null && int.TryParse(border, out int borderWidth) && borderWidth > 0)
+					Add("border: " + borderWidth + "px outset gray");
+			}
+			if (tag == "td" || tag == "th")
+			{
+				Element table = element.ParentElement;
+				while (table != null && table.TagName != "table")
+					table = table.ParentElement;
+				string padding = table?.GetAttribute("cellpadding");
+				if (padding != null && int.TryParse(padding, out int cellPadding))
+					Add("padding: " + cellPadding + "px");
+				string border = table?.GetAttribute("border");
+				if (border != null && int.TryParse(border, out int borderWidth) && borderWidth > 0)
+					Add("border: 1px inset gray");
+			}
+			return css?.ToString();
+		}
+
+		private static Length ParseHintLength(string text)
+		{
+			text = text.Trim();
+			if (text.EndsWith("%") && float.TryParse(text.AsSpan(0, text.Length - 1), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float percent))
+				return new Length(percent, LengthUnit.Percent);
+			if (text.EndsWith("px"))
+				text = text.Substring(0, text.Length - 2);
+			return float.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float pixels) ? Length.Px(pixels) : Length.Auto;
+		}
+
+		private static bool TryHintColor(string text, out Color color)
+		{
+			text = text.Trim();
+			if (text.StartsWith("#"))
+				return CssValue.TryHex(text.Substring(1), out color);
+			if (NamedColors.TryGet(text.ToLowerInvariant(), out color))
+				return true;
+			return CssValue.TryHex(text, out color);
+		}
+	}
+
+	// Applies one declaration to a style: the property grammar subset layout understands, shorthands expanded, keywords inherit and initial honoured
+	public sealed class PropertyApplier
+	{
+		private readonly ComputedStyle _style;
+		private readonly ComputedStyle _parent;
+		private readonly float _parentFontSize;
+		private readonly float _rootFontSize;
+		private float _fontSize;
+
+		public PropertyApplier(ComputedStyle style, ComputedStyle parent, float parentFontSize, float rootFontSize)
+		{
+			_style = style;
+			_parent = parent;
+			_parentFontSize = parentFontSize;
+			_rootFontSize = rootFontSize;
+			_fontSize = style.FontSize;
+		}
+
+		public void FontSizeSettled() => _fontSize = _style.FontSize;
+
+		public void Apply(Declaration declaration)
+		{
+			List<CssToken> value = declaration.Value;
+			if (HasVar(value))
+			{
+				value = SubstituteVars(value, 0);
+				if (value == null)
+					return;
+			}
+			if (declaration.Property.StartsWith("--", StringComparison.Ordinal))
+			{
+				if (_style.Custom == null || _style.Custom == _parent?.Custom)
+					_style.Custom = _style.Custom == null ? new Dictionary<string, List<CssToken>>() : new Dictionary<string, List<CssToken>>(_style.Custom);
+				_style.Custom[declaration.Property] = value;
+				return;
+			}
+			List<CssToken> tokens = CssValue.WithoutWhitespace(value);
+			if (tokens.Count == 0)
+				return;
+			if (tokens.Count == 1 && tokens[0].Type == CssTokenType.Ident)
+			{
+				string keyword = tokens[0].Value.ToLowerInvariant();
+				if (keyword == "inherit")
+				{
+					InheritProperty(declaration.Property);
+					return;
+				}
+				if (keyword == "initial" || keyword == "unset" || keyword == "revert")
+				{
+					ResetProperty(declaration.Property, keyword != "initial");
+					return;
+				}
+			}
+			switch (declaration.Property)
+			{
+				case "display":
+					ApplyDisplay(tokens[0]);
+					break;
+				case "position":
+					_style.Position = Keyword(tokens[0], "relative", Position.Relative, "absolute", Position.Absolute, "fixed", Position.Fixed, Position.Static);
+					break;
+				case "float":
+					_style.Float = Keyword(tokens[0], "left", FloatSide.Left, "right", FloatSide.Right, "none", FloatSide.None, FloatSide.None);
+					break;
+				case "clear":
+					_style.Clear = Keyword(tokens[0], "left", ClearSide.Left, "right", ClearSide.Right, "both", ClearSide.Both, ClearSide.None);
+					break;
+				case "overflow":
+				case "overflow-x":
+				case "overflow-y":
+					_style.Overflow = Keyword(tokens[0], "hidden", Overflow.Hidden, "scroll", Overflow.Scroll, "auto", Overflow.Auto, Overflow.Visible);
+					break;
+				case "visibility":
+					_style.Visible = !tokens[0].IsIdent("hidden") && !tokens[0].IsIdent("collapse");
+					break;
+				case "margin":
+					ApplyEdges(tokens, ref _style.Margin, true, true);
+					break;
+				case "margin-top":
+					ApplyEdge(tokens[0], ref _style.Margin.Top, true, true);
+					break;
+				case "margin-right":
+					ApplyEdge(tokens[0], ref _style.Margin.Right, true, true);
+					break;
+				case "margin-bottom":
+					ApplyEdge(tokens[0], ref _style.Margin.Bottom, true, true);
+					break;
+				case "margin-left":
+					ApplyEdge(tokens[0], ref _style.Margin.Left, true, true);
+					break;
+				case "margin-inline":
+					ApplyEdge(tokens[0], ref _style.Margin.Left, true, true);
+					ApplyEdge(tokens[tokens.Count > 1 ? 1 : 0], ref _style.Margin.Right, true, true);
+					break;
+				case "margin-block":
+					ApplyEdge(tokens[0], ref _style.Margin.Top, true, true);
+					ApplyEdge(tokens[tokens.Count > 1 ? 1 : 0], ref _style.Margin.Bottom, true, true);
+					break;
+				case "padding":
+					ApplyEdges(tokens, ref _style.Padding, false, false);
+					break;
+				case "padding-top":
+					ApplyEdge(tokens[0], ref _style.Padding.Top, false, false);
+					break;
+				case "padding-right":
+					ApplyEdge(tokens[0], ref _style.Padding.Right, false, false);
+					break;
+				case "padding-bottom":
+					ApplyEdge(tokens[0], ref _style.Padding.Bottom, false, false);
+					break;
+				case "padding-left":
+					ApplyEdge(tokens[0], ref _style.Padding.Left, false, false);
+					break;
+				case "padding-inline":
+					ApplyEdge(tokens[0], ref _style.Padding.Left, false, false);
+					ApplyEdge(tokens[tokens.Count > 1 ? 1 : 0], ref _style.Padding.Right, false, false);
+					break;
+				case "padding-block":
+					ApplyEdge(tokens[0], ref _style.Padding.Top, false, false);
+					ApplyEdge(tokens[tokens.Count > 1 ? 1 : 0], ref _style.Padding.Bottom, false, false);
+					break;
+				case "width":
+					ApplySize(tokens[0], ref _style.Width, true);
+					break;
+				case "height":
+					ApplySize(tokens[0], ref _style.Height, true);
+					break;
+				case "min-width":
+					ApplySize(tokens[0], ref _style.MinWidth, false);
+					break;
+				case "max-width":
+					ApplySize(tokens[0], ref _style.MaxWidth, true);
+					break;
+				case "min-height":
+					ApplySize(tokens[0], ref _style.MinHeight, false);
+					break;
+				case "max-height":
+					ApplySize(tokens[0], ref _style.MaxHeight, true);
+					break;
+				case "top":
+					ApplySize(tokens[0], ref _style.Top, true);
+					break;
+				case "left":
+					ApplySize(tokens[0], ref _style.Left, true);
+					break;
+				case "border":
+					ApplyBorderShorthand(tokens, -1);
+					break;
+				case "border-top":
+					ApplyBorderShorthand(tokens, 0);
+					break;
+				case "border-right":
+					ApplyBorderShorthand(tokens, 1);
+					break;
+				case "border-bottom":
+					ApplyBorderShorthand(tokens, 2);
+					break;
+				case "border-left":
+					ApplyBorderShorthand(tokens, 3);
+					break;
+				case "border-width":
+					ApplyBorderWidths(tokens);
+					break;
+				case "border-style":
+					ApplyBorderStyles(tokens);
+					break;
+				case "border-color":
+					ApplyBorderColors(tokens);
+					break;
+				case "border-top-width":
+					_style.BorderTop.Width = BorderWidth(tokens[0]);
+					break;
+				case "border-right-width":
+					_style.BorderRight.Width = BorderWidth(tokens[0]);
+					break;
+				case "border-bottom-width":
+					_style.BorderBottom.Width = BorderWidth(tokens[0]);
+					break;
+				case "border-left-width":
+					_style.BorderLeft.Width = BorderWidth(tokens[0]);
+					break;
+				case "border-top-style":
+					_style.BorderTop.Style = ParseBorderStyle(tokens[0]);
+					break;
+				case "border-right-style":
+					_style.BorderRight.Style = ParseBorderStyle(tokens[0]);
+					break;
+				case "border-bottom-style":
+					_style.BorderBottom.Style = ParseBorderStyle(tokens[0]);
+					break;
+				case "border-left-style":
+					_style.BorderLeft.Style = ParseBorderStyle(tokens[0]);
+					break;
+				case "border-top-color":
+					if (CssValue.TryColor(tokens, 0, out Color topColor, out _))
+						_style.BorderTop.Color = topColor;
+					break;
+				case "border-right-color":
+					if (CssValue.TryColor(tokens, 0, out Color rightColor, out _))
+						_style.BorderRight.Color = rightColor;
+					break;
+				case "border-bottom-color":
+					if (CssValue.TryColor(tokens, 0, out Color bottomColor, out _))
+						_style.BorderBottom.Color = bottomColor;
+					break;
+				case "border-left-color":
+					if (CssValue.TryColor(tokens, 0, out Color leftColor, out _))
+						_style.BorderLeft.Color = leftColor;
+					break;
+				case "color":
+					if (tokens[0].IsIdent("currentcolor"))
+						break;
+					if (CssValue.TryColor(tokens, 0, out Color color, out _))
+						_style.Color = color;
+					break;
+				case "background-color":
+					if (CssValue.TryColor(tokens, 0, out Color backgroundColor, out _))
+						_style.BackgroundColor = backgroundColor;
+					break;
+				case "background":
+					ApplyBackground(tokens);
+					break;
+				case "background-image":
+					_style.BackgroundImage = tokens[0].Type == CssTokenType.Url ? tokens[0].Value : null;
+					break;
+				case "font-size":
+					ApplyFontSize(tokens[0]);
+					break;
+				case "font-weight":
+					ApplyFontWeight(tokens[0]);
+					break;
+				case "font-style":
+					_style.Italic = tokens[0].IsIdent("italic") || tokens[0].IsIdent("oblique");
+					break;
+				case "font-family":
+					_style.FontFamily = ParseFamily(tokens);
+					break;
+				case "font":
+					ApplyFontShorthand(tokens);
+					break;
+				case "line-height":
+					ApplyLineHeight(tokens[0]);
+					break;
+				case "text-align":
+					_style.TextAlign = Keyword(tokens[0], "right", TextAlign.Right, "center", TextAlign.Center, "justify", TextAlign.Justify, tokens[0].IsIdent("end") ? TextAlign.Right : TextAlign.Left);
+					break;
+				case "text-decoration":
+				case "text-decoration-line":
+					ApplyTextDecoration(tokens);
+					break;
+				case "text-indent":
+					if (CssValue.TryLength(tokens[0], _fontSize, _rootFontSize, true, true, out Length indent))
+						_style.TextIndent = indent;
+					break;
+				case "text-transform":
+					_style.TextTransform = Keyword(tokens[0], "uppercase", TextTransform.Uppercase, "lowercase", TextTransform.Lowercase, "capitalize", TextTransform.Capitalize, TextTransform.None);
+					break;
+				case "white-space":
+					_style.WhiteSpace = Keyword(tokens[0], "pre", WhiteSpace.Pre, "nowrap", WhiteSpace.NoWrap, "pre-wrap", WhiteSpace.PreWrap, tokens[0].IsIdent("pre-line") ? WhiteSpace.PreLine : WhiteSpace.Normal);
+					break;
+				case "vertical-align":
+					_style.VerticalAlign = Keyword(tokens[0], "top", VerticalAlign.Top, "middle", VerticalAlign.Middle, "bottom", VerticalAlign.Bottom,
+						tokens[0].IsIdent("sub") ? VerticalAlign.Sub : tokens[0].IsIdent("super") ? VerticalAlign.Super : tokens[0].IsIdent("text-top") ? VerticalAlign.TextTop : tokens[0].IsIdent("text-bottom") ? VerticalAlign.TextBottom : VerticalAlign.Baseline);
+					break;
+				case "list-style-type":
+					_style.ListStyleType = ParseListStyle(tokens[0]);
+					break;
+				case "list-style-position":
+					_style.ListInside = tokens[0].IsIdent("inside");
+					break;
+				case "list-style":
+					foreach (CssToken token in tokens)
+					{
+						if (token.IsIdent("inside"))
+							_style.ListInside = true;
+						else if (token.IsIdent("outside"))
+							_style.ListInside = false;
+						else if (token.Type == CssTokenType.Ident)
+							_style.ListStyleType = ParseListStyle(token);
+					}
+					break;
+				case "letter-spacing":
+					if (CssValue.TryLength(tokens[0], _fontSize, _rootFontSize, false, true, out Length spacing))
+						_style.LetterSpacing = spacing.Value;
+					else if (tokens[0].IsIdent("normal"))
+						_style.LetterSpacing = 0;
+					break;
+				case "opacity":
+					if (tokens[0].Type == CssTokenType.Number)
+						_style.Opacity = (float)Math.Clamp(tokens[0].Number, 0, 1);
+					break;
+			}
+		}
+
+		private static bool HasVar(List<CssToken> tokens)
+		{
+			foreach (CssToken token in tokens)
+			{
+				if (token.Type == CssTokenType.Function && string.Equals(token.Value, "var", StringComparison.OrdinalIgnoreCase))
+					return true;
+			}
+			return false;
+		}
+
+		// Replaces each var(--name, fallback) with the custom property's tokens, or the fallback; null when one is unknown and has no fallback
+		private List<CssToken> SubstituteVars(List<CssToken> tokens, int depth)
+		{
+			if (depth > 8)
+				return null;
+			List<CssToken> result = new List<CssToken>(tokens.Count);
+			for (int i = 0; i < tokens.Count; i++)
+			{
+				CssToken token = tokens[i];
+				if (token.Type != CssTokenType.Function || !string.Equals(token.Value, "var", StringComparison.OrdinalIgnoreCase))
+				{
+					result.Add(token);
+					continue;
+				}
+				int close = i + 1;
+				int nested = 1;
+				int comma = -1;
+				while (close < tokens.Count)
+				{
+					CssTokenType type = tokens[close].Type;
+					if (type == CssTokenType.Function || type == CssTokenType.OpenParen)
+						nested++;
+					else if (type == CssTokenType.CloseParen && --nested == 0)
+						break;
+					else if (type == CssTokenType.Comma && nested == 1 && comma < 0)
+						comma = close;
+					close++;
+				}
+				int nameAt = i + 1;
+				while (nameAt < close && tokens[nameAt].Type == CssTokenType.Whitespace)
+					nameAt++;
+				if (nameAt >= close || tokens[nameAt].Type != CssTokenType.Ident)
+					return null;
+				List<CssToken> replacement = null;
+				if (_style.Custom != null && _style.Custom.TryGetValue(tokens[nameAt].Value, out List<CssToken> custom))
+					replacement = custom;
+				else if (comma >= 0)
+					replacement = tokens.GetRange(comma + 1, close - comma - 1);
+				if (replacement == null)
+					return null;
+				if (HasVar(replacement))
+				{
+					replacement = SubstituteVars(replacement, depth + 1);
+					if (replacement == null)
+						return null;
+				}
+				result.AddRange(replacement);
+				i = close;
+			}
+			return result;
+		}
+
+		// Left over from before the cascade knew about the element: whatever still needs the element itself
+		public void Finish(Element element)
+		{
+			if (element.TagName == "html" || element.TagName == "body")
+				_style.Position = Position.Static;
+		}
+
+		private void InheritProperty(string property)
+		{
+			if (_parent == null)
+				return;
+			switch (property)
+			{
+				case "color":
+					_style.Color = _parent.Color;
+					break;
+				case "background-color":
+				case "background":
+					_style.BackgroundColor = _parent.BackgroundColor;
+					break;
+				case "font-size":
+					_style.FontSize = _parent.FontSize;
+					break;
+				case "font-weight":
+					_style.Bold = _parent.Bold;
+					break;
+				case "font-family":
+					_style.FontFamily = _parent.FontFamily;
+					break;
+				case "text-align":
+					_style.TextAlign = _parent.TextAlign;
+					break;
+				case "display":
+					_style.Display = _parent.Display;
+					break;
+				case "line-height":
+					_style.LineHeight = _parent.LineHeight;
+					break;
+				case "white-space":
+					_style.WhiteSpace = _parent.WhiteSpace;
+					break;
+				case "text-decoration":
+					_style.Underline = _parent.Underline;
+					_style.LineThrough = _parent.LineThrough;
+					break;
+			}
+		}
+
+		private void ResetProperty(string property, bool unset)
+		{
+			ComputedStyle initial = unset ? ComputedStyle.Inherit(_parent) : new ComputedStyle();
+			switch (property)
+			{
+				case "color":
+					_style.Color = initial.Color;
+					break;
+				case "background-color":
+				case "background":
+					_style.BackgroundColor = Color.Transparent;
+					_style.BackgroundImage = null;
+					break;
+				case "font-size":
+					_style.FontSize = initial.FontSize;
+					break;
+				case "font-weight":
+					_style.Bold = initial.Bold;
+					break;
+				case "font-style":
+					_style.Italic = initial.Italic;
+					break;
+				case "font-family":
+					_style.FontFamily = initial.FontFamily;
+					break;
+				case "text-align":
+					_style.TextAlign = initial.TextAlign;
+					break;
+				case "line-height":
+					_style.LineHeight = initial.LineHeight;
+					break;
+				case "margin":
+					_style.Margin = new Edges(Length.Zero);
+					break;
+				case "padding":
+					_style.Padding = new Edges(Length.Zero);
+					break;
+				case "border":
+					_style.BorderTop = _style.BorderRight = _style.BorderBottom = _style.BorderLeft = default;
+					break;
+				case "display":
+					_style.Display = Display.Inline;
+					break;
+				case "width":
+					_style.Width = Length.Auto;
+					break;
+				case "height":
+					_style.Height = Length.Auto;
+					break;
+				case "text-decoration":
+					_style.Underline = initial.Underline;
+					_style.LineThrough = initial.LineThrough;
+					break;
+				case "white-space":
+					_style.WhiteSpace = initial.WhiteSpace;
+					break;
+				case "list-style-type":
+				case "list-style":
+					_style.ListStyleType = initial.ListStyleType;
+					break;
+			}
+		}
+
+		private void ApplyDisplay(CssToken token)
+		{
+			if (token.Type != CssTokenType.Ident)
+				return;
+			switch (token.Value.ToLowerInvariant())
+			{
+				case "block":
+				case "flow-root":
+				case "flex":
+				case "grid":
+				case "inline-flex":
+				case "inline-grid":
+					_style.Display = Display.Block;
+					break;
+				case "inline":
+				case "contents":
+					_style.Display = Display.Inline;
+					break;
+				case "inline-block":
+					_style.Display = Display.InlineBlock;
+					break;
+				case "list-item":
+					_style.Display = Display.ListItem;
+					break;
+				case "none":
+					_style.Display = Display.None;
+					break;
+				case "table":
+				case "inline-table":
+					_style.Display = Display.Table;
+					break;
+				case "table-row":
+					_style.Display = Display.TableRow;
+					break;
+				case "table-cell":
+					_style.Display = Display.TableCell;
+					break;
+				case "table-row-group":
+					_style.Display = Display.TableRowGroup;
+					break;
+				case "table-header-group":
+					_style.Display = Display.TableHeaderGroup;
+					break;
+				case "table-footer-group":
+					_style.Display = Display.TableFooterGroup;
+					break;
+				case "table-caption":
+					_style.Display = Display.TableCaption;
+					break;
+				case "table-column":
+					_style.Display = Display.TableColumn;
+					break;
+				case "table-column-group":
+					_style.Display = Display.TableColumnGroup;
+					break;
+			}
+		}
+
+		private static T Keyword<T>(CssToken token, string a, T va, string b, T vb, string c, T vc, T fallback) =>
+			token.IsIdent(a) ? va : token.IsIdent(b) ? vb : token.IsIdent(c) ? vc : fallback;
+
+		// One to four values in CSS order: all; vertical horizontal; top horizontal bottom; top right bottom left
+		private void ApplyEdges(List<CssToken> tokens, ref Edges edges, bool allowAuto, bool allowNegative)
+		{
+			Length[] values = new Length[Math.Min(tokens.Count, 4)];
+			for (int i = 0; i < values.Length; i++)
+			{
+				if (!TryEdge(tokens[i], allowAuto, allowNegative, out values[i]))
+					return;
+			}
+			switch (values.Length)
+			{
+				case 1:
+					edges = new Edges(values[0]);
+					break;
+				case 2:
+					edges.Top = edges.Bottom = values[0];
+					edges.Left = edges.Right = values[1];
+					break;
+				case 3:
+					edges.Top = values[0];
+					edges.Left = edges.Right = values[1];
+					edges.Bottom = values[2];
+					break;
+				case 4:
+					edges.Top = values[0];
+					edges.Right = values[1];
+					edges.Bottom = values[2];
+					edges.Left = values[3];
+					break;
+			}
+		}
+
+		private void ApplyEdge(CssToken token, ref Length edge, bool allowAuto, bool allowNegative)
+		{
+			if (TryEdge(token, allowAuto, allowNegative, out Length value))
+				edge = value;
+		}
+
+		private bool TryEdge(CssToken token, bool allowAuto, bool allowNegative, out Length length)
+		{
+			if (token.IsIdent("auto") && allowAuto)
+			{
+				length = Length.Auto;
+				return true;
+			}
+			return CssValue.TryLength(token, _fontSize, _rootFontSize, true, allowNegative, out length);
+		}
+
+		private void ApplySize(CssToken token, ref Length size, bool allowAuto)
+		{
+			if (token.IsIdent("auto") || token.IsIdent("none") || token.IsIdent("max-content") || token.IsIdent("min-content") || token.IsIdent("fit-content"))
+			{
+				if (allowAuto)
+					size = Length.Auto;
+				return;
+			}
+			if (CssValue.TryLength(token, _fontSize, _rootFontSize, true, false, out Length value))
+				size = value;
+		}
+
+		private float BorderWidth(CssToken token)
+		{
+			if (token.IsIdent("thin"))
+				return 1;
+			if (token.IsIdent("medium"))
+				return 3;
+			if (token.IsIdent("thick"))
+				return 5;
+			return CssValue.TryLength(token, _fontSize, _rootFontSize, false, false, out Length length) ? length.Value : 3;
+		}
+
+		private static BorderStyle ParseBorderStyle(CssToken token)
+		{
+			if (token.Type != CssTokenType.Ident)
+				return BorderStyle.None;
+			return token.Value.ToLowerInvariant() switch
+			{
+				"solid" => BorderStyle.Solid,
+				"dotted" => BorderStyle.Dotted,
+				"dashed" => BorderStyle.Dashed,
+				"double" => BorderStyle.Double,
+				"inset" => BorderStyle.Inset,
+				"outset" => BorderStyle.Outset,
+				"groove" => BorderStyle.Groove,
+				"ridge" => BorderStyle.Ridge,
+				"hidden" => BorderStyle.Hidden,
+				_ => BorderStyle.None,
+			};
+		}
+
+		// border: width style color in any order; side -1 means all four
+		private void ApplyBorderShorthand(List<CssToken> tokens, int side)
+		{
+			BorderEdge edge = new BorderEdge { Width = 3, Style = BorderStyle.None, Color = _style.Color };
+			for (int i = 0; i < tokens.Count; i++)
+			{
+				CssToken token = tokens[i];
+				if (token.Type == CssTokenType.Ident && ParseBorderStyle(token) != BorderStyle.None || token.IsIdent("none") || token.IsIdent("hidden"))
+					edge.Style = ParseBorderStyle(token);
+				else if (token.Type == CssTokenType.Dimension || token.Type == CssTokenType.Number || token.IsIdent("thin") || token.IsIdent("medium") || token.IsIdent("thick"))
+					edge.Width = BorderWidth(token);
+				else if (CssValue.TryColor(tokens, i, out Color color, out int consumed))
+				{
+					edge.Color = color;
+					i += consumed - 1;
+				}
+			}
+			SetBorder(side, edge);
+		}
+
+		private void SetBorder(int side, BorderEdge edge)
+		{
+			if (side < 0 || side == 0)
+				_style.BorderTop = edge;
+			if (side < 0 || side == 1)
+				_style.BorderRight = edge;
+			if (side < 0 || side == 2)
+				_style.BorderBottom = edge;
+			if (side < 0 || side == 3)
+				_style.BorderLeft = edge;
+		}
+
+		private void ApplyBorderWidths(List<CssToken> tokens)
+		{
+			float[] widths = new float[4];
+			int count = Math.Min(tokens.Count, 4);
+			for (int i = 0; i < count; i++)
+				widths[i] = BorderWidth(tokens[i]);
+			(float top, float right, float bottom, float left) = Spread(widths, count);
+			_style.BorderTop.Width = top;
+			_style.BorderRight.Width = right;
+			_style.BorderBottom.Width = bottom;
+			_style.BorderLeft.Width = left;
+		}
+
+		private void ApplyBorderStyles(List<CssToken> tokens)
+		{
+			BorderStyle[] styles = new BorderStyle[4];
+			int count = Math.Min(tokens.Count, 4);
+			for (int i = 0; i < count; i++)
+				styles[i] = ParseBorderStyle(tokens[i]);
+			(BorderStyle top, BorderStyle right, BorderStyle bottom, BorderStyle left) = Spread(styles, count);
+			_style.BorderTop.Style = top;
+			_style.BorderRight.Style = right;
+			_style.BorderBottom.Style = bottom;
+			_style.BorderLeft.Style = left;
+		}
+
+		private void ApplyBorderColors(List<CssToken> tokens)
+		{
+			Color[] colors = new Color[4];
+			int count = 0;
+			for (int i = 0; i < tokens.Count && count < 4; count++)
+			{
+				if (!CssValue.TryColor(tokens, i, out colors[count], out int consumed))
+					return;
+				i += consumed;
+			}
+			if (count == 0)
+				return;
+			(Color top, Color right, Color bottom, Color left) = Spread(colors, count);
+			_style.BorderTop.Color = top;
+			_style.BorderRight.Color = right;
+			_style.BorderBottom.Color = bottom;
+			_style.BorderLeft.Color = left;
+		}
+
+		private static (T, T, T, T) Spread<T>(T[] values, int count) => count switch
+		{
+			1 => (values[0], values[0], values[0], values[0]),
+			2 => (values[0], values[1], values[0], values[1]),
+			3 => (values[0], values[1], values[2], values[1]),
+			_ => (values[0], values[1], values[2], values[3]),
+		};
+
+		// background: the color and url() are taken, positions, repeats and gradients are not
+		private void ApplyBackground(List<CssToken> tokens)
+		{
+			_style.BackgroundColor = Color.Transparent;
+			_style.BackgroundImage = null;
+			foreach (List<CssToken> layer in CssValue.SplitCommas(tokens))
+			{
+				for (int i = 0; i < layer.Count; i++)
+				{
+					CssToken token = layer[i];
+					if (token.Type == CssTokenType.Url)
+					{
+						_style.BackgroundImage ??= token.Value;
+						continue;
+					}
+					if (token.Type == CssTokenType.Function && !IsColorFunction(token.Value))
+					{
+						int nested = 1;
+						while (++i < layer.Count && nested > 0)
+						{
+							if (layer[i].Type == CssTokenType.Function || layer[i].Type == CssTokenType.OpenParen)
+								nested++;
+							else if (layer[i].Type == CssTokenType.CloseParen)
+								nested--;
+						}
+						i--;
+						continue;
+					}
+					if (CssValue.TryColor(layer, i, out Color color, out int consumed))
+					{
+						_style.BackgroundColor = color;
+						i += consumed - 1;
+					}
+				}
+			}
+		}
+
+		private static bool IsColorFunction(string name) => name.ToLowerInvariant() is "rgb" or "rgba" or "hsl" or "hsla" or "light-dark";
+
+		private void ApplyFontSize(CssToken token)
+		{
+			if (token.Type == CssTokenType.Ident)
+			{
+				float size = token.Value.ToLowerInvariant() switch
+				{
+					"xx-small" => 9,
+					"x-small" => 10,
+					"small" => 13,
+					"medium" => 16,
+					"large" => 18,
+					"x-large" => 24,
+					"xx-large" => 32,
+					"xxx-large" => 48,
+					"smaller" => _parentFontSize / 1.2f,
+					"larger" => _parentFontSize * 1.2f,
+					_ => -1,
+				};
+				if (size > 0)
+					_style.FontSize = MathF.Round(size * 4) / 4;
+				return;
+			}
+			if (token.Type == CssTokenType.Percentage)
+			{
+				_style.FontSize = MathF.Max(1, (float)(_parentFontSize * token.Number / 100));
+				return;
+			}
+			if (token.Type == CssTokenType.Dimension || token.Type == CssTokenType.Number)
+			{
+				double pixels = CssValue.ToPixels(token.Number, token.Type == CssTokenType.Dimension ? token.Unit : "px", _parentFontSize, _rootFontSize);
+				if (pixels > 0)
+					_style.FontSize = (float)pixels;
+			}
+		}
+
+		private void ApplyFontWeight(CssToken token)
+		{
+			if (token.Type == CssTokenType.Number)
+				_style.Bold = token.Number >= 600;
+			else if (token.IsIdent("bold") || token.IsIdent("bolder"))
+				_style.Bold = true;
+			else if (token.IsIdent("normal") || token.IsIdent("lighter"))
+				_style.Bold = false;
+		}
+
+		// The first family that maps to a face the image has; generic names and the common Windows and web names
+		private static FontFamily ParseFamily(List<CssToken> tokens)
+		{
+			foreach (List<CssToken> part in CssValue.SplitCommas(tokens))
+			{
+				string name = string.Join(" ", part.ConvertAll(t => t.Value)).ToLowerInvariant();
+				switch (name)
+				{
+					case "serif":
+					case "times":
+					case "times new roman":
+					case "georgia":
+					case "garamond":
+					case "cambria":
+					case "book antiqua":
+					case "palatino":
+					case "palatino linotype":
+					case "baskerville":
+						return FontFamily.Serif;
+					case "monospace":
+					case "courier":
+					case "courier new":
+					case "consolas":
+					case "menlo":
+					case "monaco":
+					case "lucida console":
+					case "source code pro":
+					case "fira code":
+					case "ui-monospace":
+						return FontFamily.Mono;
+					case "sans-serif":
+					case "arial":
+					case "helvetica":
+					case "helvetica neue":
+					case "verdana":
+					case "tahoma":
+					case "segoe ui":
+					case "roboto":
+					case "open sans":
+					case "system-ui":
+					case "-apple-system":
+					case "blinkmacsystemfont":
+					case "ubuntu":
+					case "noto sans":
+					case "inter":
+					case "lato":
+						return FontFamily.Sans;
+				}
+			}
+			return FontFamily.Sans;
+		}
+
+		// font: [style] [weight] size[/line-height] family
+		private void ApplyFontShorthand(List<CssToken> tokens)
+		{
+			int i = 0;
+			_style.Italic = false;
+			_style.Bold = false;
+			while (i < tokens.Count)
+			{
+				CssToken token = tokens[i];
+				if (token.IsIdent("italic") || token.IsIdent("oblique"))
+					_style.Italic = true;
+				else if (token.IsIdent("bold") || token.IsIdent("bolder") || (token.Type == CssTokenType.Number && token.Number >= 100 && token.Number <= 900 && i + 1 < tokens.Count && tokens[i + 1].Type != CssTokenType.Comma))
+					_style.Bold = token.Type == CssTokenType.Number ? token.Number >= 600 : true;
+				else if (token.IsIdent("normal") || token.IsIdent("small-caps") || token.IsIdent("lighter"))
+				{
+				}
+				else
+					break;
+				i++;
+			}
+			if (i >= tokens.Count)
+				return;
+			ApplyFontSize(tokens[i]);
+			_fontSize = _style.FontSize;
+			i++;
+			if (i < tokens.Count && tokens[i].IsDelim('/'))
+			{
+				i++;
+				if (i < tokens.Count)
+				{
+					ApplyLineHeight(tokens[i]);
+					i++;
+				}
+			}
+			if (i < tokens.Count)
+				_style.FontFamily = ParseFamily(tokens.GetRange(i, tokens.Count - i));
+		}
+
+		private void ApplyLineHeight(CssToken token)
+		{
+			if (token.IsIdent("normal"))
+				_style.LineHeight = -1;
+			else if (token.Type == CssTokenType.Number)
+				_style.LineHeight = (float)(token.Number * _fontSize);
+			else if (token.Type == CssTokenType.Percentage)
+				_style.LineHeight = (float)(token.Number / 100 * _fontSize);
+			else if (CssValue.TryLength(token, _fontSize, _rootFontSize, false, false, out Length length))
+				_style.LineHeight = length.Value;
+		}
+
+		private void ApplyTextDecoration(List<CssToken> tokens)
+		{
+			bool underline = false;
+			bool lineThrough = false;
+			bool none = false;
+			foreach (CssToken token in tokens)
+			{
+				if (token.IsIdent("underline"))
+					underline = true;
+				else if (token.IsIdent("line-through"))
+					lineThrough = true;
+				else if (token.IsIdent("none"))
+					none = true;
+			}
+			if (none || underline || lineThrough)
+			{
+				_style.Underline = underline;
+				_style.LineThrough = lineThrough;
+			}
+		}
+
+		private static ListStyleType ParseListStyle(CssToken token)
+		{
+			if (token.Type != CssTokenType.Ident)
+				return ListStyleType.Disc;
+			return token.Value.ToLowerInvariant() switch
+			{
+				"circle" => ListStyleType.Circle,
+				"square" => ListStyleType.Square,
+				"decimal" => ListStyleType.Decimal,
+				"decimal-leading-zero" => ListStyleType.Decimal,
+				"lower-alpha" => ListStyleType.LowerAlpha,
+				"lower-latin" => ListStyleType.LowerAlpha,
+				"upper-alpha" => ListStyleType.UpperAlpha,
+				"upper-latin" => ListStyleType.UpperAlpha,
+				"lower-roman" => ListStyleType.LowerRoman,
+				"upper-roman" => ListStyleType.UpperRoman,
+				"none" => ListStyleType.None,
+				_ => ListStyleType.Disc,
+			};
+		}
+	}
+
+	// What an element looks like before the page says anything, after the HTML standard's rendering section
+	public static class UserAgentStylesheet
+	{
+		public const string Css = @"
+html, body, div, p, h1, h2, h3, h4, h5, h6, ul, ol, dl, dd, dt, li, blockquote, pre, address, form, fieldset, hr, table, caption,
+article, aside, footer, header, hgroup, main, nav, section, figure, figcaption, details, summary, menu, dir, center, noscript, legend, search, dialog, optgroup { display: block; }
+head, script, style, title, meta, link, base, template, noframes, param, area, datalist, [hidden] { display: none; }
+li { display: list-item; }
+table { display: table; border-spacing: 2px; box-sizing: border-box; text-indent: 0; }
+caption { display: table-caption; text-align: center; }
+thead { display: table-header-group; }
+tbody { display: table-row-group; }
+tfoot { display: table-footer-group; }
+tr { display: table-row; }
+td, th { display: table-cell; padding: 1px; }
+th { font-weight: bold; text-align: center; }
+col { display: table-column; }
+colgroup { display: table-column-group; }
+img, input, button, select, textarea, video, canvas, iframe, embed, object { display: inline-block; }
+body { margin: 8px; }
+p, dl, blockquote, figure { margin: 1em 0; }
+blockquote, figure { margin-left: 40px; margin-right: 40px; }
+address, cite, dfn, em, i, var { font-style: italic; }
+b, strong { font-weight: bold; }
+h1 { font-size: 2em; margin: 0.67em 0; font-weight: bold; }
+h2 { font-size: 1.5em; margin: 0.83em 0; font-weight: bold; }
+h3 { font-size: 1.17em; margin: 1em 0; font-weight: bold; }
+h4 { font-size: 1em; margin: 1.33em 0; font-weight: bold; }
+h5 { font-size: 0.83em; margin: 1.67em 0; font-weight: bold; }
+h6 { font-size: 0.67em; margin: 2.33em 0; font-weight: bold; }
+article h1, aside h1, nav h1, section h1 { font-size: 1.5em; margin: 0.83em 0; }
+ul, ol, menu, dir { margin: 1em 0; padding-left: 40px; }
+ul, menu, dir { list-style-type: disc; }
+ol { list-style-type: decimal; }
+ul ul, ol ul { list-style-type: circle; }
+ul ul ul, ol ul ul, ol ol ul, ul ol ul { list-style-type: square; }
+ul ul, ul ol, ol ul, ol ol { margin-top: 0; margin-bottom: 0; }
+dd { margin-left: 40px; }
+pre, code, kbd, samp, tt, xmp, listing, plaintext { font-family: monospace; }
+pre, xmp, listing, plaintext { white-space: pre; margin: 1em 0; }
+hr { display: block; margin: 0.5em auto; border: 1px inset gray; height: 0; color: gray; }
+a:link, a[href] { color: #0000ee; text-decoration: underline; }
+u, ins { text-decoration: underline; }
+s, strike, del { text-decoration: line-through; }
+small { font-size: smaller; }
+big { font-size: larger; }
+sub { vertical-align: sub; font-size: smaller; }
+sup { vertical-align: super; font-size: smaller; }
+center { text-align: center; }
+mark { background-color: yellow; color: black; }
+abbr[title], acronym[title] { text-decoration: underline; }
+textarea, input, button, select { font-family: sans-serif; font-size: 13.3333px; }
+button, input[type=button], input[type=submit], input[type=reset] { display: inline-block; padding: 1px 6px; border: 2px outset buttonface; background-color: #efefef; color: black; text-align: center; }
+input[type=text], input[type=search], input[type=email], input[type=url], input[type=password], input[type=number], textarea { border: 1px inset #767676; padding: 1px 2px; background-color: white; color: black; }
+input[type=hidden] { display: none; }
+fieldset { margin: 0 2px; padding: 0.35em 0.75em 0.625em; border: 2px groove threedface; }
+legend { padding: 0 2px; }
+summary { display: block; }
+details:not([open]) > :not(summary) { display: none; }
+br { display: inline; }
+nobr { white-space: nowrap; }
+";
+	}
+}
