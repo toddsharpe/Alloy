@@ -23,6 +23,10 @@ namespace Alloy.Graphics
 			"aaaaaaaa" + "abbbbbba" + "aaaaaaaa" + "a......a" + "a......a" + "a......a" + "aaaaaaaa" + "........",
 			8, Theme.Steel, Theme.Ember, Theme.Ember);
 
+		public static readonly PixelGlyph Globe = PixelGlyph.Parse(
+			"..aaaa.." + ".a.bb.a." + "a..bb..a" + "abbbbbba" + "abbbbbba" + "a..bb..a" + ".a.bb.a." + "..aaaa..",
+			8, Theme.Steel, Theme.Ember, Theme.Ember);
+
 		public static readonly PixelGlyph Network = PixelGlyph.Parse(
 			"........" + ".....a.." + ".....a.." + "...a.a.." + "...a.a.." + ".a.a.a.." + ".a.a.a.." + "........",
 			8, Theme.Ember, Theme.Ember, Theme.Ember);
