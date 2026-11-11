@@ -94,6 +94,25 @@ namespace Alloy.Sdk
 
 	public static class Directory
 	{
+		// Where this process's relative paths start; a child process starts with its parent's
+		public static unsafe string Current
+		{
+			get
+			{
+				byte* bytes = stackalloc byte[256];
+				long length = SystemCall.Invoke(Syscall.GetCurrentDirectory, (ulong)bytes, 256);
+				return length <= 0 ? "/" : System.Text.Encoding.ASCII.GetString(bytes, (int)Math.Min(length, 256));
+			}
+		}
+
+		// False if the path isn't a directory; ".." goes up, and the result is kept absolute and tidy
+		public static unsafe bool SetCurrent(string path)
+		{
+			byte* bytes = stackalloc byte[256];
+			int length = SystemCall.Ascii(path, bytes, 255);
+			return SystemCall.Invoke(Syscall.SetCurrentDirectory, (ulong)bytes, (ulong)length) == 0;
+		}
+
 		public static unsafe bool Create(string path)
 		{
 			byte* bytes = stackalloc byte[256];

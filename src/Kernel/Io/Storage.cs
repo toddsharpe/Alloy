@@ -172,6 +172,9 @@ namespace Alloy.Kernel.Io
 			return flushed;
 		}
 
+		// Whether the path names a directory that can be listed
+		public static bool IsDirectory(ReadOnlySpan<char> path) => List(path, 0, Span<DirectoryEntry>.Empty) >= 0;
+
 		// The names in a directory from the skip-th on, as many as fit; -1 if the path isn't a directory
 		public static int List(ReadOnlySpan<char> path, int skip, Span<DirectoryEntry> entries)
 		{

@@ -26,6 +26,7 @@ namespace Alloy.Apps.Terminal
 		private static readonly List<string> s_history = new List<string>();
 		private static int s_historyIndex;
 		private static bool s_ctrl;
+		private static string s_directory = "/";
 
 		// The running child: the read ends of its stdout and stderr pipes, and its process handle
 		private static long s_childOutput;
@@ -57,9 +58,13 @@ namespace Alloy.Apps.Terminal
 			s_console.Text.SetAttribute(ConsoleAttribute.Normal);
 		}
 
+		// The prompt names the shell and the current directory: alloy:/docs>
 		private static void ShowPrompt()
 		{
+			s_directory = Directory.Current;
 			Write(PromptName, ConsoleAttribute.Prompt);
+			Write(":", ConsoleAttribute.Punctuation);
+			Write(s_directory, ConsoleAttribute.Dim);
 			Write(PromptMark, ConsoleAttribute.Punctuation);
 		}
 
@@ -68,7 +73,7 @@ namespace Alloy.Apps.Terminal
 		{
 			get
 			{
-				int fit = s_console.Text.Columns - PromptName.Length - PromptMark.Length - 1;
+				int fit = s_console.Text.Columns - PromptName.Length - 1 - s_directory.Length - PromptMark.Length - 1;
 				return Math.Max(Math.Min(fit, MaxCommandLength), 0);
 			}
 		}
@@ -189,7 +194,7 @@ namespace Alloy.Apps.Terminal
 			Write("Run: ", ConsoleAttribute.Dim);
 			Write("hello ps time calc fire doom dhcp ping nettest ipctest crash\n", ConsoleAttribute.Normal);
 			Write("Built in: ", ConsoleAttribute.Dim);
-			Write("help clear ls cat write append mkdir rm mv\n", ConsoleAttribute.Normal);
+			Write("help clear cd pwd ls cat write append mkdir rm mv\n", ConsoleAttribute.Normal);
 			Write("Keys: ", ConsoleAttribute.Dim);
 			Write("Up/Down history, PgUp/PgDn scroll, Ctrl+L clear\n", ConsoleAttribute.Normal);
 		}
@@ -250,20 +255,32 @@ namespace Alloy.Apps.Terminal
 			string[] words = typed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 			string verb = words[0];
 			bool isWrite = verb == "write" || verb == "append";
-			if (!(verb == "ls" || verb == "cat" || isWrite || verb == "mkdir" || verb == "rm" || verb == "mv"))
+			if (!(verb == "cd" || verb == "pwd" || verb == "ls" || verb == "cat" || isWrite || verb == "mkdir" || verb == "rm" || verb == "mv"))
 				return false;
 
+			// Paths are relative to the current directory, which cd moves (to the root with no argument) and the prompt shows
 			string first = words.Length > 1 ? words[1] : null;
+			if (verb == "cd")
+			{
+				if (!Directory.SetCurrent(first ?? "/"))
+					Fail("cd", "enter", first ?? "/");
+				return true;
+			}
+			if (verb == "pwd")
+			{
+				Write(Directory.Current + "\n", ConsoleAttribute.Normal);
+				return true;
+			}
 			if (verb == "ls")
 			{
-				ListFiles(first ?? "/");
+				ListFiles(first ?? ".");
 				return true;
 			}
 
 			string second = words.Length > 2 ? words[2] : null;
 			if (first == null || (verb == "mv" && second == null))
 			{
-				Write("usage: ls [dir], cat file, write file text, append file text, mkdir dir, rm path, mv from to\n", ConsoleAttribute.Error);
+				Write("usage: cd [dir], pwd, ls [dir], cat file, write file text, append file text, mkdir dir, rm path, mv from to\n", ConsoleAttribute.Error);
 				return true;
 			}
 
