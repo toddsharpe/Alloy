@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Alloy.Abi;
 using Alloy.Arch.X64;
@@ -20,6 +21,8 @@ namespace Alloy.Kernel.Platform
 	// vmpacket_descriptor: offset and length in 8-byte units, both from the packet's start
 	internal struct VmBusPacket
 	{
+		public const int Size = 16;
+
 		public ushort Type;
 		public ushort Offset8;
 		public ushort Length8;
@@ -64,48 +67,52 @@ namespace Alloy.Kernel.Platform
 			return gpadl != 0 && VmBus.OpenChannel(this, offer.RelId, gpadl, (uint)sendPages);
 		}
 
-		// Called from the VMBus interrupt for each packet; payload and size exclude the descriptor and anything between it and the payload
-		protected abstract unsafe void OnPacket(VmBusPacket* packet, byte* payload, uint size);
+		// Called from the VMBus interrupt for each packet: its descriptor, whatever sits between the descriptor and the payload, and the payload
+		protected abstract void OnPacket(in VmBusPacket packet, ReadOnlySpan<byte> header, ReadOnlySpan<byte> payload);
 
 		// False when the host hasn't freed enough room; one byte always stays free so a full ring never looks empty
-		protected unsafe bool Send(void* data, uint length, ulong requestId, ushort type, ushort flags)
+		protected bool Send(ReadOnlySpan<byte> data, ulong requestId, ushort type, ushort flags)
 		{
 			VmBusPacket packet;
 			packet.Type = type;
-			packet.Offset8 = (ushort)(sizeof(VmBusPacket) >> 3);
-			packet.Length8 = (ushort)(Align8((uint)sizeof(VmBusPacket) + length) >> 3);
+			packet.Offset8 = VmBusPacket.Size >> 3;
+			packet.Length8 = (ushort)(Align8((uint)(VmBusPacket.Size + data.Length)) >> 3);
 			packet.Flags = flags;
 			packet.TransactionId = requestId;
-			return Write(new ReadOnlySpan<byte>(&packet, sizeof(VmBusPacket)), new ReadOnlySpan<byte>(data, (int)length));
+			Span<byte> header = stackalloc byte[VmBusPacket.Size];
+			MemoryMarshal.Write(header, in packet);
+			return Write(header, data);
 		}
 
 		// A packet whose data the host reads or writes in guest memory: byteCount bytes of physically contiguous pages at physical, completion requested (one gpa_range after the descriptor)
-		protected unsafe bool SendGpaDirect(void* data, uint length, ulong requestId, ulong physical, uint byteCount)
+		protected bool SendGpaDirect(ReadOnlySpan<byte> data, ulong requestId, ulong physical, uint byteCount)
 		{
 			uint offset = (uint)(physical & (MemoryLayout.PageSize - 1));
 			int pages = (int)MemoryLayout.PagesFor(offset + byteCount);
 			if (pages == 0 || pages > GpaDirectMaxPages)
 				return false;
 
-			int headerSize = sizeof(VmBusPacket) + GpaRangeHeaderSize + 8 * pages;
-			byte* header = stackalloc byte[sizeof(VmBusPacket) + GpaRangeHeaderSize + 8 * GpaDirectMaxPages];
-			VmBusPacket* packet = (VmBusPacket*)header;
-			packet->Type = PacketGpaDirect;
-			packet->Offset8 = (ushort)(headerSize >> 3);
-			packet->Length8 = (ushort)(Align8((uint)headerSize + length) >> 3);
-			packet->Flags = CompletionRequested;
-			packet->TransactionId = requestId;
+			int headerSize = VmBusPacket.Size + GpaRangeHeaderSize + 8 * pages;
+			Span<byte> header = stackalloc byte[VmBusPacket.Size + GpaRangeHeaderSize + 8 * GpaDirectMaxPages];
+			header = header.Slice(0, headerSize);
+			VmBusPacket packet;
+			packet.Type = PacketGpaDirect;
+			packet.Offset8 = (ushort)(headerSize >> 3);
+			packet.Length8 = (ushort)(Align8((uint)(headerSize + data.Length)) >> 3);
+			packet.Flags = CompletionRequested;
+			packet.TransactionId = requestId;
+			MemoryMarshal.Write(header, in packet);
 
 			// Reserved, the range count, then the range's byte count, offset into its first page and page numbers
-			uint* range = (uint*)(header + sizeof(VmBusPacket));
+			Span<uint> range = MemoryMarshal.Cast<byte, uint>(header.Slice(VmBusPacket.Size, GpaRangeHeaderSize));
 			range[0] = 0;
 			range[1] = 1;
 			range[2] = byteCount;
 			range[3] = offset;
-			ulong* pfns = (ulong*)(header + sizeof(VmBusPacket) + GpaRangeHeaderSize);
+			Span<ulong> pfns = MemoryMarshal.Cast<byte, ulong>(header.Slice(VmBusPacket.Size + GpaRangeHeaderSize));
 			for (int i = 0; i < pages; i++)
 				pfns[i] = (physical >> MemoryLayout.PageShift) + (ulong)i;
-			return Write(new ReadOnlySpan<byte>(header, headerSize), new ReadOnlySpan<byte>(data, (int)length));
+			return Write(header, data);
 		}
 
 		private static uint Align8(uint length) => (length + 7) & ~7u;
@@ -125,11 +132,12 @@ namespace Alloy.Kernel.Platform
 				return false;
 			}
 
-			byte* at = (byte*)_outbound + MemoryLayout.PageSize + write;
-			header.CopyTo(new Span<byte>(at, header.Length));
-			payload.CopyTo(new Span<byte>(at + header.Length, payload.Length));
-			new Span<byte>(at + packetLength, (int)(aligned - packetLength)).Clear();
-			*(ulong*)(at + aligned) = (ulong)write << 32;
+			// The double mapping makes the slot contiguous even when it wraps the ring's end
+			Span<byte> slot = new Span<byte>((byte*)_outbound + MemoryLayout.PageSize + write, (int)(aligned + TrailerSize));
+			header.CopyTo(slot);
+			payload.CopyTo(slot.Slice(header.Length));
+			slot.Slice((int)packetLength, (int)(aligned - packetLength)).Clear();
+			MemoryMarshal.Write(slot.Slice((int)aligned), (ulong)write << 32);
 
 			Interlocked.MemoryBarrier();
 			_outbound->WriteIndex = (write + aligned + TrailerSize) % _outboundSize;
@@ -147,10 +155,15 @@ namespace Alloy.Kernel.Platform
 			{
 				while (_readIndex != _inbound->WriteIndex)
 				{
-					VmBusPacket* packet = (VmBusPacket*)((byte*)_inbound + MemoryLayout.PageSize + _readIndex);
-					uint offset = (uint)packet->Offset8 << 3;
-					uint length = (uint)packet->Length8 << 3;
-					OnPacket(packet, (byte*)packet + offset, length - offset);
+					// The descriptor's offset and length bound the packet; a host that breaks them has corrupted the ring
+					byte* at = (byte*)_inbound + MemoryLayout.PageSize + _readIndex;
+					VmBusPacket packet = MemoryMarshal.Read<VmBusPacket>(new ReadOnlySpan<byte>(at, VmBusPacket.Size));
+					uint offset = (uint)packet.Offset8 << 3;
+					uint length = (uint)packet.Length8 << 3;
+					if (offset < VmBusPacket.Size || length < offset || length > _inboundSize)
+						Environment.FailFast("FAILFAST: a VMBus packet descriptor outside its ring");
+					ReadOnlySpan<byte> whole = new ReadOnlySpan<byte>(at, (int)length);
+					OnPacket(in packet, whole.Slice(VmBusPacket.Size, (int)offset - VmBusPacket.Size), whole.Slice((int)offset));
 					_readIndex = (_readIndex + length + TrailerSize) % _inboundSize;
 				}
 				Interlocked.MemoryBarrier();

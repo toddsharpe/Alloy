@@ -1,6 +1,9 @@
+using System;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Alloy.Abi;
 using Alloy.Kernel.Ke;
+using Alloy.Kernel.Mm;
 using Alloy.Kernel.Ob;
 
 namespace Alloy.Kernel.Io
@@ -11,28 +14,30 @@ namespace Alloy.Kernel.Io
 		// Mouse moves stop going in at half full, keeping the rest for keys and clicks, as in MetalOS
 		private const uint MoveLimit = InputRing.Capacity / 2;
 
-		private static unsafe InputRing* s_ring;
+		private static ulong s_physical;
 		private static KEvent s_ready;
 		private static ushort s_buttons;
 
 		public static ulong Posted { get; private set; }
 
-		public static unsafe void Initialize()
+		public static void Initialize()
 		{
 			KSection section = KSection.Create(InputRing.Size);
-			s_ring = (InputRing*)BootInfo.ToVirtual(section.Physical);
+			s_physical = section.Physical;
 			s_ready = new KEvent(false);
 			Endpoints.Register(InputRing.Endpoint, section);
 			Endpoints.Register(InputRing.ReadyEndpoint, s_ready);
 		}
 
 		// Drivers call this from their interrupt handlers, so interrupts are already off and there is one producer
-		public static unsafe void Post(in InputEvent input)
+		public static void Post(in InputEvent input)
 		{
-			if (s_ring == null)
+			if (s_physical == 0)
 				return;
-			uint write = s_ring->Write;
-			uint count = write - s_ring->Read;
+			Span<byte> memory = PhysicalMemory.Window(s_physical, InputRing.Size);
+			ref InputRing ring = ref MemoryMarshal.Cast<byte, InputRing>(memory.Slice(0, InputRing.HeaderSize))[0];
+			uint write = ring.Write;
+			uint count = write - ring.Read;
 			if (count >= InputRing.Capacity)
 				return;
 			bool move = input.Type == InputEventType.Mouse && input.Buttons == s_buttons;
@@ -41,9 +46,10 @@ namespace Alloy.Kernel.Io
 			if (input.Type == InputEventType.Mouse)
 				s_buttons = input.Buttons;
 
-			*InputRing.At(s_ring, write) = input;
+			Span<InputEvent> events = MemoryMarshal.Cast<byte, InputEvent>(memory.Slice(InputRing.HeaderSize));
+			events[(int)(write % InputRing.Capacity)] = input;
 			Interlocked.MemoryBarrier();
-			s_ring->Write = write + 1;
+			ring.Write = write + 1;
 			Posted++;
 			s_ready.Signal();
 		}

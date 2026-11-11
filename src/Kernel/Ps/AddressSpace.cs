@@ -143,30 +143,30 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// VirtualQuery: the run of pages from address that share a state and protection, within one allocation
-		public unsafe bool Query(ulong address, MemoryBasicInformation* info)
+		public bool Query(ulong address, out MemoryBasicInformation info)
 		{
 			ulong page = address & ~(MemoryLayout.PageSize - 1);
 			Lock();
 			Region region = Find(page);
-			*info = default;
-			info->BaseAddress = page;
+			info = default;
+			info.BaseAddress = page;
 			if (region == null)
 			{
 				Region next = _regions;
 				while (next != null && next.Base <= page)
 					next = next.Next;
-				info->State = Memory.Free;
-				info->Protect = Memory.NoAccess;
-				info->RegionSize = (next != null ? next.Base : UserEnd) - page;
+				info.State = Memory.Free;
+				info.Protect = Memory.NoAccess;
+				info.RegionSize = (next != null ? next.Base : UserEnd) - page;
 				Unlock();
 				return page < UserEnd;
 			}
-			info->AllocationBase = region.Base;
-			info->AllocationProtect = region.AllocationProtect;
-			info->Type = region.Kind == RegionKind.Image ? Memory.Image : region.Kind == RegionKind.Mapped ? Memory.Mapped : Memory.Private;
+			info.AllocationBase = region.Base;
+			info.AllocationProtect = region.AllocationProtect;
+			info.Type = region.Kind == RegionKind.Image ? Memory.Image : region.Kind == RegionKind.Mapped ? Memory.Mapped : Memory.Private;
 			StateOf(page, out uint state, out uint protect);
-			info->State = state;
-			info->Protect = state == Memory.Commit ? protect : 0;
+			info.State = state;
+			info.Protect = state == Memory.Commit ? protect : 0;
 			ulong end = page + MemoryLayout.PageSize;
 			while (end < region.Base + region.Size)
 			{
@@ -175,7 +175,7 @@ namespace Alloy.Kernel.Ps
 					break;
 				end += MemoryLayout.PageSize;
 			}
-			info->RegionSize = end - page;
+			info.RegionSize = end - page;
 			Unlock();
 			return true;
 		}

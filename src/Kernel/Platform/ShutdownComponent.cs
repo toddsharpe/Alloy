@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using Alloy.Kernel.Ke;
 
 namespace Alloy.Kernel.Platform
@@ -27,12 +28,12 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// 0 and 1 ask for a power off, 2 and 3 for a restart; 4 and 5 (hibernate) and the rest are refused
-		protected override unsafe uint OnMessage(ushort type, byte* body, int length)
+		protected override uint OnMessage(ushort type, Span<byte> body)
 		{
-			if (type != TypeShutdown || length < BodySize)
+			if (type != TypeShutdown || body.Length < BodySize)
 				return StatusFail;
 
-			uint flags = *(uint*)(body + FlagsOffset);
+			uint flags = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(FlagsOffset));
 			if (flags > 3)
 				return StatusFail;
 

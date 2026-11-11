@@ -58,7 +58,7 @@ namespace Alloy.Kernel.Mm
 			if (index == ulong.MaxValue)
 				return 0;
 			ulong physical = index << MemoryLayout.PageShift;
-			new Span<byte>((void*)BootInfo.ToVirtual(physical), (int)(pages << MemoryLayout.PageShift)).Clear();
+			Window(physical, pages << MemoryLayout.PageShift).Clear();
 			return physical;
 		}
 
@@ -70,6 +70,14 @@ namespace Alloy.Kernel.Mm
 		}
 
 		public static ulong AllocatePageTable() => Allocate(1);
+
+		// Physical memory through the kernel's window as a span, for pages the hardware or another process shares with the kernel
+		public static unsafe Span<byte> Window(ulong physical, ulong bytes)
+		{
+			if (bytes > 0x7FFFFFFF || physical + bytes > MemoryLayout.PhysicalWindowSize)
+				Environment.FailFast("FAILFAST: a physical range outside the window");
+			return new Span<byte>((void*)BootInfo.ToVirtual(physical), (int)bytes);
+		}
 
 		public static unsafe int DescriptorCount(BootInfo* info) => (int)(info->MemoryMapSize / info->MemoryDescriptorSize);
 

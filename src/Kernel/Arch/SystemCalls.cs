@@ -1,6 +1,7 @@
 using System;
 using System.Runtime;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Alloy.Abi;
 using Alloy.Arch.X64;
 using Alloy.Kernel.Io;
@@ -90,7 +91,7 @@ namespace Alloy.Kernel.Arch
 				case Syscall.GetMemoryStatus:
 				{
 					MemoryStatus status = new MemoryStatus { TotalPhysical = PhysicalMemory.TotalPages * MemoryLayout.PageSize, AvailablePhysical = PhysicalMemory.FreePages * MemoryLayout.PageSize };
-					return UserMemory.CopyTo(frame->A0, &status, (ulong)sizeof(MemoryStatus)) ? 0 : Error(SyscallError.InvalidPointer);
+					return UserMemory.CopyTo(frame->A0, in status) ? 0 : Error(SyscallError.InvalidPointer);
 				}
 
 				case Syscall.PublishValue:
@@ -124,10 +125,9 @@ namespace Alloy.Kernel.Arch
 				case Syscall.GetProcesses:
 				{
 					const int MaxEntries = 64;
-					ulong count = Math.Min(frame->A1, MaxEntries);
-					ProcessEntry* entries = stackalloc ProcessEntry[MaxEntries];
-					int listed = KProcess.List(entries, (int)count);
-					return UserMemory.CopyTo(frame->A0, entries, (ulong)(listed * sizeof(ProcessEntry))) ? listed : Error(SyscallError.InvalidPointer);
+					Span<ProcessEntry> entries = stackalloc ProcessEntry[MaxEntries];
+					int listed = KProcess.List(entries.Slice(0, (int)Math.Min(frame->A1, MaxEntries)));
+					return UserMemory.CopyTo(frame->A0, MemoryMarshal.AsBytes(entries.Slice(0, listed))) ? listed : Error(SyscallError.InvalidPointer);
 				}
 
 				case Syscall.GetProcessId:
@@ -142,7 +142,7 @@ namespace Alloy.Kernel.Arch
 				case Syscall.GetSystemTime:
 				{
 					SystemTime time = Clock.Now();
-					return UserMemory.CopyTo(frame->A0, &time, (ulong)sizeof(SystemTime)) ? 0 : Error(SyscallError.InvalidPointer);
+					return UserMemory.CopyTo(frame->A0, in time) ? 0 : Error(SyscallError.InvalidPointer);
 				}
 
 				case Syscall.Sleep:
@@ -237,11 +237,11 @@ namespace Alloy.Kernel.Arch
 				{
 					// The whole length comes back however much fit, so a caller can size its buffer
 					string directory = process.CurrentDirectory;
-					byte* bytes = stackalloc byte[256];
+					Span<byte> bytes = stackalloc byte[256];
 					int length = Math.Min(directory.Length, 255);
 					for (int i = 0; i < length; i++)
 						bytes[i] = (byte)directory[i];
-					return UserMemory.CopyTo(frame->A0, bytes, Math.Min((ulong)length, frame->A1)) ? length : Error(SyscallError.InvalidPointer);
+					return UserMemory.CopyTo(frame->A0, bytes.Slice(0, (int)Math.Min((ulong)length, frame->A1))) ? length : Error(SyscallError.InvalidPointer);
 				}
 
 				case Syscall.SetCurrentDirectory:
@@ -258,10 +258,10 @@ namespace Alloy.Kernel.Arch
 				case Syscall.CreatePipe:
 				{
 					KPipe pipe = KPipe.Create();
-					ulong* ends = stackalloc ulong[2];
+					Span<ulong> ends = stackalloc ulong[2];
 					ends[0] = (ulong)process.Handles.Add(pipe.Reader);
 					ends[1] = (ulong)process.Handles.Add(pipe.Writer);
-					if (UserMemory.CopyTo(frame->A0, ends, 16))
+					if (UserMemory.CopyTo(frame->A0, MemoryMarshal.AsBytes(ends)))
 						return 0;
 					process.Handles.Remove(ends[0]);
 					process.Handles.Remove(ends[1]);
@@ -352,10 +352,11 @@ namespace Alloy.Kernel.Arch
 						return Error(SyscallError.NotFound);
 					if (frame->A1 == 0 || frame->A1 > NetFrame.Mtu)
 						return Error(SyscallError.InvalidArgument);
-					byte* data = stackalloc byte[NetFrame.Mtu];
-					if (!UserMemory.CopyFrom(data, frame->A0, frame->A1))
+					Span<byte> data = stackalloc byte[NetFrame.Mtu];
+					data = data.Slice(0, (int)frame->A1);
+					if (!UserMemory.CopyFrom(data, frame->A0))
 						return Error(SyscallError.InvalidPointer);
-					return nic.SendFrame(data, (int)frame->A1) ? 0 : Error(SyscallError.Busy);
+					return nic.SendFrame(data) ? 0 : Error(SyscallError.Busy);
 				}
 
 				case Syscall.GetInterfaces:
@@ -367,7 +368,7 @@ namespace Alloy.Kernel.Arch
 					info.Present = 1;
 					for (int i = 0; i < 6; i++)
 						info.Mac[i] = nic.Mac[i];
-					return UserMemory.CopyTo(frame->A0, &info, (ulong)sizeof(InterfaceInfo)) ? 1 : Error(SyscallError.InvalidPointer);
+					return UserMemory.CopyTo(frame->A0, in info) ? 1 : Error(SyscallError.InvalidPointer);
 				}
 
 				case Syscall.CreatePort:
@@ -416,10 +417,9 @@ namespace Alloy.Kernel.Arch
 
 				case Syscall.VirtualQuery:
 				{
-					MemoryBasicInformation info;
-					if (!process.Space.Query(frame->A0, &info))
+					if (!process.Space.Query(frame->A0, out MemoryBasicInformation info))
 						return Error(SyscallError.InvalidArgument);
-					return UserMemory.CopyTo(frame->A1, &info, (ulong)sizeof(MemoryBasicInformation)) ? 0 : Error(SyscallError.InvalidPointer);
+					return UserMemory.CopyTo(frame->A1, in info) ? 0 : Error(SyscallError.InvalidPointer);
 				}
 
 				default:
@@ -435,21 +435,21 @@ namespace Alloy.Kernel.Arch
 		{
 			if (process.Handles.Get(frame->A0) is not KUserThread target || target.Process != process || target == caller)
 				return Error(SyscallError.InvalidHandle);
-			byte* buffer = stackalloc byte[WindowsContext.Size];
-			WindowsContext* context = (WindowsContext*)buffer;
-			if (!UserMemory.CopyFrom(context, frame->A1, WindowsContext.Size))
+			Span<byte> buffer = stackalloc byte[WindowsContext.Size];
+			if (!UserMemory.CopyFrom(buffer, frame->A1))
 				return Error(SyscallError.InvalidPointer);
+
 			if ((Syscall)frame->Number == Syscall.SetThreadContext)
 			{
-				UserContext.FromContext(context, target.Frame);
+				UserContext.FromContext(buffer, target.Frame);
 				return 0;
 			}
-			uint requested = context->ContextFlags;
+			uint requested = UserContext.ContextFlagsOf(buffer);
 			uint flags = requested & ~(WindowsContext.ExceptionRequest | WindowsContext.ExceptionReporting | WindowsContext.ServiceActive | WindowsContext.ExceptionActive);
 			if ((requested & WindowsContext.ExceptionRequest) != 0)
 				flags |= WindowsContext.ExceptionReporting | (target.InSystemCall ? WindowsContext.ServiceActive : 0);
-			UserContext.ToContext(target.Frame, context, flags);
-			return UserMemory.CopyTo(frame->A1, context, WindowsContext.Size) ? 0 : Error(SyscallError.InvalidPointer);
+			UserContext.ToContext(target.Frame, buffer, flags);
+			return UserMemory.CopyTo(frame->A1, buffer) ? 0 : Error(SyscallError.InvalidPointer);
 		}
 
 		// Hands the screen to one user process (the window server) at the largest synthvid mode; the kernel console stops drawing
@@ -468,7 +468,7 @@ namespace Alloy.Kernel.Arch
 				info.Height = video.Height;
 				info.Stride = video.Width;
 			}
-			if (!UserMemory.CopyTo(infoAddress, &info, (ulong)sizeof(FramebufferInfo)))
+			if (!UserMemory.CopyTo(infoAddress, in info))
 				return Error(SyscallError.InvalidPointer);
 			ulong physical = framebuffer & ~(MemoryLayout.PageSize - 1);
 			ulong pages = MemoryLayout.PagesFor(framebuffer + (ulong)info.Stride * info.Height * 4 - physical);
@@ -483,7 +483,7 @@ namespace Alloy.Kernel.Arch
 			if (!UserMemory.ReadPath(line, length, commandLine, out int count))
 				return Error(SyscallError.InvalidPointer);
 			StartInfo info = default;
-			if (startInfo != 0 && !UserMemory.CopyFrom(&info, startInfo, (ulong)sizeof(StartInfo)))
+			if (startInfo != 0 && !UserMemory.CopyFrom(startInfo, out info))
 				return Error(SyscallError.InvalidPointer);
 			KObject input = info.StdInput == 0 ? null : process.Handles.Get(info.StdInput);
 			KObject output = info.StdOutput == 0 ? null : process.Handles.Get(info.StdOutput);
@@ -506,22 +506,19 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// Through a kernel buffer a piece at a time: what the file gave up to count, 0 at its end
-		private static unsafe long ReadFile(KFile file, ulong buffer, ulong count)
+		private static long ReadFile(KFile file, ulong buffer, ulong count)
 		{
 			if (count == 0)
 				return 0;
-			int chunkSize = (int)Math.Min(count, Storage.ChunkSize);
-			byte* chunk = (byte*)Mm.Heap.Allocate((nuint)chunkSize);
-			if (chunk == null)
-				return Error(SyscallError.OutOfMemory);
+			byte[] chunk = new byte[(int)Math.Min(count, Storage.ChunkSize)];
 			long result = 0;
 			while ((ulong)result < count)
 			{
-				int size = (int)Math.Min(count - (ulong)result, (ulong)chunkSize);
-				int read = Storage.Read(file, new Span<byte>(chunk, size));
+				int size = (int)Math.Min(count - (ulong)result, (ulong)chunk.Length);
+				int read = Storage.Read(file, chunk.AsSpan(0, size));
 				if (read <= 0)
 					break;
-				if (!UserMemory.CopyTo(buffer + (ulong)result, chunk, (ulong)read))
+				if (!UserMemory.CopyTo(buffer + (ulong)result, chunk.AsSpan(0, read)))
 				{
 					result = result > 0 ? result : Error(SyscallError.InvalidPointer);
 					break;
@@ -535,24 +532,21 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// Everything if the volume has room; fewer bytes when it fills
-		private static unsafe long WriteFile(KFile file, ulong buffer, ulong count)
+		private static long WriteFile(KFile file, ulong buffer, ulong count)
 		{
 			if (count == 0)
 				return 0;
-			int chunkSize = (int)Math.Min(count, Storage.ChunkSize);
-			byte* chunk = (byte*)Mm.Heap.Allocate((nuint)chunkSize);
-			if (chunk == null)
-				return Error(SyscallError.OutOfMemory);
+			byte[] chunk = new byte[(int)Math.Min(count, Storage.ChunkSize)];
 			long result = 0;
 			while ((ulong)result < count)
 			{
-				int size = (int)Math.Min(count - (ulong)result, (ulong)chunkSize);
-				if (!UserMemory.CopyFrom(chunk, buffer + (ulong)result, (ulong)size))
+				int size = (int)Math.Min(count - (ulong)result, (ulong)chunk.Length);
+				if (!UserMemory.CopyFrom(chunk.AsSpan(0, size), buffer + (ulong)result))
 				{
 					result = result > 0 ? result : Error(SyscallError.InvalidPointer);
 					break;
 				}
-				int written = Storage.Write(file, new ReadOnlySpan<byte>(chunk, size));
+				int written = Storage.Write(file, chunk.AsSpan(0, size));
 				result += written;
 				if (written < size)
 					break;
@@ -562,42 +556,41 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// The names in a directory from the listing's index on, up to 16 a call into its entries; the index moves past those returned, so fewer than asked means the end
-		private static unsafe long ListDirectory(KProcess process, ulong pathAddress, ulong pathLength, ulong listingAddress)
+		private static long ListDirectory(KProcess process, ulong pathAddress, ulong pathLength, ulong listingAddress)
 		{
 			const int MaxEntries = 16;
 			Span<char> path = stackalloc char[256];
-			DirectoryListing listing;
-			if (!ReadResolvedPath(process, pathAddress, pathLength, path, out int length) || !UserMemory.CopyFrom(&listing, listingAddress, (ulong)sizeof(DirectoryListing)))
+			if (!ReadResolvedPath(process, pathAddress, pathLength, path, out int length) || !UserMemory.CopyFrom(listingAddress, out DirectoryListing listing))
 				return Error(SyscallError.InvalidPointer);
 			if (listing.Index > 0x7FFFFFFF)
 				return Error(SyscallError.InvalidArgument);
 
 			int count = (int)Math.Min(listing.Count, MaxEntries);
-			DirectoryEntry* entries = stackalloc DirectoryEntry[MaxEntries];
-			int listed = Storage.List(path.Slice(0, length), (int)listing.Index, new Span<DirectoryEntry>(entries, count));
+			Span<DirectoryEntry> entries = stackalloc DirectoryEntry[MaxEntries];
+			int listed = Storage.List(path.Slice(0, length), (int)listing.Index, entries.Slice(0, count));
 			if (listed < 0)
 				return Error(SyscallError.NotFound);
 
 			listing.Index += (ulong)listed;
-			if (!UserMemory.CopyTo(listing.Entries, entries, (ulong)(listed * sizeof(DirectoryEntry))) || !UserMemory.CopyTo(listingAddress, &listing, (ulong)sizeof(DirectoryListing)))
+			if (!UserMemory.CopyTo(listing.Entries, MemoryMarshal.AsBytes(entries.Slice(0, listed))) || !UserMemory.CopyTo(listingAddress, in listing))
 				return Error(SyscallError.InvalidPointer);
 			return listed;
 		}
 
 		// Returns what was there, up to 256 bytes, blocking while the pipe is empty and still has a writer; 0 is end of file
-		private static unsafe long ReadPipe(KPipeEnd reader, ulong buffer, ulong count)
+		private static long ReadPipe(KPipeEnd reader, ulong buffer, ulong count)
 		{
-			byte* chunk = stackalloc byte[256];
+			Span<byte> chunk = stackalloc byte[256];
 			while (true)
 			{
 				ulong flags = Scheduler.Lock();
-				int taken = reader.Pipe.Take(chunk, (int)Math.Min(count, 256));
+				int taken = reader.Pipe.Take(chunk.Slice(0, (int)Math.Min(count, 256)));
 				bool open = reader.Pipe.WriterOpen;
 				Scheduler.Unlock(flags);
 				if (taken > 0)
 				{
 					reader.Pipe.Writer.Notify();
-					return UserMemory.CopyTo(buffer, chunk, (ulong)taken) ? taken : Error(SyscallError.InvalidPointer);
+					return UserMemory.CopyTo(buffer, chunk.Slice(0, taken)) ? taken : Error(SyscallError.InvalidPointer);
 				}
 				if (!open || count == 0)
 					return 0;
@@ -607,21 +600,21 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// Writes everything, blocking while the pipe is full; -Closed if nobody can read it any more
-		private static unsafe long WritePipe(KPipeEnd writer, ulong buffer, ulong count)
+		private static long WritePipe(KPipeEnd writer, ulong buffer, ulong count)
 		{
-			byte* chunk = stackalloc byte[256];
+			Span<byte> chunk = stackalloc byte[256];
 			ulong written = 0;
 			while (written < count)
 			{
 				int size = (int)Math.Min(count - written, 256);
-				if (!UserMemory.CopyFrom(chunk, buffer + written, (ulong)size))
+				if (!UserMemory.CopyFrom(chunk.Slice(0, size), buffer + written))
 					return Error(SyscallError.InvalidPointer);
 				int offset = 0;
 				while (offset < size)
 				{
 					ulong flags = Scheduler.Lock();
 					bool open = writer.Pipe.ReaderOpen;
-					int put = open ? writer.Pipe.Put(chunk + offset, size - offset) : 0;
+					int put = open ? writer.Pipe.Put(chunk.Slice(offset, size - offset)) : 0;
 					Scheduler.Unlock(flags);
 					if (!open)
 						return written > 0 ? (long)written : Error(SyscallError.Closed);
@@ -646,14 +639,14 @@ namespace Alloy.Kernel.Arch
 			const int MaxObjects = 16;
 			if (count == 0 || count > MaxObjects)
 				return Error(SyscallError.InvalidArgument);
-			ulong* values = stackalloc ulong[MaxObjects];
-			if (!UserMemory.CopyFrom(values, handles, count * 8))
+			Span<ulong> values = stackalloc ulong[MaxObjects];
+			if (!UserMemory.CopyFrom(MemoryMarshal.AsBytes(values.Slice(0, (int)count)), handles))
 				return Error(SyscallError.InvalidPointer);
 			// Object references held as raw pointers: nothing moves them, and C# can't stackalloc references
 			nint* objects = stackalloc nint[MaxObjects];
 			for (ulong i = 0; i < count; i++)
 			{
-				KObject target = process.Handles.Get(values[i]);
+				KObject target = process.Handles.Get(values[(int)i]);
 				if (target == null)
 					return Error(SyscallError.InvalidHandle);
 				objects[i] = Unsafe.As<KObject, nint>(ref target);
@@ -662,15 +655,12 @@ namespace Alloy.Kernel.Arch
 			return index < 0 ? Error(SyscallError.Timeout) : index;
 		}
 
-		private static unsafe long SendMessage(KProcess process, ulong portHandle, ulong payload, ulong transferHandle)
+		private static long SendMessage(KProcess process, ulong portHandle, ulong payload, ulong transferHandle)
 		{
 			if (process.Handles.Get(portHandle) is not KPort port)
 				return Error(SyscallError.InvalidHandle);
 			KMessage message = new KMessage();
-			bool copied;
-			fixed (IpcMessage* destination = &message.Payload)
-				copied = UserMemory.CopyFrom(destination, payload, IpcMessage.PayloadSize);
-			if (!copied)
+			if (!UserMemory.CopyFrom(payload, out message.Payload))
 			{
 				Mm.Heap.Free(message);
 				return Error(SyscallError.InvalidPointer);
@@ -693,7 +683,7 @@ namespace Alloy.Kernel.Arch
 		}
 
 		// Blocks until a message arrives; returns the handle of the object it carried, 0 if none, or -Timeout
-		private static unsafe long ReceiveMessage(KProcess process, ulong portHandle, ulong payload, ulong timeoutMs)
+		private static long ReceiveMessage(KProcess process, ulong portHandle, ulong payload, ulong timeoutMs)
 		{
 			if (process.Handles.Get(portHandle) is not KPort port)
 				return Error(SyscallError.InvalidHandle);
@@ -705,10 +695,7 @@ namespace Alloy.Kernel.Arch
 			}
 
 			long result = 0;
-			bool copied;
-			fixed (IpcMessage* source = &message.Payload)
-				copied = UserMemory.CopyTo(payload, source, IpcMessage.PayloadSize);
-			if (!copied)
+			if (!UserMemory.CopyTo(payload, in message.Payload))
 				result = Error(SyscallError.InvalidPointer);
 			else if (message.Transfer != null)
 				result = process.Handles.Add(message.Transfer);
@@ -717,22 +704,22 @@ namespace Alloy.Kernel.Arch
 			return result;
 		}
 
-		private static unsafe long DebugPrint(KProcess process, ulong address, ulong length)
+		private static long DebugPrint(KProcess process, ulong address, ulong length)
 		{
 			const int MaxLength = 200;
-			byte* bytes = stackalloc byte[MaxLength];
-			ulong count = Math.Min(length, MaxLength);
-			if (!UserMemory.CopyFrom(bytes, address, count))
+			Span<byte> bytes = stackalloc byte[MaxLength];
+			int count = (int)Math.Min(length, MaxLength);
+			if (!UserMemory.CopyFrom(bytes.Slice(0, count), address))
 				return Error(SyscallError.InvalidPointer);
 
 			SpanWriter line = new SpanWriter(stackalloc char[MaxLength + 32]);
 			line.Append('[');
 			line.Append(process.Name);
 			line.Append("] ");
-			for (ulong i = 0; i < count; i++)
+			for (int i = 0; i < count; i++)
 				line.Append(bytes[i] >= 0x20 && bytes[i] < 0x7F ? (char)bytes[i] : '?');
 			Log.WriteLine(ref line);
-			return (long)count;
+			return count;
 		}
 
 		private static long Error(SyscallError error) => -(long)error;

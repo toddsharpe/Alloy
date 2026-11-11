@@ -1,6 +1,8 @@
 using System;
+using System.Buffers.Binary;
 using System.Runtime;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Alloy.Abi;
 using Alloy.Arch.X64;
@@ -126,43 +128,44 @@ namespace Alloy.Kernel.Platform
 			Cpu.WriteMsr(msr, (Cpu.ReadMsr(msr) & ~(Masked | AutoEoi | 0xFF)) | (uint)vector);
 		}
 
-		public static unsafe byte* MessageSlot(int sint) => s_messages + sint * MessageSlotSize;
+		// A SINT's message slot: the type, then flags whose bit 0 says another message is queued, then the payload at 16
+		public static unsafe Span<byte> MessageSlot(int sint) => new Span<byte>(s_messages + sint * MessageSlotSize, MessageSlotSize);
 
-		public static unsafe uint* EventFlags(int sint) => (uint*)(s_events + sint * EventFlagsSize);
+		public static unsafe Span<uint> EventFlags(int sint) => new Span<uint>(s_events + sint * EventFlagsSize, EventFlagsSize / 4);
 
 		// Frees the slot after reading it; the hypervisor then delivers the next queued message, if it flagged one
-		public static unsafe void CompleteMessage(int sint)
+		public static void CompleteMessage(int sint)
 		{
-			byte* slot = MessageSlot(sint);
-			Volatile.Write(ref *(uint*)slot, 0);
+			Span<byte> slot = MessageSlot(sint);
+			Volatile.Write(ref MemoryMarshal.Cast<byte, uint>(slot)[0], 0);
 			Interlocked.MemoryBarrier();
 			if ((Volatile.Read(ref slot[5]) & 1) != 0)
 				Cpu.WriteMsr(MsrEom, 0);
 		}
 
 		// HvPostMessage through the one page-aligned input page, so interrupts stay off while it is in use
-		public static unsafe ushort PostMessage(uint connectionId, uint messageType, void* payload, int size)
+		public static ushort PostMessage(uint connectionId, uint messageType, ReadOnlySpan<byte> payload)
 		{
-			if (size > MessagePayloadSize)
+			if (payload.Length > MessagePayloadSize)
 				return StatusInsufficientBuffers;
 			ulong flags = Ke.Scheduler.Lock();
-			byte* input = (byte*)BootInfo.ToVirtual(s_postPage);
-			*(uint*)input = connectionId;
-			*(uint*)(input + 4) = 0;
-			*(uint*)(input + 8) = messageType;
-			*(uint*)(input + 12) = (uint)size;
-			new ReadOnlySpan<byte>(payload, size).CopyTo(new Span<byte>(input + 16, MessagePayloadSize));
+			Span<byte> input = PhysicalMemory.Window(s_postPage, MemoryLayout.PageSize);
+			BinaryPrimitives.WriteUInt32LittleEndian(input, connectionId);
+			BinaryPrimitives.WriteUInt32LittleEndian(input.Slice(4), 0);
+			BinaryPrimitives.WriteUInt32LittleEndian(input.Slice(8), messageType);
+			BinaryPrimitives.WriteUInt32LittleEndian(input.Slice(12), (uint)payload.Length);
+			payload.CopyTo(input.Slice(16));
 			ushort status = (ushort)Hypercall(CallPostMessage, s_postPage, 0);
 			Ke.Scheduler.Unlock(flags);
 			return status;
 		}
 
 		// Retries while the host's message buffers are full, as MetalOS's PostChannelMessage does
-		public static unsafe bool PostMessageRetry(uint connectionId, uint messageType, void* payload, int size)
+		public static bool PostMessageRetry(uint connectionId, uint messageType, ReadOnlySpan<byte> payload)
 		{
 			while (true)
 			{
-				ushort status = PostMessage(connectionId, messageType, payload, size);
+				ushort status = PostMessage(connectionId, messageType, payload);
 				if (status != StatusInsufficientBuffers)
 					return status == StatusSuccess;
 				Cpu.Pause();

@@ -1,5 +1,5 @@
 using System;
-using Alloy.Kernel.Mm;
+using System.Buffers.Binary;
 
 namespace Alloy.Kernel.Platform
 {
@@ -33,13 +33,11 @@ namespace Alloy.Kernel.Platform
 		// An ic_version is a major then a minor, each 16 bits, so a version compares as one little-endian word
 		private static ReadOnlySpan<uint> FrameworkVersions => new uint[] { Version(3, 0), Version(1, 0) };
 
-		private readonly unsafe byte* _frame;
-		private readonly int _frameSize;
+		private readonly byte[] _frame;
 
-		protected unsafe IntegrationComponent(int frameSize = 4096)
+		protected IntegrationComponent(int frameSize = 4096)
 		{
-			_frameSize = frameSize;
-			_frame = (byte*)Heap.Allocate((nuint)frameSize);
+			_frame = new byte[frameSize];
 		}
 
 		// The message version the host and this component agreed on, zero before that
@@ -50,55 +48,57 @@ namespace Alloy.Kernel.Platform
 		// The message versions this component speaks, most preferred first
 		protected abstract ReadOnlySpan<uint> MessageVersions { get; }
 
-		// The component's own messages; the status goes back in the frame
-		protected abstract unsafe uint OnMessage(ushort type, byte* body, int length);
+		// The component's own messages, answered in place in the body; the status goes back in the frame
+		protected abstract uint OnMessage(ushort type, Span<byte> body);
 
 		protected bool OpenChannel(in VmBusOffer offer) => Open(in offer, RingPages, RingPages);
 
-		protected override unsafe void OnPacket(VmBusPacket* packet, byte* payload, uint size)
+		protected override void OnPacket(in VmBusPacket packet, ReadOnlySpan<byte> header, ReadOnlySpan<byte> payload)
 		{
-			if (packet->Type != PacketInband || size < HeaderSize || size > (uint)_frameSize)
+			if (packet.Type != PacketInband || payload.Length < HeaderSize || payload.Length > _frame.Length)
 				return;
 
-			new ReadOnlySpan<byte>(payload, (int)size).CopyTo(new Span<byte>(_frame, (int)size));
-			ushort type = *(ushort*)(_frame + FrameMessageType);
-			uint status = type == TypeNegotiate ? (Negotiate((int)size) ? StatusOk : StatusFail) : OnMessage(type, _frame + HeaderSize, (int)size - HeaderSize);
+			Span<byte> frame = _frame.AsSpan(0, payload.Length);
+			payload.CopyTo(frame);
+			ushort type = BinaryPrimitives.ReadUInt16LittleEndian(frame.Slice(FrameMessageType));
+			uint status = type == TypeNegotiate ? (Negotiate(frame.Slice(HeaderSize)) ? StatusOk : StatusFail) : OnMessage(type, frame.Slice(HeaderSize));
 			if (type == TypeNegotiate)
-				*(ushort*)(_frame + FrameMessageSize) = NegotiateSize;
-			*(uint*)(_frame + FrameStatus) = status;
-			_frame[FrameFlags] = FlagTransaction | FlagResponse;
-			Send(_frame, size, packet->TransactionId, PacketInband, 0);
+				BinaryPrimitives.WriteUInt16LittleEndian(frame.Slice(FrameMessageSize), NegotiateSize);
+			BinaryPrimitives.WriteUInt32LittleEndian(frame.Slice(FrameStatus), status);
+			frame[FrameFlags] = FlagTransaction | FlagResponse;
+			Send(frame, packet.TransactionId, PacketInband, 0);
 		}
 
 		// The host lists the framework and message versions it speaks; the answer is one of each, the first of ours it has, or none
-		private unsafe bool Negotiate(int size)
+		private bool Negotiate(Span<byte> body)
 		{
-			byte* body = _frame + HeaderSize;
-			int frameworkCount = *(ushort*)body;
-			int messageCount = *(ushort*)(body + 2);
-			uint* offered = (uint*)(body + 8);
-			if (HeaderSize + 8 + 4 * (frameworkCount + messageCount) > size)
+			if (body.Length < 8)
+				return false;
+			int frameworkCount = BinaryPrimitives.ReadUInt16LittleEndian(body);
+			int messageCount = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(2));
+			if (8 + 4 * (frameworkCount + messageCount) > body.Length)
 				return false;
 
-			uint framework = Pick(FrameworkVersions, offered, frameworkCount);
-			uint message = Pick(MessageVersions, offered + frameworkCount, messageCount);
+			Span<byte> offered = body.Slice(8);
+			uint framework = Pick(FrameworkVersions, offered.Slice(0, 4 * frameworkCount));
+			uint message = Pick(MessageVersions, offered.Slice(4 * frameworkCount, 4 * messageCount));
 			bool agreed = framework != 0 && message != 0;
-			*(ushort*)body = (ushort)(agreed ? 1 : 0);
-			*(ushort*)(body + 2) = (ushort)(agreed ? 1 : 0);
-			offered[0] = framework;
-			offered[1] = message;
+			BinaryPrimitives.WriteUInt16LittleEndian(body, (ushort)(agreed ? 1 : 0));
+			BinaryPrimitives.WriteUInt16LittleEndian(body.Slice(2), (ushort)(agreed ? 1 : 0));
+			BinaryPrimitives.WriteUInt32LittleEndian(offered, framework);
+			BinaryPrimitives.WriteUInt32LittleEndian(offered.Slice(4), message);
 			if (agreed)
 				NegotiatedVersion = message;
 			return agreed;
 		}
 
-		private static unsafe uint Pick(ReadOnlySpan<uint> preferred, uint* offered, int count)
+		private static uint Pick(ReadOnlySpan<uint> preferred, ReadOnlySpan<byte> offered)
 		{
 			for (int i = 0; i < preferred.Length; i++)
 			{
-				for (int j = 0; j < count; j++)
+				for (int j = 0; j + 4 <= offered.Length; j += 4)
 				{
-					if (offered[j] == preferred[i])
+					if (BinaryPrimitives.ReadUInt32LittleEndian(offered.Slice(j)) == preferred[i])
 						return preferred[i];
 				}
 			}

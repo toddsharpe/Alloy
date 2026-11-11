@@ -202,7 +202,7 @@ namespace Alloy.Kernel
 		{
 			if (info->CommandLine == 0)
 				return false;
-			ReadOnlySpan<byte> commandLine = new ReadOnlySpan<byte>((void*)BootInfo.ToVirtual(info->CommandLine), (int)info->CommandLineSize);
+			ReadOnlySpan<byte> commandLine = PhysicalMemory.Window(info->CommandLine, info->CommandLineSize);
 			for (int start = 0; start + argument.Length <= commandLine.Length; start++)
 			{
 				int i = 0;

@@ -8,7 +8,7 @@ namespace Alloy.Kernel.Ob
 	{
 		public const int Capacity = 4096;
 
-		private readonly unsafe byte* _buffer;
+		private readonly byte[] _buffer = new byte[Capacity];
 		private uint _read;
 		private uint _write;
 
@@ -17,9 +17,8 @@ namespace Alloy.Kernel.Ob
 		public bool ReaderOpen = true;
 		public bool WriterOpen = true;
 
-		private unsafe KPipe()
+		private KPipe()
 		{
-			_buffer = (byte*)Mm.Heap.Allocate(Capacity);
 			Reader = new KPipeEnd(this, false);
 			Writer = new KPipeEnd(this, true);
 		}
@@ -29,18 +28,18 @@ namespace Alloy.Kernel.Ob
 		public int Count => (int)(_write - _read);
 
 		// Interrupts must be off; returns how many bytes moved
-		public unsafe int Take(byte* destination, int count)
+		public int Take(Span<byte> destination)
 		{
-			int taken = Math.Min(count, Count);
+			int taken = Math.Min(destination.Length, Count);
 			for (int i = 0; i < taken; i++)
 				destination[i] = _buffer[(_read + (uint)i) % Capacity];
 			_read += (uint)taken;
 			return taken;
 		}
 
-		public unsafe int Put(byte* source, int count)
+		public int Put(ReadOnlySpan<byte> source)
 		{
-			int put = Math.Min(count, Capacity - Count);
+			int put = Math.Min(source.Length, Capacity - Count);
 			for (int i = 0; i < put; i++)
 				_buffer[(_write + (uint)i) % Capacity] = source[i];
 			_write += (uint)put;

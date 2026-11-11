@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 
 namespace Alloy.Kernel.Platform
 {
@@ -26,12 +27,12 @@ namespace Alloy.Kernel.Platform
 			return true;
 		}
 
-		protected override unsafe uint OnMessage(ushort type, byte* body, int length)
+		protected override uint OnMessage(ushort type, Span<byte> body)
 		{
-			if (type != TypeHeartbeat || length < BodySize)
+			if (type != TypeHeartbeat || body.Length < BodySize)
 				return StatusFail;
 
-			*(ulong*)body += 1;
+			BinaryPrimitives.WriteUInt64LittleEndian(body, BinaryPrimitives.ReadUInt64LittleEndian(body) + 1);
 			if (_beats++ == 0)
 				Log.WriteLine("Heartbeat: the host is listening");
 			return StatusOk;

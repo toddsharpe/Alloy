@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using Alloy.Abi;
 using Alloy.Kernel.Ke;
 using Alloy.Text;
@@ -24,7 +25,7 @@ namespace Alloy.Kernel.Platform
 		private const int AnswerSize = 512;
 
 		private readonly KEvent _answered = new KEvent(false);
-		private unsafe byte* _answer;
+		private readonly byte[] _answer = new byte[AnswerSize];
 		private volatile uint _awaiting;
 		private ulong _situation;
 		private ulong _vramSize;
@@ -46,7 +47,6 @@ namespace Alloy.Kernel.Platform
 			if (!VmBus.TryFind(VmBus.VideoLow, VmBus.VideoHigh, out VmBusOffer offer))
 				return false;
 			SyntheticVideo video = new SyntheticVideo();
-			video._answer = (byte*)Mm.Heap.Allocate(AnswerSize);
 			video.Vram = boot->Framebuffer;
 			video.Width = boot->FramebufferWidth;
 			video.Height = boot->FramebufferHeight;
@@ -76,28 +76,28 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Tells the host the whole screen changed; once synthvid is connected the host only redraws what it is told
-		public unsafe void Flush()
+		public void Flush()
 		{
-			byte* message = stackalloc byte[34];
-			new Span<byte>(message, 34).Clear();
+			Span<byte> message = stackalloc byte[34];
+			message.Clear();
 			Header(message, Dirt, 18);
 			message[17] = 1;
-			*(int*)(message + 26) = (int)Width;
-			*(int*)(message + 30) = (int)Height;
-			Send(message, 34, 0, PacketInband, 0);
+			BinaryPrimitives.WriteInt32LittleEndian(message.Slice(26), (int)Width);
+			BinaryPrimitives.WriteInt32LittleEndian(message.Slice(30), (int)Height);
+			Send(message, 0, PacketInband, 0);
 		}
 
 		// Version (newest first, as hyperv_fb), the resolution list, the VRAM location, then the mode
-		private unsafe bool Negotiate(uint bootPitch)
+		private bool Negotiate(uint bootPitch)
 		{
-			byte* message = stackalloc byte[48];
+			Span<byte> message = stackalloc byte[48];
 			uint version = 0;
 			for (int i = 0; i < 3; i++)
 			{
 				uint candidate = i == 0 ? VersionWin10 : i == 1 ? (2u << 16) | 3 : 3u;
 				Header(message, VersionRequest, 4);
-				*(uint*)(message + 16) = candidate;
-				if (!Request(message, 20, VersionResponse))
+				BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(16), candidate);
+				if (!Request(message.Slice(0, 20), VersionResponse))
 					return false;
 				if (_answer[4] != 0)
 				{
@@ -114,7 +114,7 @@ namespace Alloy.Kernel.Platform
 			{
 				Header(message, ResolutionRequest, 1);
 				message[16] = MaxResolutions;
-				if (Request(message, 17, ResolutionResponse) && _answer[128] != 0)
+				if (Request(message.Slice(0, 17), ResolutionResponse) && _answer[128] != 0)
 				{
 					_modes = _answer[128];
 					Largest(out width, out height);
@@ -122,27 +122,28 @@ namespace Alloy.Kernel.Platform
 			}
 
 			// The host only accepts a VRAM address inside its MMIO region, which on Gen2 is the GOP framebuffer
-			new Span<byte>(message, 48).Clear();
+			message.Clear();
 			Header(message, VramLocation, 17);
-			*(ulong*)(message + 16) = Vram;
+			BinaryPrimitives.WriteUInt64LittleEndian(message.Slice(16), Vram);
 			message[24] = 1;
-			*(ulong*)(message + 25) = Vram;
-			if (!Request(message, 33, VramLocationAck))
+			BinaryPrimitives.WriteUInt64LittleEndian(message.Slice(25), Vram);
+			if (!Request(message.Slice(0, 33), VramLocationAck))
 				return false;
 
 			return SetMode(width, height) || SetMode(Width, Height, bootPitch * 4);
 		}
 
 		// The largest listed mode that fits the VRAM; the host's own default is its boot mode, not its best
-		private unsafe void Largest(out uint width, out uint height)
+		private void Largest(out uint width, out uint height)
 		{
 			width = Width;
 			height = Height;
 			int count = Math.Min((int)_answer[128], MaxResolutions);
+			ReadOnlySpan<byte> answer = _answer;
 			for (int i = 0; i < count; i++)
 			{
-				uint w = *(ushort*)(_answer + 131 + 4 * i);
-				uint h = *(ushort*)(_answer + 133 + 4 * i);
+				uint w = BinaryPrimitives.ReadUInt16LittleEndian(answer.Slice(131 + 4 * i));
+				uint h = BinaryPrimitives.ReadUInt16LittleEndian(answer.Slice(133 + 4 * i));
 				if ((ulong)w * h * 4 <= _vramSize && (ulong)w * h > (ulong)width * height)
 				{
 					width = w;
@@ -151,23 +152,23 @@ namespace Alloy.Kernel.Platform
 			}
 		}
 
-		private unsafe bool SetMode(uint width, uint height, uint pitchBytes = 0)
+		private bool SetMode(uint width, uint height, uint pitchBytes = 0)
 		{
 			if (pitchBytes == 0)
 				pitchBytes = width * 4;
 			if ((ulong)height * pitchBytes > _vramSize)
 				return false;
-			byte* message = stackalloc byte[48];
-			new Span<byte>(message, 48).Clear();
+			Span<byte> message = stackalloc byte[48];
+			message.Clear();
 			Header(message, SituationUpdate, 27);
-			*(ulong*)(message + 16) = ++_situation;
+			BinaryPrimitives.WriteUInt64LittleEndian(message.Slice(16), ++_situation);
 			message[24] = 1;
 			message[25] = 1;
 			message[30] = 32;
-			*(uint*)(message + 31) = width;
-			*(uint*)(message + 35) = height;
-			*(uint*)(message + 39) = pitchBytes;
-			if (!Request(message, 43, SituationUpdateAck))
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(31), width);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(35), height);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(39), pitchBytes);
+			if (!Request(message.Slice(0, 43), SituationUpdateAck))
 				return false;
 			Width = width;
 			Height = height;
@@ -175,36 +176,37 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// Every message is |pipe type, size|synthvid type, size|body|, both sizes counting from the synthvid header
-		private static unsafe void Header(byte* message, uint type, int bodySize)
+		private static void Header(Span<byte> message, uint type, int bodySize)
 		{
-			*(uint*)message = PipeData;
-			*(uint*)(message + 4) = (uint)(8 + bodySize);
-			*(uint*)(message + 8) = type;
-			*(uint*)(message + 12) = (uint)(8 + bodySize);
+			BinaryPrimitives.WriteUInt32LittleEndian(message, PipeData);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(4), (uint)(8 + bodySize));
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(8), type);
+			BinaryPrimitives.WriteUInt32LittleEndian(message.Slice(12), (uint)(8 + bodySize));
 		}
 
 		// Arms before sending, then waits up to 2 s; an answer that arrives after its wait ended can't satisfy the next request
-		private unsafe bool Request(byte* message, int size, uint answer)
+		private bool Request(ReadOnlySpan<byte> message, uint answer)
 		{
 			ulong flags = Scheduler.Lock();
 			_answered.Reset();
 			_awaiting = answer;
 			Scheduler.Unlock(flags);
-			bool answered = Send(message, (uint)size, 1, PacketInband, CompletionRequested) && _answered.Wait(2000);
+			bool answered = Send(message, 1, PacketInband, CompletionRequested) && _answered.Wait(2000);
 			_awaiting = 0;
 			return answered;
 		}
 
-		protected override unsafe void OnPacket(VmBusPacket* packet, byte* payload, uint size)
+		protected override void OnPacket(in VmBusPacket packet, ReadOnlySpan<byte> header, ReadOnlySpan<byte> payload)
 		{
-			if (packet->Type != PacketInband || size < 16 || *(uint*)payload != PipeData)
+			if (packet.Type != PacketInband || payload.Length < 16 || BinaryPrimitives.ReadUInt32LittleEndian(payload) != PipeData)
 				return;
-			uint message = *(uint*)(payload + 8);
+			uint message = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(8));
 			if (_awaiting == 0 || message != _awaiting)
 				return;
-			int length = (int)Math.Min(size - 16, AnswerSize);
-			new Span<byte>(_answer, AnswerSize).Clear();
-			new ReadOnlySpan<byte>(payload + 16, length).CopyTo(new Span<byte>(_answer, AnswerSize));
+			Span<byte> answer = _answer;
+			answer.Clear();
+			ReadOnlySpan<byte> body = payload.Slice(16);
+			body.Slice(0, Math.Min(body.Length, AnswerSize)).CopyTo(answer);
 			_awaiting = 0;
 			_answered.Signal();
 		}

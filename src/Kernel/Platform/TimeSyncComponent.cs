@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using Alloy.Kernel.Ke;
 
 namespace Alloy.Kernel.Platform
@@ -28,17 +29,17 @@ namespace Alloy.Kernel.Platform
 		}
 
 		// A probe asks nothing; a sync or a sample gives the host's time, in 100 ns units since 1601, to set the clock from
-		protected override unsafe uint OnMessage(ushort type, byte* body, int length)
+		protected override uint OnMessage(ushort type, Span<byte> body)
 		{
 			if (type != TypeTimeSync)
 				return StatusFail;
 
 			bool reference = NegotiatedVersion >= Version(4, 0);
-			if (length < (reference ? ReferenceBodySize : LegacyBodySize))
+			if (body.Length < (reference ? ReferenceBodySize : LegacyBodySize))
 				return StatusFail;
 
-			ulong hostTime = *(ulong*)body;
-			ulong taken = reference ? *(ulong*)(body + 8) : HyperV.ReferenceTime();
+			ulong hostTime = BinaryPrimitives.ReadUInt64LittleEndian(body);
+			ulong taken = reference ? BinaryPrimitives.ReadUInt64LittleEndian(body.Slice(8)) : HyperV.ReferenceTime();
 			byte flags = body[reference ? ReferenceFlags : LegacyFlags];
 			if ((flags & (FlagSync | FlagSample)) != 0)
 			{

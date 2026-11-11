@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Runtime;
 using System.Runtime.CompilerServices;
 using Alloy.Abi;
@@ -53,11 +54,10 @@ namespace Alloy.Kernel.Ps
 		public override bool IsSignaled => _exited;
 
 		// The image is the command line's first word, looked up from the current directory, then under /bin, then with .exe added; the file read whole into a heap block the caller frees
-		private static unsafe bool TryResolve(ReadOnlySpan<char> directory, ReadOnlySpan<char> name, Span<char> path, out int length, out byte* data, out long size)
+		private static bool TryResolve(ReadOnlySpan<char> directory, ReadOnlySpan<char> name, Span<char> path, out int length, out byte[] data)
 		{
 			length = 0;
 			data = null;
-			size = 0;
 			bool bare = name.IndexOf('/') < 0 && name.IndexOf('\\') < 0;
 			Span<char> candidate = stackalloc char[300];
 			for (int attempt = 0; attempt < 3; attempt++)
@@ -71,7 +71,7 @@ namespace Alloy.Kernel.Ps
 				length = Paths.Resolve(directory, writer.Written, path);
 				if (length < 0)
 					continue;
-				data = Storage.LoadFile(path.Slice(0, length), out size);
+				data = Storage.LoadFile(path.Slice(0, length));
 				if (data != null)
 					return true;
 			}
@@ -79,13 +79,13 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// Loads a PE from the root file system into a fresh address space and starts its first thread; null if the image is unusable
-		public static unsafe KProcess Create(ReadOnlySpan<char> commandLine, ulong argument, ReadOnlySpan<char> currentDirectory, KObject stdInput = null, KObject stdOutput = null, KObject stdError = null)
+		public static KProcess Create(ReadOnlySpan<char> commandLine, ulong argument, ReadOnlySpan<char> currentDirectory, KObject stdInput = null, KObject stdOutput = null, KObject stdError = null)
 		{
 			int space = commandLine.IndexOf(' ');
 			Span<char> resolved = stackalloc char[300];
-			if (commandLine.Length == 0 || !TryResolve(currentDirectory, space < 0 ? commandLine : commandLine.Slice(0, space), resolved, out int pathLength, out byte* data, out long size))
+			if (commandLine.Length == 0 || !TryResolve(currentDirectory, space < 0 ? commandLine : commandLine.Slice(0, space), resolved, out int pathLength, out byte[] data))
 				return null;
-			KProcess process = CreateFrom(resolved.Slice(0, pathLength), new ReadOnlySpan<byte>(data, (int)size), commandLine, argument, currentDirectory, stdInput, stdOutput, stdError);
+			KProcess process = CreateFrom(resolved.Slice(0, pathLength), data, commandLine, argument, currentDirectory, stdInput, stdOutput, stdError);
 			Heap.Free(data);
 			return process;
 		}
@@ -130,20 +130,21 @@ namespace Alloy.Kernel.Ps
 			return process;
 		}
 
-		// Fills up to max rows for GetProcesses (MetalOS ps); returns how many
-		public static unsafe int List(ProcessEntry* entries, int max)
+		// Fills the rows for GetProcesses (MetalOS ps); returns how many
+		public static int List(Span<ProcessEntry> entries)
 		{
 			int count = 0;
 			ulong flags = Scheduler.Lock();
-			for (KProcess process = s_processes; process != null && count < max; process = process._next)
+			for (KProcess process = s_processes; process != null && count < entries.Length; process = process._next)
 			{
-				ProcessEntry* entry = &entries[count++];
-				*entry = default;
-				entry->Id = (uint)process.Id;
-				entry->Threads = (uint)process._threadCount;
-				entry->VirtualSize = process.Space.CommittedBytes;
+				ref ProcessEntry entry = ref entries[count++];
+				entry = default;
+				entry.Id = (uint)process.Id;
+				entry.Threads = (uint)process._threadCount;
+				entry.VirtualSize = process.Space.CommittedBytes;
+				Span<byte> name = entry.Name;
 				for (int i = 0; i < process.Name.Length && i < ProcessEntry.MaxName - 1; i++)
-					entry->Name[i] = (byte)process.Name[i];
+					name[i] = (byte)process.Name[i];
 			}
 			Scheduler.Unlock(flags);
 			return count;
@@ -252,7 +253,7 @@ namespace Alloy.Kernel.Ps
 			ulong physical = PhysicalMemory.Allocate(pages);
 			if (physical == 0)
 				return false;
-			Span<byte> image = new Span<byte>((void*)BootInfo.ToVirtual(physical), (int)(pages * MemoryLayout.PageSize));
+			Span<byte> image = PhysicalMemory.Window(physical, pages * MemoryLayout.PageSize);
 			if (!pe.TryLoad(image) || PeImage.Relocate(image, pe.GetDirectory(PeImage.DirectoryBaseRelocation), pe.ImageBase, pe.ImageBase) < 0
 				|| Space.Reserve(pe.ImageBase, pages * MemoryLayout.PageSize, Memory.ExecuteWriteCopy, RegionKind.Image) != pe.ImageBase
 				|| !Space.MapPages(pe.ImageBase, physical, pages, PageFlags.NoExecute, true))
@@ -273,32 +274,32 @@ namespace Alloy.Kernel.Ps
 		}
 
 		// The PEB: the image base where Windows keeps it, then Alloy's parameters (standard handles, now the child's own, and the command line)
-		private unsafe bool CreateProcessBlock(ReadOnlySpan<char> commandLine, KObject stdInput, KObject stdOutput, KObject stdError)
+		private bool CreateProcessBlock(ReadOnlySpan<char> commandLine, KObject stdInput, KObject stdOutput, KObject stdError)
 		{
 			Peb = Space.Reserve(0, MemoryLayout.PageSize, Memory.ReadWrite, RegionKind.Private);
 			if (Peb == 0 || !Space.Commit(Peb, MemoryLayout.PageSize, Memory.ReadWrite) || !Space.TryTranslate(Peb, out ulong physical))
 				return false;
-			byte* block = (byte*)BootInfo.ToVirtual(physical);
-			*(ulong*)(block + Abi.Peb.ImageBase) = _imageBase;
-			*(ulong*)(block + Abi.Peb.StdInput) = stdInput == null ? 0 : (ulong)Handles.Add(stdInput);
-			*(ulong*)(block + Abi.Peb.StdOutput) = stdOutput == null ? 0 : (ulong)Handles.Add(stdOutput);
-			*(ulong*)(block + Abi.Peb.StdError) = stdError == null ? 0 : (ulong)Handles.Add(stdError);
+			Span<byte> block = PhysicalMemory.Window(physical, MemoryLayout.PageSize);
+			BinaryPrimitives.WriteUInt64LittleEndian(block.Slice(Abi.Peb.ImageBase), _imageBase);
+			BinaryPrimitives.WriteUInt64LittleEndian(block.Slice(Abi.Peb.StdInput), stdInput == null ? 0 : (ulong)Handles.Add(stdInput));
+			BinaryPrimitives.WriteUInt64LittleEndian(block.Slice(Abi.Peb.StdOutput), stdOutput == null ? 0 : (ulong)Handles.Add(stdOutput));
+			BinaryPrimitives.WriteUInt64LittleEndian(block.Slice(Abi.Peb.StdError), stdError == null ? 0 : (ulong)Handles.Add(stdError));
 			int length = Math.Min(commandLine.Length, Abi.Peb.MaxCommandLine);
-			*(ulong*)(block + Abi.Peb.CommandLineLength) = (ulong)length;
+			BinaryPrimitives.WriteUInt64LittleEndian(block.Slice(Abi.Peb.CommandLineLength), (ulong)length);
 			for (int i = 0; i < length; i++)
 				block[Abi.Peb.CommandLine + i] = (byte)commandLine[i];
 			int nameLength = Math.Min(Name.Length, Abi.Peb.MaxImageName);
-			*(ulong*)(block + Abi.Peb.ImageNameLength) = (ulong)nameLength;
+			BinaryPrimitives.WriteUInt64LittleEndian(block.Slice(Abi.Peb.ImageNameLength), (ulong)nameLength);
 			for (int i = 0; i < nameLength; i++)
 				block[Abi.Peb.ImageName + i] = (byte)Name[i];
 			return true;
 		}
 
 		// Writes through the physical window, since this process's pages may not be the ones mapped right now
-		private unsafe void WriteUser(ulong address, ulong value)
+		private void WriteUser(ulong address, ulong value)
 		{
 			if (Space.TryTranslate(address, out ulong physical))
-				*(ulong*)BootInfo.ToVirtual(physical) = value;
+				BinaryPrimitives.WriteUInt64LittleEndian(PhysicalMemory.Window(physical, 8), value);
 		}
 
 		private void Destroy()
