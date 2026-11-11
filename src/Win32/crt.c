@@ -716,3 +716,17 @@ int _seh_filter_dll(unsigned long code, EXCEPTION_POINTERS* pointers)
 	(void)pointers;
 	return EXCEPTION_CONTINUE_SEARCH;
 }
+
+// The CRT's single-precision rounding, which MathF.Floor and MathF.Ceiling compile to (win32.asm has the double ones); truncation then a step, exact below 2^63
+#pragma function(floorf, ceilf)
+float floorf(float value)
+{
+	float truncated = (float)(__int64)value;
+	return truncated > value ? truncated - 1 : truncated;
+}
+
+float ceilf(float value)
+{
+	float truncated = (float)(__int64)value;
+	return truncated < value ? truncated + 1 : truncated;
+}
