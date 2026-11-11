@@ -35,6 +35,8 @@ namespace Alloy.Abi
 		public uint Reserved1;
 
 		public ulong AcpiRsdp;
+
+		// The EFI_RUNTIME_SERVICES table, which the kernel reads as an EfiRuntimeServices* through its UEFI window once SetVirtualAddressMap has converted the table's pointers
 		public ulong UefiRuntimeServices;
 
 		public ulong PageTableRoot;

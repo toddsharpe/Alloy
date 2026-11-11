@@ -161,6 +161,17 @@ namespace Alloy.Kernel.Io
 			return created;
 		}
 
+		// Everything cached onto the medium, before a power off; true with nothing mounted
+		public static bool Flush()
+		{
+			if (s_root == null)
+				return true;
+			s_lock.Wait();
+			bool flushed = s_root.Flush();
+			s_lock.Signal();
+			return flushed;
+		}
+
 		// The names in a directory from the skip-th on, as many as fit; -1 if the path isn't a directory
 		public static int List(ReadOnlySpan<char> path, int skip, Span<DirectoryEntry> entries)
 		{

@@ -134,6 +134,18 @@ namespace Alloy.Kernel
 			line.Append(", disk ");
 			line.Append(disk ? "ready" : "missing");
 			Log.WriteLine(ref line);
+			StartIntegrationComponents();
+		}
+
+		// The host's integration components, each optional: without one Hyper-V Manager just can't ask for that service
+		private static void StartIntegrationComponents()
+		{
+			bool shutdown = VmBus.TryFind(VmBus.ShutdownLow, VmBus.ShutdownHigh, out VmBusOffer offer) && ShutdownComponent.Start(in offer);
+
+			SpanWriter line = new SpanWriter(stackalloc char[128]);
+			line.Append("VmBus: integration components: shutdown ");
+			line.Append(shutdown ? "ready" : "missing");
+			Log.WriteLine(ref line);
 		}
 
 		// Redraws uptime, ticks and threads in the title bar ten times a second, so a screenshot shows the scheduler running
