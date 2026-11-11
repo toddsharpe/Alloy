@@ -10,6 +10,7 @@ namespace Alloy.Abi
 		GetSystemTime = 0x102,
 		QueryTime = 0x103,
 		GetMemoryStatus = 0x104,
+		PublishValue = 0x105,
 
 		ExitProcess = 0x200,
 		CreateProcess = 0x201,

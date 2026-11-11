@@ -143,6 +143,7 @@ namespace Alloy.Kernel
 			bool shutdown = VmBus.TryFind(VmBus.ShutdownLow, VmBus.ShutdownHigh, out VmBusOffer offer) && ShutdownComponent.Start(in offer);
 			bool heartbeat = VmBus.TryFind(VmBus.HeartbeatLow, VmBus.HeartbeatHigh, out offer) && HeartbeatComponent.Start(in offer);
 			bool timeSync = VmBus.TryFind(VmBus.TimeSyncLow, VmBus.TimeSyncHigh, out offer) && TimeSyncComponent.Start(in offer);
+			bool kvp = VmBus.TryFind(VmBus.KvpLow, VmBus.KvpHigh, out offer) && KvpComponent.Start(in offer);
 
 			SpanWriter line = new SpanWriter(stackalloc char[128]);
 			line.Append("VmBus: integration components: shutdown ");
@@ -151,6 +152,8 @@ namespace Alloy.Kernel
 			line.Append(heartbeat ? "ready" : "missing");
 			line.Append(", time sync ");
 			line.Append(timeSync ? "ready" : "missing");
+			line.Append(", kvp ");
+			line.Append(kvp ? "ready" : "missing");
 			Log.WriteLine(ref line);
 		}
 

@@ -65,6 +65,16 @@ namespace Alloy.Sdk
 				return SystemCall.Invoke(Syscall.NetSend, (ulong)pointer, (ulong)frame.Length) == 0;
 		}
 
+		// A key and value for the host's key-value pair exchange, where Hyper-V Manager reads the guest's address and name from; false if they don't fit
+		public static unsafe bool PublishValue(string key, string value)
+		{
+			byte* keyBytes = stackalloc byte[256];
+			byte* valueBytes = stackalloc byte[256];
+			int keyLength = SystemCall.Ascii(key, keyBytes, 255);
+			int valueLength = SystemCall.Ascii(value, valueBytes, 255);
+			return SystemCall.Invoke(Syscall.PublishValue, (ulong)keyBytes, (ulong)keyLength, (ulong)valueBytes, (ulong)valueLength) == 0;
+		}
+
 		public static string Name(in ProcessEntry entry)
 		{
 			ReadOnlySpan<byte> name = entry.Name;
