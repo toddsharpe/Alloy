@@ -69,6 +69,10 @@ namespace Alloy.Abi
 		public const ulong StreamSend = 13;
 		public const ulong StreamRecv = 14;
 
+		// The DNS server DHCP named, kept with the interface configuration
+		public const ulong GetDns = 15;
+		public const ulong SetDns = 16;
+
 		// Every reply has Type = the request's + Reply; Data[0] is the result, >= 0 or a negated SyscallError
 		public const ulong Reply = 100;
 

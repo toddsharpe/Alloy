@@ -4,16 +4,21 @@ using Alloy.Sdk;
 
 namespace Alloy.Apps.Tcp
 {
-	// A stream socket from the terminal: tcp <ip> <port> [text | http [path]]; the text and a blank line go out (or a GET for the path), and what comes back is printed until the peer closes
+	// A stream socket from the terminal: tcp <host> <port> [text | http [path]]; the text and a blank line go out (or a GET for the path), and what comes back is printed until the peer closes
 	internal static class Program
 	{
 		private const ulong ReadTimeoutMs = 10000;
 
 		private static int Main(string[] args)
 		{
-			if (args.Length < 2 || !Net.TryParseIp(args[0], out uint ip) || !ushort.TryParse(args[1], out ushort port))
+			if (args.Length < 2 || !ushort.TryParse(args[1], out ushort port))
 			{
-				Console.WriteLine("usage: tcp <ip> <port> [text | http [path]]");
+				Console.WriteLine("usage: tcp <host> <port> [text | http [path]]");
+				return 1;
+			}
+			if (!Dns.TryResolve(args[0], out uint ip))
+			{
+				Console.WriteLine($"tcp: can't resolve {args[0]}");
 				return 1;
 			}
 
@@ -37,7 +42,7 @@ namespace Alloy.Apps.Tcp
 			if (args.Length > 2)
 			{
 				string text = args[2] == "http"
-					? $"GET {(args.Length > 3 ? args[3] : "/")} HTTP/1.0\r\nHost: {Net.FormatIp(ip)}\r\nUser-Agent: Alloy/0.1"
+					? $"GET {(args.Length > 3 ? args[3] : "/")} HTTP/1.0\r\nHost: {args[0]}\r\nUser-Agent: Alloy/0.1"
 					: string.Join(" ", args.AsSpan(2).ToArray());
 				byte[] request = new byte[text.Length + 4];
 				for (int i = 0; i < text.Length; i++)

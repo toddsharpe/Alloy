@@ -184,6 +184,15 @@ namespace Alloy.Apps.NetSvr
 					Stack.Gateway = (uint)message.Data[1];
 					Kernel.PublishValue("NetworkGatewayIPv4", Net.FormatIp(Stack.Gateway));
 					return 0;
+
+				case NetProtocol.GetDns:
+					reply.Data[1] = Stack.Dns;
+					return 0;
+
+				case NetProtocol.SetDns:
+					Stack.Dns = (uint)message.Data[1];
+					Kernel.PublishValue("NetworkDnsIPv4", Net.FormatIp(Stack.Dns));
+					return 0;
 			}
 
 			Socket target = message.Data[0] < Stack.MaxSockets ? Stack.Sockets[(int)message.Data[0]] : null;

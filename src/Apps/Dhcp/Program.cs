@@ -89,6 +89,13 @@ namespace Alloy.Apps.Dhcp
 				Net.SetGateway(gateway);
 				Console.WriteLine($"  gateway {Net.FormatIp(gateway)}");
 			}
+			ReadOnlySpan<byte> dns = FindOption(reply.Slice(0, replyLength), OptionDns);
+			if (dns.Length >= 4)
+			{
+				uint resolver = BinaryPrimitives.ReadUInt32BigEndian(dns);
+				Net.SetDnsServer(resolver);
+				Console.WriteLine($"  dns {Net.FormatIp(resolver)}");
+			}
 			Net.Close(socket);
 			return 0;
 		}
