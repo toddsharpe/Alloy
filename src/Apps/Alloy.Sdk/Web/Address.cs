@@ -15,6 +15,8 @@ namespace Alloy.Sdk.Web
 				return null;
 			if (text.StartsWith("//", StringComparison.Ordinal))
 				text = "http:" + text;
+			else if (text.StartsWith("https//", StringComparison.OrdinalIgnoreCase) || text.StartsWith("http//", StringComparison.OrdinalIgnoreCase))
+				text = text.Insert(text.IndexOf('/'), ":");
 			else if (!text.Contains("://", StringComparison.Ordinal))
 				text = "http://" + text;
 			if (!Uri.TryCreate(text, UriKind.Absolute, out Uri uri))

@@ -36,14 +36,6 @@ namespace Alloy.Sdk.Web
 		{
 			Page page = new Page();
 			ulong start = Kernel.TickCount;
-			if (Address.IsSecure(url))
-			{
-				page.Url = Uri.TryCreate(url, UriKind.Absolute, out Uri secure) ? secure : null;
-				page.Error = "https is not supported yet";
-				page.Document = ErrorDocument("This page needs HTTPS", $"{Escape(url)} is only served over TLS, which this browser does not speak yet.");
-				page.CollectStylesheets(timeoutMs);
-				return page;
-			}
 			HttpResponse response = Http.Get(url, timeoutMs);
 			page.Status = response.Status;
 			page.Url = response.Url ?? (Uri.TryCreate(url, UriKind.Absolute, out Uri parsed) ? parsed : null);
@@ -59,7 +51,7 @@ namespace Alloy.Sdk.Web
 			{
 				page.Redirect = location;
 				page.Error = $"redirects to {location}";
-				page.Document = ErrorDocument("This page moved", $"{Escape(url)} redirects to <a href=\"{Escape(location)}\">{Escape(location)}</a>{(Address.IsSecure(location) ? ", which needs HTTPS, and this browser does not speak TLS yet." : ".")}");
+				page.Document = ErrorDocument("This page moved", $"{Escape(url)} redirects to <a href=\"{Escape(location)}\">{Escape(location)}</a>.");
 				page.CollectStylesheets(timeoutMs);
 				page.FetchMs = (long)(Kernel.TickCount - start);
 				return page;
@@ -127,7 +119,7 @@ namespace Alloy.Sdk.Web
 				string href = element.GetAttribute("href");
 				if (string.IsNullOrEmpty(href) || Url == null || !Uri.TryCreate(Url, href, out Uri target))
 					continue;
-				if (target.Scheme != "http")
+				if (target.Scheme != "http" && target.Scheme != "https")
 					continue;
 				StylesheetUrls.Add(target.ToString());
 				HttpResponse response = Http.Get(target, timeoutMs);
@@ -164,7 +156,7 @@ namespace Alloy.Sdk.Web
 			if (string.IsNullOrWhiteSpace(src))
 				return null;
 			Uri target = Resolve(src.Trim());
-			if (target == null || target.Scheme != "http")
+			if (target == null || (target.Scheme != "http" && target.Scheme != "https"))
 				return null;
 			return target.ToString();
 		}
