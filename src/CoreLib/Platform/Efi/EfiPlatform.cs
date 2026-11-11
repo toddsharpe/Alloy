@@ -88,6 +88,23 @@ namespace System.Runtime
 			SpanHelpers.ClearWithoutReferences(ref *(byte*)memory, size);
 			return memory;
 		}
+
+		private static unsafe partial void Free(void* memory)
+		{
+			if (!EfiApplication.BootServicesExited)
+				EfiApplication.SystemTable->BootServices->FreePool(memory);
+		}
+	}
+}
+
+namespace System.Threading
+{
+	// The loader has one thread, so a lock is never contended
+	public static partial class Monitor
+	{
+		private static unsafe partial uint CurrentThreadId() => 1;
+
+		private static unsafe partial void Yield() => Environment.FailFast("FAILFAST: a lock contended with a single thread");
 	}
 }
 

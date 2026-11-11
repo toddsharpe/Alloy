@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace System.Runtime.CompilerServices
 {
 	public static class RuntimeHelpers
@@ -18,6 +20,30 @@ namespace System.Runtime.CompilerServices
 			ThrowHelper.FailFast("CreateSpan was not expanded by the compiler");
 			return default;
 		}
+
+		// What array[range] compiles to: a new array of the same runtime type holding that slice
+		public static unsafe T[] GetSubArray<T>(T[] array, Range range)
+		{
+			if (array == null)
+				ThrowHelper.ThrowArgument("a null array");
+			(int offset, int length) = range.GetOffsetAndLength(array.Length);
+			if (length == 0)
+				return Array.Empty<T>();
+			T[] result = Unsafe.As<T[]>(System.Runtime.Allocator.NewArray(array.GetMethodTable(), length));
+			new ReadOnlySpan<T>(array, offset, length).CopyTo(result);
+			return result;
+		}
+
+		// The identity hash: objects never move, so their address serves
+		public static int GetHashCode(object o)
+		{
+			if (o == null)
+				return 0;
+			nint address = Unsafe.As<object, nint>(ref o);
+			return (int)address ^ (int)(address >> 32);
+		}
+
+		public static bool Equals(object o1, object o2) => o1 == o2 || (o1 != null && o2 != null && o1.Equals(o2));
 	}
 
 	public static class RuntimeFeature
@@ -27,6 +53,15 @@ namespace System.Runtime.CompilerServices
 		public const string NumericIntPtr = nameof(NumericIntPtr);
 		public const string ByRefFields = nameof(ByRefFields);
 		public const string ByRefLikeGenerics = nameof(ByRefLikeGenerics);
+		public const string VirtualStaticsInInterfaces = nameof(VirtualStaticsInInterfaces);
+		public const string CovariantReturnsOfClasses = nameof(CovariantReturnsOfClasses);
+	}
+
+	// Contract with the compiler: how the unboxing stubs for shared generic structs reach the bytes after an object's MethodTable pointer
+	[StructLayout(LayoutKind.Sequential)]
+	internal sealed class RawData
+	{
+		public byte Data;
 	}
 
 	// Contract with the compiler: one pointer, the cctor's address; 0 once it has run
@@ -164,6 +199,61 @@ namespace System.Runtime.CompilerServices
 	}
 
 	public class CallConvSuppressGCTransition
+	{
+	}
+
+	[AttributeUsage(AttributeTargets.All, AllowMultiple = true, Inherited = false)]
+	public sealed class CompilerFeatureRequiredAttribute : Attribute
+	{
+		public const string RefStructs = nameof(RefStructs);
+		public const string RequiredMembers = nameof(RequiredMembers);
+
+		public CompilerFeatureRequiredAttribute(string featureName)
+		{
+			FeatureName = featureName;
+		}
+
+		public string FeatureName { get; }
+
+		public bool IsOptional { get; set; }
+	}
+
+	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = false, Inherited = false)]
+	public sealed class RequiredMemberAttribute : Attribute
+	{
+	}
+
+	[AttributeUsage(AttributeTargets.Parameter, Inherited = false)]
+	public sealed class ParamCollectionAttribute : Attribute
+	{
+	}
+
+	[AttributeUsage(AttributeTargets.Parameter, Inherited = false)]
+	public sealed class CallerMemberNameAttribute : Attribute
+	{
+	}
+
+	[AttributeUsage(AttributeTargets.Parameter, Inherited = false)]
+	public sealed class CallerLineNumberAttribute : Attribute
+	{
+	}
+
+	[AttributeUsage(AttributeTargets.Parameter, Inherited = false)]
+	public sealed class CallerArgumentExpressionAttribute : Attribute
+	{
+		public CallerArgumentExpressionAttribute(string parameterName)
+		{
+			ParameterName = parameterName;
+		}
+
+		public string ParameterName { get; }
+	}
+}
+
+namespace System.Diagnostics.CodeAnalysis
+{
+	[AttributeUsage(AttributeTargets.Constructor, AllowMultiple = false, Inherited = false)]
+	public sealed class SetsRequiredMembersAttribute : Attribute
 	{
 	}
 }

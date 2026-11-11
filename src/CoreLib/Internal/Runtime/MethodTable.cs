@@ -16,7 +16,10 @@ namespace Internal.Runtime
 		// Followed by the vtable, then the interface map (_usNumInterfaces full pointers), then optional fields
 
 		private const uint EETypeKindMask = 0x00030000;
+		private const uint HasDispatchMapFlag = 0x00040000;
+		private const uint IsDynamicTypeFlag = 0x00080000;
 		private const uint HasFinalizerFlag = 0x00100000;
+		private const uint HasSealedVTableEntriesFlag = 0x00400000;
 		private const uint GenericVarianceFlag = 0x00800000;
 		private const uint HasPointersFlag = 0x01000000;
 		private const uint IsGenericFlag = 0x02000000;
@@ -69,6 +72,13 @@ namespace Internal.Runtime
 
 		internal bool HasFinalizer => (_uFlags & HasFinalizerFlag) != 0;
 
+		internal bool HasDispatchMap => (_uFlags & HasDispatchMapFlag) != 0;
+
+		internal bool HasSealedVTableEntries => (_uFlags & HasSealedVTableEntriesFlag) != 0;
+
+		// Built by a type loader at run time; nothing here does that, so every type is static and uses relative pointers
+		internal bool IsDynamicType => (_uFlags & IsDynamicTypeFlag) != 0;
+
 		internal bool ContainsGCPointers => (_uFlags & HasPointersFlag) != 0;
 
 		internal bool IsGeneric => (_uFlags & IsGenericFlag) != 0;
@@ -76,6 +86,8 @@ namespace Internal.Runtime
 		internal bool HasGenericVariance => (_uFlags & GenericVarianceFlag) != 0;
 
 		internal bool IsIDynamicInterfaceCastable => !HasComponentSize && (_uFlags & IDynamicInterfaceCastableFlag) != 0;
+
+		internal ushort NumVtableSlots => _usNumVtableSlots;
 
 		// Base type of a canonical type; null for interfaces and System.Object
 		internal unsafe MethodTable* BaseType => IsCanonical ? _relatedType : (IsArray ? Of<System.Array>() : null);
@@ -85,11 +97,92 @@ namespace Internal.Runtime
 
 		internal ushort NumInterfaces => _usNumInterfaces;
 
+		internal unsafe nint* VTable => (nint*)((byte*)Unsafe.AsPointer(ref this) + sizeof(MethodTable));
+
 		internal unsafe MethodTable** InterfaceMap =>
 			(MethodTable**)((byte*)Unsafe.AsPointer(ref this) + sizeof(MethodTable) + sizeof(void*) * _usNumVtableSlots);
 
 		// Size of a boxed value's payload: the instance size minus the object header, MethodTable pointer and tail padding
 		internal unsafe uint ValueTypeSize => _uBaseSize - (uint)(sizeof(nint) * 2) - ((_uFlags & ValueTypeFieldPaddingMask) >> ValueTypeFieldPaddingShift);
+
+		// The optional fields after the interface map, each a 32-bit relative pointer, present or not by the flags
+		private unsafe uint GetFieldOffset(OptionalField field)
+		{
+			uint offset = (uint)(sizeof(MethodTable) + sizeof(void*) * _usNumVtableSlots + sizeof(void*) * _usNumInterfaces);
+			uint pointerSize = IsDynamicType || !SupportsRelativePointers ? (uint)sizeof(void*) : 4;
+			if (field == OptionalField.TypeManagerIndirection)
+				return offset;
+			offset += pointerSize;
+			if (field == OptionalField.WritableData)
+				return offset;
+			offset += pointerSize;
+			if (field == OptionalField.DispatchMap)
+				return offset;
+			if (HasDispatchMap)
+				offset += pointerSize;
+			if (field == OptionalField.Finalizer)
+				return offset;
+			if (HasFinalizer)
+				offset += pointerSize;
+			return offset;
+		}
+
+		private unsafe void* ReadOptionalPointer(OptionalField field)
+		{
+			byte* address = (byte*)Unsafe.AsPointer(ref this) + GetFieldOffset(field);
+			if (IsDynamicType || !SupportsRelativePointers)
+				return *(void**)address;
+			return address + *(int*)address;
+		}
+
+		// A pointer-sized word per type the compiler leaves writable; it holds the type's RuntimeType once one is made
+		internal unsafe void* WritableData => ReadOptionalPointer(OptionalField.WritableData);
+
+		internal unsafe DispatchMap* DispatchMap => HasDispatchMap ? (DispatchMap*)ReadOptionalPointer(OptionalField.DispatchMap) : null;
+
+		// Methods past the vtable (default interface methods and the like) live in a sealed table of relative pointers
+		internal unsafe nint GetSealedVirtualSlot(ushort slot)
+		{
+			if (!HasSealedVTableEntries)
+				System.ThrowHelper.FailFast("FAILFAST: a sealed virtual slot on a type without a sealed vtable");
+			byte* table = (byte*)ReadOptionalPointer(OptionalField.SealedVirtualSlots);
+			if (IsDynamicType || !SupportsRelativePointers)
+				return ((nint*)table)[slot];
+			int* entry = (int*)table + slot;
+			return (nint)((byte*)entry + *entry);
+		}
+
+		private enum OptionalField
+		{
+			TypeManagerIndirection,
+			WritableData,
+			DispatchMap,
+			Finalizer,
+			SealedVirtualSlots,
+		}
+	}
+
+	// Which method of the type implements each interface slot (dotnet/runtime DispatchMap): standard entries, then default interface methods, then static ones
+	internal struct DispatchMap
+	{
+		private ushort _standardEntryCount;
+		private ushort _defaultEntryCount;
+		private ushort _standardStaticEntryCount;
+		private ushort _defaultStaticEntryCount;
+		private DispatchMapEntry _firstEntry;
+
+		internal uint NumStandardEntries => _standardEntryCount;
+
+		internal uint NumDefaultEntries => _defaultEntryCount;
+
+		internal unsafe DispatchMapEntry* Entries => (DispatchMapEntry*)Unsafe.AsPointer(ref _firstEntry);
+	}
+
+	internal struct DispatchMapEntry
+	{
+		internal ushort InterfaceIndex;
+		internal ushort InterfaceMethodSlot;
+		internal ushort ImplMethodSlot;
 	}
 
 	internal enum EETypeElementType

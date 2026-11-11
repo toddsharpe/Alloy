@@ -52,6 +52,7 @@ namespace Alloy.Kernel
 			KernelSpace.Initialize(info);
 			Heap.Initialize();
 			KernelEnvironment.HeapAllocate = &Heap.Allocate;
+			KernelEnvironment.HeapFree = &FreeBlock;
 			Interrupts.Initialize();
 			EnableProtection();
 
@@ -68,6 +69,8 @@ namespace Alloy.Kernel
 			Interrupts.Register(0xFF, &SpuriousInterrupt);
 			SystemCalls.Initialize();
 			Scheduler.Initialize();
+			KernelEnvironment.CurrentThreadId = &CurrentThreadId;
+			KernelEnvironment.Yield = &Scheduler.Yield;
 			line = new SpanWriter(stackalloc char[96]);
 			line.Append("Ke: Hyper-V reference time ");
 			line.Append(Scheduler.UptimeMs);
@@ -158,6 +161,11 @@ namespace Alloy.Kernel
 		}
 
 		// Redraws uptime, ticks and threads in the title bar ten times a second, so a screenshot shows the scheduler running
+		private static unsafe void FreeBlock(void* block) => Heap.Free(block);
+
+		// Thread ids start at 0, and Monitor needs a nonzero owner
+		private static uint CurrentThreadId() => (uint)Scheduler.Current.Id + 1;
+
 		private static unsafe void StatusLoop(void* argument)
 		{
 			Span<char> buffer = stackalloc char[80];
