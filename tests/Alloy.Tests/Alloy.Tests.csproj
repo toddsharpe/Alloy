@@ -37,6 +37,7 @@
 		<Compile Include="..\..\src\Kernel\Ke\Calendar.cs" Link="Shared\Kernel\Ke\Calendar.cs" />
 		<Compile Include="..\..\tools\BuildImage\SymbolWriter.cs" Link="Shared\Tools\SymbolWriter.cs" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Html\*.cs" Link="Shared\Sdk\Web\Html\%(Filename)%(Extension)" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Css\*.cs" Link="Shared\Sdk\Web\Css\%(Filename)%(Extension)" />
 	</ItemGroup>
 
 </Project>
