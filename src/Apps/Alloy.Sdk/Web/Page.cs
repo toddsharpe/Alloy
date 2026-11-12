@@ -331,6 +331,10 @@ namespace Alloy.Sdk.Web
 							_imagesChanged = true;
 						}
 					}
+					catch (Exception)
+					{
+						// A picture that fails to arrive or decode is simply not shown; a worker must never take the process down
+					}
 					finally
 					{
 						System.Threading.Interlocked.Decrement(ref _imagesPending);

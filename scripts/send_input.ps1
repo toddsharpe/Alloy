@@ -4,10 +4,11 @@ param(
 	[string]$Text = '',
 	[int[]]$Click = @(),
 	[int[]]$Drag = @(),
+	[int[]]$Move = @(),
 	[int]$DelayMs = 150
 )
 
-# Drives the running VM's keyboard and mouse over Hyper-V WMI: -Keys Enter,Up:800,Ctrl+Esc (name or code, :hold ms), -Click x,y[,x,y...], -Drag x1,y1,x2,y2
+# Drives the running VM's keyboard and mouse over Hyper-V WMI: -Keys Enter,Up:800,Ctrl+Esc (name or code, :hold ms), -Click x,y[,x,y...], -Move x,y, -Drag x1,y1,x2,y2
 $ErrorActionPreference = 'Stop'
 $names = @{ Back = 8; Tab = 9; Enter = 13; Shift = 16; Ctrl = 17; Alt = 18; Esc = 27; Space = 32; Left = 37; Up = 38; Right = 39; Down = 40; Win = 91; F1 = 112 }
 
@@ -43,6 +44,12 @@ for ($i = 0; $i + 1 -lt $Click.Length; $i += 2)
 	Invoke-CimMethod -InputObject $mouse -MethodName SetAbsolutePosition -Arguments @{ HorizontalPosition = $x; VerticalPosition = $y } | Out-Null
 	Start-Sleep -Milliseconds 50
 	Invoke-CimMethod -InputObject $mouse -MethodName ClickButton -Arguments @{ ButtonIndex = [uint32]1 } | Out-Null
+	Start-Sleep -Milliseconds $DelayMs
+}
+
+if ($Move.Length -eq 2)
+{
+	Invoke-CimMethod -InputObject $mouse -MethodName SetAbsolutePosition -Arguments @{ HorizontalPosition = $Move[0]; VerticalPosition = $Move[1] } | Out-Null
 	Start-Sleep -Milliseconds $DelayMs
 }
 

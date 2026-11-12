@@ -402,17 +402,22 @@ namespace Alloy.Sdk.Web
 	{
 		public const string BundlePath = "/certs/ca-bundle.crt";
 		private static TrustStore s_roots;
+		private static readonly object s_rootsLock = new object();
 
+		// Loaded once under a lock, since image workers and the page's own fetches may all start their first https connection together
 		public static TrustStore Roots
 		{
 			get
 			{
-				if (s_roots == null)
+				lock (s_rootsLock)
 				{
-					byte[] pem = File.ReadAllBytes(BundlePath);
-					s_roots = pem == null ? new TrustStore() : TrustStore.FromPem(Encoding.ASCII.GetString(pem));
+					if (s_roots == null)
+					{
+						byte[] pem = File.ReadAllBytes(BundlePath);
+						s_roots = pem == null ? new TrustStore() : TrustStore.FromPem(Encoding.ASCII.GetString(pem));
+					}
+					return s_roots;
 				}
-				return s_roots;
 			}
 		}
 
