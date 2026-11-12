@@ -478,4 +478,27 @@ public class LayoutTests
 		Assert.Contains(list.Items, item => item.Kind == DisplayItemKind.Rect && item.Color.ToString() == "#ff0000");
 		Assert.Same(a, Painter.HitTest(root, 30, 30));
 	}
+
+	[Fact]
+	public void PlacesAbsoluteBoxesByRightAndBottomOffsets()
+	{
+		LayoutBox root = Lay("<body><div style=\"position:relative;width:200px;height:100px\"><div id=\"a\" style=\"position:absolute;right:10px;bottom:20px;width:50px;height:30px\"></div><div id=\"b\" style=\"position:absolute;inset:10px 20px 30px 40px;width:50px;height:30px\"></div><div id=\"c\" style=\"position:absolute;inset-block-start:50%;inset-inline-start:16px;width:10px;height:10px\"></div></div><div id=\"r\" style=\"position:relative;right:10px;bottom:5px;height:20px\">x</div></body>");
+		Assert.Equal(140, FindId(root, "a").X);
+		Assert.Equal(50, FindId(root, "a").Y);
+		Assert.Equal(40, FindId(root, "b").X);
+		Assert.Equal(10, FindId(root, "b").Y);
+		Assert.Equal(16, FindId(root, "c").X);
+		Assert.Equal(50, FindId(root, "c").Y);
+		Assert.Equal(-10, FindId(root, "r").X);
+		Assert.Equal(95, FindId(root, "r").Y);
+	}
+
+	[Fact]
+	public void AbsoluteChildrenOfMovedFlexItemsKeepTheirStaticPosition()
+	{
+		LayoutBox root = Lay("<body><div style=\"display:flex;justify-content:flex-end;width:400px\"><div style=\"width:100px;height:50px\"></div><div id=\"rel\" style=\"position:relative;width:100px;height:50px\"><div id=\"a\" style=\"position:absolute;width:10px;height:10px\"></div></div></div></body>");
+		Assert.Equal(300, FindId(root, "rel").X);
+		Assert.Equal(300, FindId(root, "a").X);
+		Assert.Equal(0, FindId(root, "a").Y);
+	}
 }

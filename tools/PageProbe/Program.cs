@@ -12,6 +12,10 @@ using Alloy.Sdk.Web.Dom;
 using Alloy.Sdk.Web.Html;
 using Node = Alloy.Sdk.Web.Html.Node;
 using Alloy.Sdk.Web.Layout;
+using Alloy.Sdk.Web.Render;
+using Alloy.Graphics;
+using Alloy.Sdk.Text;
+using Rectangle = Alloy.Sdk.UI.Rectangle;
 
 namespace Alloy.Tools.PageProbe
 {
@@ -25,15 +29,19 @@ namespace Alloy.Tools.PageProbe
 		{
 			if (args.Length < 1)
 			{
-				Console.WriteLine("usage: pageprobe <url> [-v] [-click <selector>]... [-text] [-width <px>]");
+				Console.WriteLine("usage: pageprobe <url> [-v] [-click <selector>]... [-text] [-width <px>] [-png <path>] [-full] [-fixedfont] [-at x,y]");
 				return 1;
 			}
 			string url = args[0].Contains("://") ? args[0] : "https://" + args[0];
 			List<string> clicks = new List<string>();
 			List<string> styles = new List<string>();
+			List<string> ats = new List<string>();
 			bool text = false;
 			int width = 1200;
 			int repeat = 1;
+			string png = null;
+			bool full = false;
+			bool fixedFont = false;
 			for (int i = 1; i < args.Length; i++)
 			{
 				if (args[i] == "-repeat" && i + 1 < args.Length)
@@ -51,7 +59,19 @@ namespace Alloy.Tools.PageProbe
 					text = true;
 				else if (args[i] == "-width" && i + 1 < args.Length)
 					width = int.Parse(args[++i]);
+				else if (args[i] == "-at" && i + 1 < args.Length)
+					ats.Add(args[++i]);
+				else if (args[i] == "-png" && i + 1 < args.Length)
+					png = args[++i];
+				else if (args[i] == "-full")
+					full = true;
+				else if (args[i] == "-fixedfont")
+					fixedFont = true;
 			}
+			// The image's TrueType faces give the probe the VM's text metrics; without them the fixed-width stand-in keeps the numbers stable
+			IFontProvider fonts = !fixedFont && Fonts.Get(Fonts.Sans, 16) != null ? new SdkFontProvider() : new FixedFontProvider();
+			if (fonts is FixedFontProvider && !fixedFont)
+				Console.WriteLine("fonts: build/os/fonts not found, using fixed-width metrics");
 			s_http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Alloy; x64) Alloy/0.1");
 			s_http.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml,*/*;q=0.8");
 
@@ -75,6 +95,7 @@ namespace Alloy.Tools.PageProbe
 			Console.WriteLine($"stylesheets: {sheets.Count} ({linked} linked)");
 
 			LayoutBox root = null;
+			DisplayList list = null;
 			long layouts = 0;
 			long layoutMs = 0;
 			MediaEnvironment media = new MediaEnvironment(width, 800);
@@ -116,9 +137,9 @@ namespace Alloy.Tools.PageProbe
 				}
 				root = new BoxBuilder(resolver).Build(document);
 				long built = sw.ElapsedMilliseconds;
-				new LayoutEngine(new FixedFontProvider(), width, 800).Layout(root);
+				new LayoutEngine(fonts, width, 800).Layout(root);
 				long laid = sw.ElapsedMilliseconds;
-				Painter.Paint(root, width, 800);
+				list = Painter.Paint(root, width, 800);
 				layouts++;
 				layoutMs += sw.ElapsedMilliseconds;
 				if (s_verbose || sw.ElapsedMilliseconds > 500)
@@ -204,9 +225,40 @@ namespace Alloy.Tools.PageProbe
 					}
 				}
 			}
+			foreach (string at in ats)
+			{
+				string[] parts = at.Split(',');
+				LayoutBox hit = Painter.HitTest(root, float.Parse(parts[0]), float.Parse(parts[1]));
+				Console.WriteLine($"at {at}:" + (hit == null ? " nothing" : ""));
+				List<LayoutBox> chain = new List<LayoutBox>();
+				for (LayoutBox up = hit; up != null; up = up.Parent)
+					chain.Insert(0, up);
+				foreach (LayoutBox link in chain)
+				{
+					Element element = link.Element ?? (link == hit ? link.NearestElement() : null);
+					if (element != null)
+						Console.WriteLine((link == hit ? "  " : " ^ ") + Describe(element, link));
+				}
+			}
 			if (text)
 				Console.WriteLine(RenderText(root));
+			if (png != null)
+				RenderPng(png, list, width, full ? (int)Math.Clamp(root.Height, 800, 12000) : 800);
 			return host.ScriptErrors > 0 ? 2 : 0;
+		}
+
+		// Rasterizes the display list the way the browser does, into a PNG of the viewport or the whole page
+		private static unsafe void RenderPng(string path, DisplayList list, int width, int height)
+		{
+			uint[] pixels = new uint[width * height];
+			Array.Fill(pixels, 0xFFFFFFu);
+			fixed (uint* p = pixels)
+			{
+				Surface surface = new Surface(p, width, height, width);
+				SurfaceRenderer.Draw(in surface, list, 0, 0, new Rectangle(0, 0, width, height));
+			}
+			PngWriter.Write(path, pixels, width, height);
+			Console.WriteLine($"png: {path} {width}x{height}");
 		}
 
 		// One line of the computed style and geometry that decide how an element lays out

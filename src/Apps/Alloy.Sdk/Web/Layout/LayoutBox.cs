@@ -165,7 +165,13 @@ namespace Alloy.Sdk.Web.Layout
 			}
 			foreach (LayoutBox child in Children)
 			{
-				if (!child.IsAbsolute)
+				// An absolute child is moved by the container it was deferred to; the static position it may still need moves with its parent
+				if (child.IsAbsolute)
+				{
+					child.StaticX += dx;
+					child.StaticY += dy;
+				}
+				else
 					child.Translate(dx, dy);
 			}
 			if (Positioned != null)

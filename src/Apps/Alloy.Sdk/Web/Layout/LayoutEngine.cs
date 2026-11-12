@@ -489,8 +489,13 @@ namespace Alloy.Sdk.Web.Layout
 
 		private void OffsetRelative(LayoutBox box, float containingWidth, float containingHeight)
 		{
-			float dx = box.Style.Left.IsAuto ? 0 : box.Style.Left.Resolve(containingWidth);
-			float dy = box.Style.Top.IsAuto ? 0 : (box.Style.Top.IsPercent && containingHeight < 0 ? 0 : box.Style.Top.Resolve(containingHeight));
+			ComputedStyle style = box.Style;
+			float dx = !style.Left.IsAuto ? style.Left.Resolve(containingWidth) : !style.Right.IsAuto ? -style.Right.Resolve(containingWidth) : 0;
+			float dy = 0;
+			if (!style.Top.IsAuto)
+				dy = style.Top.IsPercent && containingHeight < 0 ? 0 : style.Top.Resolve(containingHeight);
+			else if (!style.Bottom.IsAuto)
+				dy = style.Bottom.IsPercent && containingHeight < 0 ? 0 : -style.Bottom.Resolve(containingHeight);
 			box.Translate(dx, dy);
 		}
 
@@ -525,6 +530,11 @@ namespace Alloy.Sdk.Web.Layout
 					LayoutTable(box, x, y, width, height);
 				else
 					LayoutContents(box, height, null, true);
+				// A right or bottom offset alone places the box by its far edge, once its size is known
+				if (box.Style.Left.IsAuto && !box.Style.Right.IsAuto)
+					box.Translate(originX + width - box.Style.Right.Resolve(width) - box.MarginRight - box.Width - box.X, 0);
+				if (box.Style.Top.IsAuto && !box.Style.Bottom.IsAuto)
+					box.Translate(0, originY + height - box.Style.Bottom.Resolve(height) - box.MarginBottom - box.Height - box.Y);
 				LayoutPositioned(box, root, box.ContentWidth, box.ContentHeight);
 			}
 			foreach (LayoutBox child in container.Children)

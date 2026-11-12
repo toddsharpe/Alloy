@@ -360,7 +360,7 @@ namespace Alloy.Sdk.Text
 			{
 				if (s_faces.TryGetValue(name, out TrueTypeFont face))
 					return face;
-				byte[] data = File.ReadAllBytes($"/fonts/{name}.ttf");
+				byte[] data = FontFiles.Read(name);
 				face = data != null && TrueTypeFont.TryLoad(data, out TrueTypeFont loaded) ? loaded : null;
 				s_faces[name] = face;
 				return face;

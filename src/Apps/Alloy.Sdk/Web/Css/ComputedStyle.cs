@@ -220,6 +220,8 @@ namespace Alloy.Sdk.Web.Css
 		public Length MaxHeight = Length.Auto;
 		public Length Top = Length.Auto;
 		public Length Left = Length.Auto;
+		public Length Right = Length.Auto;
+		public Length Bottom = Length.Auto;
 
 		public Color Color = Color.Black;
 		public Color BackgroundColor = Color.Transparent;

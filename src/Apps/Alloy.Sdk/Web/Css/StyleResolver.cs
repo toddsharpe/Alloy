@@ -772,10 +772,38 @@ namespace Alloy.Sdk.Web.Css
 					ApplySize(tokens[0], ref _style.MaxHeight, true);
 					break;
 				case "top":
-					ApplySize(tokens[0], ref _style.Top, true);
+				case "inset-block-start":
+					ApplyEdge(tokens[0], ref _style.Top, true, true);
 					break;
 				case "left":
-					ApplySize(tokens[0], ref _style.Left, true);
+				case "inset-inline-start":
+					ApplyEdge(tokens[0], ref _style.Left, true, true);
+					break;
+				case "right":
+				case "inset-inline-end":
+					ApplyEdge(tokens[0], ref _style.Right, true, true);
+					break;
+				case "bottom":
+				case "inset-block-end":
+					ApplyEdge(tokens[0], ref _style.Bottom, true, true);
+					break;
+				case "inset":
+				{
+					Edges offsets = new Edges(Length.Auto);
+					ApplyEdges(tokens, ref offsets, true, true);
+					_style.Top = offsets.Top;
+					_style.Right = offsets.Right;
+					_style.Bottom = offsets.Bottom;
+					_style.Left = offsets.Left;
+					break;
+				}
+				case "inset-block":
+					ApplyEdge(tokens[0], ref _style.Top, true, true);
+					ApplyEdge(tokens[tokens.Count > 1 ? 1 : 0], ref _style.Bottom, true, true);
+					break;
+				case "inset-inline":
+					ApplyEdge(tokens[0], ref _style.Left, true, true);
+					ApplyEdge(tokens[tokens.Count > 1 ? 1 : 0], ref _style.Right, true, true);
 					break;
 				case "border":
 					ApplyBorderShorthand(tokens, -1);

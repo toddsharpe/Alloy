@@ -234,6 +234,23 @@ public class CssTests
 	}
 
 	[Fact]
+	public void ParsesOffsetsAndInsets()
+	{
+		Assert.Equal(-1, Style("<p>x</p>", "p { position: absolute; top: -1px }", "p").Top.Value);
+		ComputedStyle inset = Style("<p>x</p>", "p { inset: 1px 2px 3px 4px }", "p");
+		Assert.Equal(1, inset.Top.Value);
+		Assert.Equal(2, inset.Right.Value);
+		Assert.Equal(3, inset.Bottom.Value);
+		Assert.Equal(4, inset.Left.Value);
+		ComputedStyle logical = Style("<p>x</p>", "p { inset-block-start: 50%; inset-inline-start: 16px; inset-inline-end: 8px }", "p");
+		Assert.True(logical.Top.IsPercent);
+		Assert.Equal(50, logical.Top.Value);
+		Assert.Equal(16, logical.Left.Value);
+		Assert.Equal(8, logical.Right.Value);
+		Assert.True(logical.Bottom.IsAuto);
+	}
+
+	[Fact]
 	public void ParsesAspectRatio()
 	{
 		Assert.Equal(16f / 9f, Style("<p>x</p>", "p { aspect-ratio: 16 / 9 }", "p").AspectRatio, 0.001f);
