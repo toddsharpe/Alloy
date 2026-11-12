@@ -537,6 +537,8 @@ namespace Alloy.Sdk.Web.Css
 				if (value == null)
 					return;
 			}
+			if (!declaration.Property.StartsWith("--", StringComparison.Ordinal) && CssMath.HasMath(value))
+				value = CssMath.Collapse(value, _fontSize, _rootFontSize);
 			if (declaration.Property.StartsWith("--", StringComparison.Ordinal))
 			{
 				if (_style.Custom == null || _style.Custom == _parent?.Custom)

@@ -212,6 +212,24 @@ public class CssTests
 	}
 
 	[Fact]
+	public void FoldsMathFunctions()
+	{
+		CssValue.Viewport.Width = 1000;
+		CssValue.Viewport.Height = 800;
+		Assert.Equal(30, Style("<p>x</p>", "p { font-size: 10px; width: calc(10px + 2em) }", "p").Width.Value);
+		Assert.Equal(40, Style("<p>x</p>", "p { font-size: clamp(20px, 5vw, 40px) }", "p").FontSize);
+		Assert.Equal(25, Style("<p>x</p>", "p { font-size: clamp(20px, 2.5vw, 40px) }", "p").FontSize);
+		Assert.Equal(300, Style("<p>x</p>", "p { width: min(100%, 300px) }", "p").Width.Value);
+		Assert.Equal(-8, Style("<p>x</p>", "p { margin-left: calc(-1 * 8px) }", "p").Margin.Left.Value);
+		Assert.Equal(24, Style("<p>x</p>", "p { font-size: 10px; line-height: calc(1.2 * 2) }", "p").LineHeight);
+		ComputedStyle mixed = Style("<p>x</p>", "p { width: calc(100% - 20px) }", "p");
+		Assert.True(mixed.Width.IsPercent);
+		Assert.Equal(100, mixed.Width.Value);
+		Assert.Equal(16, Style("<p>x</p>", ":root { --gap: 4px } p { padding-left: calc(var(--gap) * 4) }", "p").Padding.Left.Value);
+		Assert.Equal(50, Style("<p>x</p>", "p { width: max(10px, min(50px, 80px)) }", "p").Width.Value);
+	}
+
+	[Fact]
 	public void EvaluatesMediaRangeSyntax()
 	{
 		Stylesheet sheet = Sheet("@media (width >= 1012px) { p { color: red } } @media (width<768px) { p { color: blue } } @media (600px <= width < 1200px) { p { color: green } } @media (height > 800px) { p { color: pink } } @media (width = 1024px) { p { color: gold } } @media screen and (width<=1024px) { p { color: teal } }");
