@@ -568,6 +568,78 @@ namespace Alloy.Sdk.Web.Css
 					if (tokens[0].Type == CssTokenType.Number)
 						_style.Order = (int)tokens[0].Number;
 					break;
+				case "grid-template-columns":
+					_style.GridColumns = ParseTrackList(tokens, 0, tokens.Count);
+					break;
+				case "grid-template-rows":
+					_style.GridRows = ParseTrackList(tokens, 0, tokens.Count);
+					break;
+				case "grid-auto-rows":
+					_style.GridAutoRows = ParseTrackList(tokens, 0, tokens.Count) is { } autoRows && autoRows.Before.Count > 0 ? autoRows.Before[0] : new GridTrack(GridSize.AutoSize);
+					break;
+				case "grid-auto-columns":
+					_style.GridAutoColumns = ParseTrackList(tokens, 0, tokens.Count) is { } autoColumns && autoColumns.Before.Count > 0 ? autoColumns.Before[0] : new GridTrack(GridSize.AutoSize);
+					break;
+				case "grid-auto-flow":
+					_style.GridAutoFlow = tokens[0].IsIdent("column") ? GridAutoFlow.Column : GridAutoFlow.Row;
+					break;
+				case "grid-template-areas":
+					_style.GridAreas = ParseAreas(tokens);
+					break;
+				case "grid-template":
+				case "grid":
+					ApplyGridTemplate(tokens);
+					break;
+				case "grid-column":
+					ApplyGridPlacement(tokens, ref _style.GridColumnStart, ref _style.GridColumnEnd);
+					break;
+				case "grid-row":
+					ApplyGridPlacement(tokens, ref _style.GridRowStart, ref _style.GridRowEnd);
+					break;
+				case "grid-column-start":
+					_style.GridColumnStart = ParseGridLine(tokens, 0, tokens.Count);
+					break;
+				case "grid-column-end":
+					_style.GridColumnEnd = ParseGridLine(tokens, 0, tokens.Count);
+					break;
+				case "grid-row-start":
+					_style.GridRowStart = ParseGridLine(tokens, 0, tokens.Count);
+					break;
+				case "grid-row-end":
+					_style.GridRowEnd = ParseGridLine(tokens, 0, tokens.Count);
+					break;
+				case "grid-area":
+					ApplyGridArea(tokens);
+					break;
+				case "grid-gap":
+					if (TryEdge(tokens[0], false, false, out Length gridRowGap))
+					{
+						_style.RowGap = gridRowGap;
+						_style.ColumnGap = tokens.Count > 1 && TryEdge(tokens[1], false, false, out Length gridColumnGap) ? gridColumnGap : gridRowGap;
+					}
+					break;
+				case "grid-row-gap":
+					if (TryEdge(tokens[0], false, false, out Length onlyGridRowGap))
+						_style.RowGap = onlyGridRowGap;
+					break;
+				case "grid-column-gap":
+					if (TryEdge(tokens[0], false, false, out Length onlyGridColumnGap))
+						_style.ColumnGap = onlyGridColumnGap;
+					break;
+				case "justify-items":
+					_style.JustifyItems = ParseAlign(tokens[0], AlignItems.Stretch);
+					break;
+				case "justify-self":
+					_style.JustifySelf = ParseAlign(tokens[0], AlignItems.Auto);
+					break;
+				case "place-items":
+					_style.AlignItems = ParseAlign(tokens[0], AlignItems.Stretch);
+					_style.JustifyItems = ParseAlign(tokens.Count > 1 ? tokens[1] : tokens[0], AlignItems.Stretch);
+					break;
+				case "place-self":
+					_style.AlignSelf = ParseAlign(tokens[0], AlignItems.Auto);
+					_style.JustifySelf = ParseAlign(tokens.Count > 1 ? tokens[1] : tokens[0], AlignItems.Auto);
+					break;
 			}
 		}
 
@@ -752,15 +824,19 @@ namespace Alloy.Sdk.Web.Css
 			{
 				case "block":
 				case "flow-root":
-				case "grid":
 					_style.Display = Display.Block;
 					break;
 				case "flex":
 					_style.Display = Display.Flex;
 					break;
 				case "inline-flex":
-				case "inline-grid":
 					_style.Display = Display.InlineFlex;
+					break;
+				case "grid":
+					_style.Display = Display.Grid;
+					break;
+				case "inline-grid":
+					_style.Display = Display.InlineGrid;
 					break;
 				case "inline":
 				case "contents":
@@ -1037,6 +1113,259 @@ namespace Alloy.Sdk.Web.Css
 					nested--;
 			}
 			return i - 1;
+		}
+
+		// A track list: sizes, minmax(), repeat() with a count or auto-fill/auto-fit, and [line names]
+		private GridTemplate ParseTrackList(List<CssToken> tokens, int start, int end)
+		{
+			GridTemplate template = new GridTemplate();
+			if (end - start == 1 && tokens[start].IsIdent("none"))
+				return template;
+			List<GridTrack> target = template.Before;
+			int i = start;
+			while (i < end)
+			{
+				CssToken token = tokens[i];
+				if (token.Type == CssTokenType.OpenBracket)
+				{
+					int close = i + 1;
+					while (close < end && tokens[close].Type != CssTokenType.CloseBracket)
+					{
+						if (tokens[close].Type == CssTokenType.Ident)
+						{
+							int line = target == template.After && template.HasAutoRepeat ? -(template.After.Count + 1) : target.Count + 1;
+							if (!template.LineNames.TryGetValue(tokens[close].Value, out List<int> lines))
+								template.LineNames[tokens[close].Value] = lines = new List<int>();
+							lines.Add(line);
+						}
+						close++;
+					}
+					i = close + 1;
+					continue;
+				}
+				if (token.Type == CssTokenType.Function && string.Equals(token.Value, "repeat", StringComparison.OrdinalIgnoreCase))
+				{
+					int close = MatchingParen(tokens, i, end);
+					int comma = i + 1;
+					while (comma < close && tokens[comma].Type != CssTokenType.Comma)
+						comma++;
+					List<GridTrack> inner = new List<GridTrack>();
+					GridTemplate repeated = ParseTrackList(tokens, comma + 1, close);
+					inner.AddRange(repeated.Before);
+					CssToken count = tokens[i + 1];
+					if (count.IsIdent("auto-fill") || count.IsIdent("auto-fit"))
+					{
+						template.HasAutoRepeat = true;
+						template.AutoFit = count.IsIdent("auto-fit");
+						template.Repeat.AddRange(inner);
+						target = template.After;
+					}
+					else
+					{
+						int times = count.Type == CssTokenType.Number ? Math.Clamp((int)count.Number, 1, 1000) : 1;
+						for (int n = 0; n < times; n++)
+							target.AddRange(inner);
+					}
+					i = close + 1;
+					continue;
+				}
+				if (token.Type == CssTokenType.Function && string.Equals(token.Value, "minmax", StringComparison.OrdinalIgnoreCase))
+				{
+					int close = MatchingParen(tokens, i, end);
+					int comma = i + 1;
+					while (comma < close && tokens[comma].Type != CssTokenType.Comma)
+						comma++;
+					GridSize min = comma > i + 1 ? ParseGridSize(tokens[i + 1]) : GridSize.AutoSize;
+					GridSize max = comma + 1 < close ? ParseGridSize(tokens[comma + 1]) : GridSize.AutoSize;
+					target.Add(new GridTrack(min, max));
+					i = close + 1;
+					continue;
+				}
+				if (token.Type == CssTokenType.Function && string.Equals(token.Value, "fit-content", StringComparison.OrdinalIgnoreCase))
+				{
+					int close = MatchingParen(tokens, i, end);
+					GridSize limit = close > i + 1 ? ParseGridSize(tokens[i + 1]) : GridSize.AutoSize;
+					target.Add(new GridTrack(GridSize.AutoSize, limit));
+					i = close + 1;
+					continue;
+				}
+				if (token.Type == CssTokenType.Function)
+				{
+					i = MatchingParen(tokens, i, end) + 1;
+					continue;
+				}
+				target.Add(new GridTrack(ParseGridSize(token)));
+				i++;
+			}
+			return template;
+		}
+
+		private static int MatchingParen(List<CssToken> tokens, int open, int end)
+		{
+			int depth = 0;
+			for (int i = open; i < end; i++)
+			{
+				if (tokens[i].Type == CssTokenType.Function || tokens[i].Type == CssTokenType.OpenParen)
+					depth++;
+				else if (tokens[i].Type == CssTokenType.CloseParen && --depth == 0)
+					return i;
+			}
+			return end;
+		}
+
+		private GridSize ParseGridSize(CssToken token)
+		{
+			if (token.Type == CssTokenType.Dimension && token.Unit == "fr")
+				return new GridSize(GridSizeKind.Fr, (float)Math.Max(0, token.Number));
+			if (token.Type == CssTokenType.Percentage)
+				return new GridSize(GridSizeKind.Percent, (float)token.Number);
+			if (token.IsIdent("min-content"))
+				return new GridSize(GridSizeKind.MinContent);
+			if (token.IsIdent("max-content"))
+				return new GridSize(GridSizeKind.MaxContent);
+			if (CssValue.TryLength(token, _fontSize, _rootFontSize, false, false, out Length length))
+				return new GridSize(GridSizeKind.Fixed, length.Value);
+			return GridSize.AutoSize;
+		}
+
+		// grid-template-areas: one string per row, names separated by spaces, a dot for an empty cell
+		private static string[][] ParseAreas(List<CssToken> tokens)
+		{
+			List<string[]> rows = new List<string[]>();
+			foreach (CssToken token in tokens)
+			{
+				if (token.Type != CssTokenType.String)
+					continue;
+				string[] names = token.Value.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+				for (int i = 0; i < names.Length; i++)
+				{
+					if (names[i].StartsWith(".", StringComparison.Ordinal))
+						names[i] = null;
+				}
+				rows.Add(names);
+			}
+			return rows.Count == 0 ? null : rows.ToArray();
+		}
+
+		// grid-template and grid: "areas" rows with optional sizes then "/ columns", or "rows / columns"
+		private void ApplyGridTemplate(List<CssToken> tokens)
+		{
+			if (tokens.Count == 1 && tokens[0].IsIdent("none"))
+			{
+				_style.GridColumns = null;
+				_style.GridRows = null;
+				_style.GridAreas = null;
+				return;
+			}
+			int slash = -1;
+			int depth = 0;
+			for (int i = 0; i < tokens.Count; i++)
+			{
+				if (tokens[i].Type == CssTokenType.Function || tokens[i].Type == CssTokenType.OpenParen)
+					depth++;
+				else if (tokens[i].Type == CssTokenType.CloseParen)
+					depth--;
+				else if (depth == 0 && tokens[i].IsDelim('/'))
+				{
+					slash = i;
+					break;
+				}
+			}
+			int rowsEnd = slash < 0 ? tokens.Count : slash;
+			bool hasAreas = false;
+			foreach (CssToken token in tokens)
+				hasAreas |= token.Type == CssTokenType.String;
+			if (hasAreas)
+			{
+				List<string[]> areas = new List<string[]>();
+				GridTemplate rows = new GridTemplate();
+				for (int i = 0; i < rowsEnd; i++)
+				{
+					if (tokens[i].Type == CssTokenType.String)
+					{
+						string[] names = tokens[i].Value.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+						for (int n = 0; n < names.Length; n++)
+						{
+							if (names[n].StartsWith(".", StringComparison.Ordinal))
+								names[n] = null;
+						}
+						areas.Add(names);
+						GridSize size = i + 1 < rowsEnd && tokens[i + 1].Type != CssTokenType.String && tokens[i + 1].Type != CssTokenType.OpenBracket ? ParseGridSize(tokens[i + 1]) : GridSize.AutoSize;
+						rows.Before.Add(new GridTrack(size));
+					}
+				}
+				_style.GridAreas = areas.ToArray();
+				_style.GridRows = rows;
+			}
+			else
+				_style.GridRows = ParseTrackList(tokens, 0, rowsEnd);
+			if (slash >= 0)
+				_style.GridColumns = ParseTrackList(tokens, slash + 1, tokens.Count);
+		}
+
+		// grid-column and grid-row: start [/ end]; one value that is a plain line leaves the end auto, a name applies to both
+		private void ApplyGridPlacement(List<CssToken> tokens, ref GridLine start, ref GridLine end)
+		{
+			int slash = tokens.FindIndex(t => t.IsDelim('/'));
+			if (slash < 0)
+			{
+				start = ParseGridLine(tokens, 0, tokens.Count);
+				end = start.Name != null && start.Line == 0 && start.Span == 0 ? start : GridLine.Auto;
+				return;
+			}
+			start = ParseGridLine(tokens, 0, slash);
+			end = ParseGridLine(tokens, slash + 1, tokens.Count);
+		}
+
+		// grid-area: a name, or row-start / column-start / row-end / column-end
+		private void ApplyGridArea(List<CssToken> tokens)
+		{
+			List<int> slashes = new List<int>();
+			for (int i = 0; i < tokens.Count; i++)
+			{
+				if (tokens[i].IsDelim('/'))
+					slashes.Add(i);
+			}
+			if (slashes.Count == 0)
+			{
+				GridLine line = ParseGridLine(tokens, 0, tokens.Count);
+				_style.GridRowStart = _style.GridRowEnd = _style.GridColumnStart = _style.GridColumnEnd = line;
+				return;
+			}
+			List<GridLine> parts = new List<GridLine>();
+			int from = 0;
+			foreach (int slash in slashes)
+			{
+				parts.Add(ParseGridLine(tokens, from, slash));
+				from = slash + 1;
+			}
+			parts.Add(ParseGridLine(tokens, from, tokens.Count));
+			_style.GridRowStart = parts[0];
+			_style.GridColumnStart = parts.Count > 1 ? parts[1] : GridLine.Auto;
+			_style.GridRowEnd = parts.Count > 2 ? parts[2] : GridLine.Auto;
+			_style.GridColumnEnd = parts.Count > 3 ? parts[3] : GridLine.Auto;
+		}
+
+		private static GridLine ParseGridLine(List<CssToken> tokens, int start, int end)
+		{
+			if (start >= end || tokens[start].IsIdent("auto"))
+				return GridLine.Auto;
+			bool span = false;
+			int number = 0;
+			string name = null;
+			for (int i = start; i < end; i++)
+			{
+				CssToken token = tokens[i];
+				if (token.IsIdent("span"))
+					span = true;
+				else if (token.Type == CssTokenType.Number)
+					number = (int)token.Number;
+				else if (token.Type == CssTokenType.Ident)
+					name = token.Value;
+			}
+			if (span)
+				return new GridLine(0, Math.Max(1, number == 0 ? 1 : number), name);
+			return new GridLine(number, 0, name);
 		}
 
 		private static JustifyContent ParseJustify(CssToken token)
