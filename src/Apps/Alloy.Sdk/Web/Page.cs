@@ -42,25 +42,10 @@ namespace Alloy.Sdk.Web
 
 		static Page()
 		{
-			Script.Interpreter.DefaultNow = EpochNow;
+			WallClock.Install();
 		}
 
-		// The kernel's clock as scripts want it: milliseconds since the epoch, with the RTC taken as UTC
-		public static double EpochNow()
-		{
-			Abi.SystemTime time = Kernel.Time;
-			if (time.Year < 2000)
-				return 0;
-			try
-			{
-				DateTime now = new DateTime(time.Year, time.Month, time.Day, time.Hour, time.Minute, time.Second, time.Milliseconds, DateTimeKind.Utc);
-				return Math.Floor((now - DateTime.UnixEpoch).TotalMilliseconds);
-			}
-			catch (ArgumentOutOfRangeException)
-			{
-				return 0;
-			}
-		}
+		public static double EpochNow() => WallClock.EpochNow();
 
 		// Fetches a URL and its stylesheets; a failure is reported through Error and an empty document
 		public static Page Load(string url, ulong timeoutMs = 15000) => Load(new FormSubmission { Url = Uri.TryCreate(url, UriKind.Absolute, out Uri parsed) ? parsed : null, Method = "GET" }, url, timeoutMs);

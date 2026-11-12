@@ -195,6 +195,7 @@ public class DomTests
 			response.Body = Encoding.UTF8.GetBytes("{\"ok\": true, \"path\": \"" + url.AbsolutePath + "\"}");
 			return response;
 		};
+		CookieJar.Clear();
 		Harness h = Open(@"<script>
 			window.out = [];
 			window.fetched = [];

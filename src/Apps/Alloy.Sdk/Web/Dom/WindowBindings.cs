@@ -112,7 +112,6 @@ namespace Alloy.Sdk.Web.Dom
 	{
 		private static readonly Dictionary<string, Dictionary<string, string>> s_localStorage = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
 		private static readonly Dictionary<string, Dictionary<string, string>> s_sessionStorage = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
-		private static readonly Dictionary<string, List<KeyValuePair<string, string>>> s_cookies = new Dictionary<string, List<KeyValuePair<string, string>>>(StringComparer.Ordinal);
 		public const string UserAgent = "Mozilla/5.0 (Alloy; x64) AppleWebKit/537.36 (KHTML, like Gecko) Alloy/0.1 Safari/537.36";
 		private JsObject _location;
 		private JsValue _historyState = JsValue.Null;
@@ -734,55 +733,10 @@ namespace Alloy.Sdk.Web.Dom
 			throw Interpreter.TypeError("Illegal invocation");
 		}
 
-		internal string CookieHeader()
-		{
-			if (!s_cookies.TryGetValue(Origin, out List<KeyValuePair<string, string>> jar))
-				return "";
-			StringBuilder text = new StringBuilder();
-			foreach (KeyValuePair<string, string> cookie in jar)
-				text.Append(text.Length > 0 ? "; " : "").Append(cookie.Key).Append('=').Append(cookie.Value);
-			return text.ToString();
-		}
+		// document.cookie reads and writes the process's jar, minus what HttpOnly keeps from scripts
+		internal string CookieHeader() => CookieJar.HeaderFor(Url, forScript: true) ?? "";
 
-		internal void SetCookie(string text)
-		{
-			string[] parts = text.Split(';');
-			int equals = parts[0].IndexOf('=');
-			if (equals <= 0)
-				return;
-			string name = parts[0].Substring(0, equals).Trim();
-			string value = parts[0].Substring(equals + 1).Trim();
-			bool expired = false;
-			for (int i = 1; i < parts.Length; i++)
-			{
-				string attribute = parts[i].Trim();
-				if (attribute.StartsWith("max-age=", StringComparison.OrdinalIgnoreCase) && double.TryParse(attribute.Substring(8), NumberStyles.Float, CultureInfo.InvariantCulture, out double maxAge) && maxAge <= 0)
-					expired = true;
-				if (attribute.StartsWith("expires=", StringComparison.OrdinalIgnoreCase))
-				{
-					double when = ParseDate(attribute.Substring(8));
-					if (!double.IsNaN(when) && when < Interpreter.Now())
-						expired = true;
-				}
-			}
-			if (!s_cookies.TryGetValue(Origin, out List<KeyValuePair<string, string>> jar))
-				s_cookies[Origin] = jar = new List<KeyValuePair<string, string>>();
-			jar.RemoveAll(c => c.Key == name);
-			if (!expired)
-				jar.Add(new KeyValuePair<string, string>(name, value));
-		}
-
-		private static double ParseDate(string text)
-		{
-			try
-			{
-				return Interpreter.ParseDate(text);
-			}
-			catch (Exception)
-			{
-				return double.NaN;
-			}
-		}
+		internal void SetCookie(string text) => CookieJar.Store(Url, text, fromScript: true);
 
 		// URL and URLSearchParams
 

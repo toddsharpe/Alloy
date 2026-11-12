@@ -16,6 +16,8 @@ namespace Alloy.Sdk.Web
 		public string Reason = "";
 		public string Error;
 		public readonly Dictionary<string, string> Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		// Set-Cookie headers kept apart, since their dates contain the commas other repeated headers are joined with
+		public readonly List<string> SetCookies = new List<string>();
 		public byte[] Body = Array.Empty<byte>();
 		public long ElapsedMs;
 
@@ -60,6 +62,11 @@ namespace Alloy.Sdk.Web
 		private const int MaxRedirects = 5;
 		private const long MaxBody = 64L * 1024 * 1024;
 
+		static Http()
+		{
+			WallClock.Install();
+		}
+
 		public static HttpResponse Get(string url, ulong timeoutMs = 15000) => Request("GET", url, null, null, timeoutMs);
 
 		public static HttpResponse Get(Uri url, ulong timeoutMs = 15000) => Request("GET", url, null, null, timeoutMs);
@@ -102,7 +109,7 @@ namespace Alloy.Sdk.Web
 				return Failed(response, $"{url.Scheme} is not supported, only http and https");
 			if (!Dns.TryResolve(url.Host, out uint address))
 				return Failed(response, $"can't resolve {url.Host}");
-			byte[] request = BuildRequest(method, url, body, contentType);
+			byte[] request = BuildRequest(method, url, body, contentType, CookieJar.HeaderFor(url));
 			string key = HttpConnection.KeyFor(url);
 			for (int attempt = 0; attempt < 2; attempt++)
 			{
@@ -138,6 +145,8 @@ namespace Alloy.Sdk.Web
 					}
 					return Finish(response, started);
 				}
+				foreach (string setCookie in response.SetCookies)
+					CookieJar.Store(url, setCookie);
 				byte[] raw = ReadBody(connection.Reader, response, method == "HEAD");
 				if (raw == null)
 				{
@@ -161,7 +170,7 @@ namespace Alloy.Sdk.Web
 			return response;
 		}
 
-		private static byte[] BuildRequest(string method, Uri url, byte[] body, string contentType)
+		private static byte[] BuildRequest(string method, Uri url, byte[] body, string contentType, string cookies)
 		{
 			StringBuilder head = new StringBuilder();
 			head.Append(method).Append(' ').Append(url.PathAndQuery.Length == 0 ? "/" : url.PathAndQuery).Append(" HTTP/1.1\r\n");
@@ -170,6 +179,8 @@ namespace Alloy.Sdk.Web
 			head.Append("Accept: text/html,application/xhtml+xml,image/*,*/*;q=0.8\r\n");
 			head.Append("Accept-Encoding: gzip, deflate\r\n");
 			head.Append("Connection: keep-alive\r\n");
+			if (cookies != null)
+				head.Append("Cookie: ").Append(cookies).Append("\r\n");
 			if (body != null)
 			{
 				head.Append("Content-Type: ").Append(contentType ?? "application/octet-stream").Append("\r\n");
@@ -224,6 +235,12 @@ namespace Alloy.Sdk.Web
 					continue;
 				string name = line.Substring(0, colon).Trim();
 				string value = line.Substring(colon + 1).Trim();
+				if (name.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
+				{
+					response.SetCookies.Add(value);
+					lastName = null;
+					continue;
+				}
 				response.Headers[name] = response.Headers.TryGetValue(name, out string existing) ? existing + ", " + value : value;
 				lastName = name;
 			}
