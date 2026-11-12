@@ -417,4 +417,20 @@ public class DomTests
 		Harness harness = Open("<canvas id=\"c\" width=\"10\" height=\"10\"></canvas><script>const c = document.getElementById('c'); const ctx = c.getContext('2d'); ctx.font = '20px sans-serif'; ctx.fillRect(0, 0, 5, 5); const m = ctx.measureText('abcd'); const d = ctx.getImageData(0, 0, 2, 2); console.log((ctx.canvas === c) + ' ' + (m.width > 20) + ' ' + d.data.length + ' ' + (c.getContext('webgl') === null) + ' ' + (c.getContext('2d') === ctx))</script>");
 		Assert.Contains("true true 16 true true", harness.Log);
 	}
+
+	[Fact]
+	public void ForcedLayoutsCountAgainstTheBudget()
+	{
+		Harness harness = Open("<div id=\"d\">x</div><script>const d = document.getElementById('d'); let n = 0; try { for (let i = 0; i < 50; i++) { d.style.width = (100 + i) + 'px'; n += d.offsetWidth > 0 ? 1 : 0 } } catch (e) { console.log(e.name + ' after ' + n) }</script>", null, false);
+		LayoutRequest layout = harness.Host.EnsureLayout;
+		harness.Host.EnsureLayout = () =>
+		{
+			harness.Now += 100;
+			layout();
+		};
+		harness.Host.ScriptBudgetMs = 350;
+		harness.Host.RunScripts();
+		Assert.Contains(harness.Log, line => line.StartsWith("RangeError after"));
+		Assert.InRange(harness.Host.ForcedLayouts, 1, 10);
+	}
 }

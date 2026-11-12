@@ -177,6 +177,13 @@ namespace Alloy.Sdk.Script
 
 		// Statements
 
+		// For hosts whose native calls are slow, such as a forced layout, so a loop of them cannot outrun the deadline between statement checks
+		public void CheckDeadline()
+		{
+			if (Clock() > Deadline)
+				throw RangeError("Script ran too long");
+		}
+
 		private Completion Execute(Statement statement, Scope scope)
 		{
 			CurrentLine = statement.Line;

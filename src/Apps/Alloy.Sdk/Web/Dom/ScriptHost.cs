@@ -941,11 +941,15 @@ namespace Alloy.Sdk.Web.Dom
 		// Geometry, from the layout the host keeps
 
 		private bool _layoutValid;
+		public int ForcedLayouts;
 
 		internal LayoutBox LayoutBoxOf(Element element)
 		{
 			if (!_layoutValid || Dirty)
 			{
+				// A script that writes a style and reads a box in a loop forces a layout per round; the budget decides how many it gets
+				Interpreter.CheckDeadline();
+				ForcedLayouts++;
 				EnsureLayout?.Invoke();
 				_layoutValid = true;
 			}

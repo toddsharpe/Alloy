@@ -152,7 +152,7 @@ namespace Alloy.Tools.PageProbe
 				pumps++;
 			}
 			if (pumps > 0)
-				Console.WriteLine($"timers: pumped {pumps} times over {idle.ElapsedMilliseconds} ms, {host.ScriptErrors} errors so far");
+				Console.WriteLine($"timers: pumped {pumps} times over {idle.ElapsedMilliseconds} ms, {host.ScriptErrors} errors so far, {host.ForcedLayouts} layouts forced by scripts");
 
 			foreach (string selector in clicks)
 			{
