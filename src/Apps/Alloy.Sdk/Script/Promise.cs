@@ -437,10 +437,18 @@ namespace Alloy.Sdk.Script
 			RunJobs();
 			double limit = Clock() + AwaitBudgetMs;
 			double borrowed = BorrowedMs;
+			double started = Clock();
+			bool reported = false;
 			while (promise.State == PromiseState.Pending)
 			{
 				if (RunJobs())
 					continue;
+				// An await that has spun for a second is worth a note, since it is probably waiting for something this engine never does
+				if (!reported && Clock() - started > 1000)
+				{
+					reported = true;
+					OnConsole?.Invoke("warn", "await still pending after 1 s at " + StackTrace());
+				}
 				// A promise nothing will ever settle, kept company by an interval, would otherwise hold the thread forever
 				if (Clock() > Math.Min(Deadline, limit + BorrowedMs - borrowed))
 					throw RangeError("Script ran too long");

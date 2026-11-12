@@ -1187,7 +1187,7 @@ namespace Alloy.Sdk.Web.Dom
 					}
 					byte[] bytes = BodyBytes(body, out string contentType);
 					string requestedType = requestHeaders?.Pairs.Find(p => p.Key == "content-type").Value;
-					ResourceResponse result = Fetch(method, target, bytes, requestedType ?? contentType, requestHeaders?.Pairs);
+					ResourceResponse result = FetchCredited(method, target, bytes, requestedType ?? contentType, requestHeaders?.Pairs);
 					if (result == null || result.Status == 0)
 					{
 						interpreter.RejectPromise(promise, interpreter.NewError("TypeError", "Failed to fetch: " + (result?.Error ?? "no response")));
@@ -1471,7 +1471,7 @@ namespace Alloy.Sdk.Web.Dom
 						if (header.Key.Equals("content-type", StringComparison.OrdinalIgnoreCase))
 							contentType = header.Value;
 					}
-					ResourceResponse result = xhr.Target != null && Fetch != null && (xhr.Target.Scheme == "http" || xhr.Target.Scheme == "https") ? Fetch(xhr.Method, xhr.Target, bytes, contentType ?? (bytes != null ? "text/plain;charset=UTF-8" : null), xhr.RequestHeaders) : null;
+					ResourceResponse result = xhr.Target != null && Fetch != null && (xhr.Target.Scheme == "http" || xhr.Target.Scheme == "https") ? FetchCredited(xhr.Method, xhr.Target, bytes, contentType ?? (bytes != null ? "text/plain;charset=UTF-8" : null), xhr.RequestHeaders) : null;
 					if (xhr.Aborted)
 						return;
 					if (result == null || result.Status == 0)

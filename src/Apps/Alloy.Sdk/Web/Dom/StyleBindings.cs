@@ -25,7 +25,23 @@ namespace Alloy.Sdk.Web.Dom
 
 		public Element Element => _element;
 
-		public List<KeyValuePair<string, string>> Declarations => ScriptHost.ParseDeclarations(_element.GetAttribute("style") ?? "");
+		private string _cachedText;
+		private List<KeyValuePair<string, string>> _cached;
+
+		// Parsed once per distinct attribute text; a write keeps the list and the text it serialized to in step, so a tween touching one property per frame parses nothing
+		public List<KeyValuePair<string, string>> Declarations
+		{
+			get
+			{
+				string text = _element.GetAttribute("style") ?? "";
+				if (_cached == null || !string.Equals(text, _cachedText, StringComparison.Ordinal))
+				{
+					_cached = ScriptHost.ParseDeclarations(text);
+					_cachedText = text;
+				}
+				return _cached;
+			}
+		}
 
 		public string Get(string property)
 		{
@@ -60,6 +76,8 @@ namespace Alloy.Sdk.Web.Dom
 		private void Write(List<KeyValuePair<string, string>> declarations)
 		{
 			string serialized = ScriptHost.SerializeDeclarations(declarations);
+			_cached = declarations;
+			_cachedText = serialized;
 			if (serialized.Length == 0)
 				_host.RemoveAttribute(_element, "style");
 			else

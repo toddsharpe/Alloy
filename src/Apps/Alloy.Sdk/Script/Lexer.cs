@@ -61,6 +61,24 @@ namespace Alloy.Sdk.Script
 			"{", "}", "(", ")", "[", "]", ";", ",", "<", ">", "+", "-", "*", "/", "%", "&", "|", "^", "!", "~", "?", ":", "=", ".", "#",
 		};
 
+		// The punctuators that can start with each character, longest first as in the list above, so a token tries a handful instead of all of them
+		private static readonly Dictionary<char, string[]> s_punctuatorsByFirst = GroupPunctuators();
+
+		private static Dictionary<char, string[]> GroupPunctuators()
+		{
+			Dictionary<char, List<string>> groups = new Dictionary<char, List<string>>();
+			foreach (string punctuator in Punctuators)
+			{
+				if (!groups.TryGetValue(punctuator[0], out List<string> group))
+					groups[punctuator[0]] = group = new List<string>();
+				group.Add(punctuator);
+			}
+			Dictionary<char, string[]> result = new Dictionary<char, string[]>();
+			foreach (KeyValuePair<char, List<string>> group in groups)
+				result[group.Key] = group.Value.ToArray();
+			return result;
+		}
+
 		private readonly string _source;
 		private int _at;
 		private int _line = 1;
@@ -189,18 +207,28 @@ namespace Alloy.Sdk.Script
 
 		private void ReadIdentifier(Token token)
 		{
-			StringBuilder name = new StringBuilder();
-			while (_at < _source.Length && IsIdentifierPart(_source[_at]))
+			// Names without escapes, which is nearly all of them, are a slice of the source
+			int start = _at;
+			while (_at < _source.Length && _source[_at] != '\\' && IsIdentifierPart(_source[_at]))
+				_at++;
+			if (_at < _source.Length && _source[_at] == '\\' && IsIdentifierPart('\\'))
 			{
-				if (_source[_at] == '\\' && _at + 1 < _source.Length && _source[_at + 1] == 'u')
+				_at = start;
+				StringBuilder name = new StringBuilder();
+				while (_at < _source.Length && IsIdentifierPart(_source[_at]))
 				{
-					_at += 2;
-					name.Append(ReadUnicodeEscape());
-					continue;
+					if (_source[_at] == '\\' && _at + 1 < _source.Length && _source[_at + 1] == 'u')
+					{
+						_at += 2;
+						name.Append(ReadUnicodeEscape());
+						continue;
+					}
+					name.Append(_source[_at++]);
 				}
-				name.Append(_source[_at++]);
+				token.Text = name.ToString();
 			}
-			token.Text = name.ToString();
+			else
+				token.Text = _source.Substring(start, _at - start);
 			token.Kind = Keywords.Contains(token.Text) ? TokenKind.Keyword : TokenKind.Identifier;
 		}
 
@@ -468,9 +496,11 @@ namespace Alloy.Sdk.Script
 
 		private void ReadPunctuator(Token token)
 		{
-			foreach (string punctuator in Punctuators)
+			if (!s_punctuatorsByFirst.TryGetValue(_source[_at], out string[] candidates))
+				throw new SyntaxError($"unexpected character '{_source[_at]}'", _line);
+			foreach (string punctuator in candidates)
 			{
-				if (string.CompareOrdinal(_source, _at, punctuator, 0, punctuator.Length) == 0)
+				if (punctuator.Length == 1 || (_at + punctuator.Length <= _source.Length && string.CompareOrdinal(_source, _at, punctuator, 0, punctuator.Length) == 0))
 				{
 					// "?." followed by a digit is a conditional with a decimal, not optional chaining
 					if (punctuator == "?." && _at + 2 < _source.Length && char.IsDigit(_source[_at + 2]))

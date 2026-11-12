@@ -183,6 +183,25 @@ namespace Alloy.Sdk.Web.Dom
 			return true;
 		}
 
+		// A fetch on the script thread, with the time the network took handed back to the running script, its await and the page load: waiting is not the script's doing
+		internal ResourceResponse FetchCredited(string method, Uri url, byte[] body, string contentType, IReadOnlyList<KeyValuePair<string, string>> headers)
+		{
+			if (Fetch == null)
+				return null;
+			double started = Now;
+			ResourceResponse response = Fetch(method, url, body, contentType, headers);
+			double spent = Now - started;
+			if (spent > 0)
+			{
+				if (!double.IsPositiveInfinity(Interpreter.Deadline))
+					Interpreter.Deadline += spent;
+				if (!double.IsPositiveInfinity(_loadDeadline))
+					_loadDeadline += spent;
+				Interpreter.BorrowedMs += spent;
+			}
+			return response;
+		}
+
 		// Pending promise jobs under a budget, never unbounded: a page that chains work forever must not hold the load
 		private void RunJobsBudgeted()
 		{
@@ -268,7 +287,7 @@ namespace Alloy.Sdk.Web.Dom
 		{
 			if (Fetch == null || !Uri.TryCreate(url, UriKind.Absolute, out Uri target))
 				return null;
-			ResourceResponse response = Fetch("GET", target, null, null, null);
+			ResourceResponse response = FetchCredited("GET", target, null, null, null);
 			if (response == null || !response.Ok)
 			{
 				Log("error", $"module: {url} failed ({response?.Error ?? response?.Status.ToString() ?? "no response"})");
@@ -306,7 +325,7 @@ namespace Alloy.Sdk.Web.Dom
 				target = Resolve(src.Trim());
 				if (target == null || Fetch == null)
 					return;
-				ResourceResponse response = Fetch("GET", target, null, null, null);
+				ResourceResponse response = FetchCredited("GET", target, null, null, null);
 				if (response == null || !response.Ok)
 				{
 					Log("error", $"script: {target} failed ({response?.Error ?? response?.Status.ToString() ?? "no response"})");
