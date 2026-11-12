@@ -56,7 +56,7 @@ namespace Alloy.Tools.PageProbe
 			s_http.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml,*/*;q=0.8");
 
 			Stopwatch total = Stopwatch.StartNew();
-			ResourceResponse response = Fetch("GET", new Uri(url), null, null);
+			ResourceResponse response = Fetch("GET", new Uri(url), null, null, null);
 			if (response == null || response.Status == 0)
 			{
 				Console.WriteLine($"fetch failed: {response?.Error}");
@@ -286,7 +286,7 @@ namespace Alloy.Tools.PageProbe
 					continue;
 				if (index >= sheets.Count)
 				{
-					ResourceResponse response = Fetch("GET", target, null, null);
+					ResourceResponse response = Fetch("GET", target, null, null, null);
 					sheets.Add(response.Ok ? ScriptHost.Decode(response.Body) : "");
 					linked++;
 				}
