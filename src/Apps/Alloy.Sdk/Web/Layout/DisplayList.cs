@@ -129,7 +129,7 @@ namespace Alloy.Sdk.Web.Layout
 				list.Items.Add(new DisplayItem(DisplayItemKind.Image, box.ContentX, box.ContentY, box.ContentWidth, box.ContentHeight, style.Color, box.Alt, null, box.Image));
 			// An inline svg is rasterized at its box size, with currentColor being the element's colour
 			if (box.TagName == "svg" && box.Element != null && box.ContentWidth >= 1 && box.ContentHeight >= 1 && style.Visible)
-				list.Items.Add(new DisplayItem(DisplayItemKind.Image, box.ContentX, box.ContentY, box.ContentWidth, box.ContentHeight, style.Color, null, null, Alloy.Sdk.Web.Images.Svg.Cached(box.Element, (int)MathF.Round(box.ContentWidth), (int)MathF.Round(box.ContentHeight), style.Color)));
+				list.Items.Add(new DisplayItem(DisplayItemKind.Image, box.ContentX, box.ContentY, box.ContentWidth, box.ContentHeight, style.Color, null, null, Alloy.Sdk.Web.Images.Svg.Cached(box.Element, (int)MathF.Round(box.ContentWidth), (int)MathF.Round(box.ContentHeight), style.Color, style.Rotate)));
 			if (box.Marker != null && style.Visible)
 				PaintMarker(list, box);
 			if (box.Lines != null)

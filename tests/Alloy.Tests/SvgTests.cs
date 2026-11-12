@@ -85,6 +85,17 @@ public class SvgTests
 	}
 
 	[Fact]
+	public void RotatesAboutTheCentre()
+	{
+		Document document = HtmlParser.Parse("<body><svg viewBox=\"0 0 16 16\"><rect width=\"16\" height=\"4\"/></svg></body>");
+		Element svg = document.DescendantElements().First(e => e.TagName == "svg");
+		Bitmap turned = Svg.Render(svg, 16, 16, Color.Black, 90);
+		Assert.Equal(255, Alpha(turned, 14, 8));
+		Assert.Equal(0, Alpha(turned, 8, 1));
+		Assert.Equal(0, Alpha(turned, 1, 8));
+	}
+
+	[Fact]
 	public void SelfClosedShapesAreSiblings()
 	{
 		Document document = HtmlParser.Parse("<body><svg viewBox=\"0 0 16 16\"><rect width=\"8\" height=\"8\"/><rect x=\"8\" width=\"8\" height=\"8\"/></svg></body>");

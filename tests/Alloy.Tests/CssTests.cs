@@ -266,6 +266,14 @@ public class CssTests
 	}
 
 	[Fact]
+	public void ParsesTransformRotation()
+	{
+		Assert.Equal(90, Style("<p>x</p>", "p { transform: rotate(90deg) }", "p").Rotate);
+		Assert.Equal(180, Style("<p>x</p>", "p { transform: translateX(4px) rotate(.5turn) }", "p").Rotate, 0.01f);
+		Assert.Equal(0, Style("<p>x</p>", "p { transform: translateX(4px) }", "p").Rotate);
+	}
+
+	[Fact]
 	public void ParsesAspectRatio()
 	{
 		Assert.Equal(16f / 9f, Style("<p>x</p>", "p { aspect-ratio: 16 / 9 }", "p").AspectRatio, 0.001f);

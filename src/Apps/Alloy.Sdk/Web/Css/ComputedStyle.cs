@@ -205,6 +205,8 @@ namespace Alloy.Sdk.Web.Css
 		// The translation part of transform, applied after layout; percentages are of the box's own size
 		public Length TranslateX = Length.Zero;
 		public Length TranslateY = Length.Zero;
+		// The rotation part of transform in degrees, honoured when an svg is rasterized
+		public float Rotate;
 
 		public Edges Margin = new Edges(Length.Zero);
 		public Edges Padding = new Edges(Length.Zero);

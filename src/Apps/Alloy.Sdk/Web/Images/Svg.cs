@@ -17,22 +17,24 @@ namespace Alloy.Sdk.Web.Images
 			public int Width;
 			public int Height;
 			public uint Color;
+			public float Rotate;
 			public int Attributes;
 			public int Children;
 			public Bitmap Bitmap;
 		}
 
 		// The bitmap for an svg at a size, rendered once and kept on the element until it or its size or colour changes
-		public static Bitmap Cached(Element svg, int width, int height, Color currentColor)
+		public static Bitmap Cached(Element svg, int width, int height, Color currentColor, float rotate = 0)
 		{
-			if (svg.RenderCache is CacheEntry entry && entry.Width == width && entry.Height == height && entry.Color == currentColor.Argb && entry.Attributes == svg.AttributeVersion && entry.Children == svg.ChildrenVersion)
+			if (svg.RenderCache is CacheEntry entry && entry.Width == width && entry.Height == height && entry.Color == currentColor.Argb && entry.Rotate == rotate && entry.Attributes == svg.AttributeVersion && entry.Children == svg.ChildrenVersion)
 				return entry.Bitmap;
-			Bitmap bitmap = Render(svg, width, height, currentColor);
-			svg.RenderCache = new CacheEntry { Width = width, Height = height, Color = currentColor.Argb, Attributes = svg.AttributeVersion, Children = svg.ChildrenVersion, Bitmap = bitmap };
+			Bitmap bitmap = Render(svg, width, height, currentColor, rotate);
+			svg.RenderCache = new CacheEntry { Width = width, Height = height, Color = currentColor.Argb, Rotate = rotate, Attributes = svg.AttributeVersion, Children = svg.ChildrenVersion, Bitmap = bitmap };
 			return bitmap;
 		}
 
-		public static Bitmap Render(Element svg, int width, int height, Color currentColor)
+		// Rotate is the CSS transform's rotation in degrees, applied about the centre of the box
+		public static Bitmap Render(Element svg, int width, int height, Color currentColor, float rotate = 0)
 		{
 			// Very large drawings are rendered smaller and scaled up when drawn
 			float shrink = Math.Max(1, Math.Max(width, height) / (float)MaxSide);
@@ -63,6 +65,14 @@ namespace Alloy.Sdk.Web.Images
 			{
 				float scale = Math.Min(w / vw, h / vh);
 				matrix = new Matrix(scale, 0, 0, scale, (w - vw * scale) / 2 - vx * scale, (h - vh * scale) / 2 - vy * scale);
+			}
+			if (rotate != 0)
+			{
+				float angle = rotate * MathF.PI / 180;
+				float cos = MathF.Cos(angle);
+				float sin = MathF.Sin(angle);
+				Matrix spin = Matrix.Multiply(Matrix.Multiply(new Matrix(1, 0, 0, 1, w / 2f, h / 2f), new Matrix(cos, sin, -sin, cos, 0, 0)), new Matrix(1, 0, 0, 1, -w / 2f, -h / 2f));
+				matrix = Matrix.Multiply(spin, matrix);
 			}
 			Paint paint = new Paint { Fill = Color.Black, HasFill = true, StrokeWidth = 1, Opacity = 1, Current = currentColor };
 			paint = paint.With(svg);

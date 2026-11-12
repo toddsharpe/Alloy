@@ -2027,6 +2027,7 @@ namespace Alloy.Sdk.Web.Css
 		{
 			_style.TranslateX = Length.Zero;
 			_style.TranslateY = Length.Zero;
+			_style.Rotate = 0;
 			for (int i = 0; i < tokens.Count; i++)
 			{
 				if (tokens[i].Type != CssTokenType.Function)
@@ -2051,7 +2052,26 @@ namespace Alloy.Sdk.Web.Css
 					_style.TranslateX = Add(_style.TranslateX, onlyX);
 				else if (name == "translatey" && arguments.Count > 0 && CssValue.TryLength(arguments[0], _fontSize, _rootFontSize, true, true, out Length onlyY))
 					_style.TranslateY = Add(_style.TranslateY, onlyY);
+				else if ((name == "rotate" || name == "rotatez") && arguments.Count > 0)
+					_style.Rotate += Degrees(arguments[0]);
 			}
+		}
+
+		// An angle in degrees from deg, rad, grad or turn, or a bare zero
+		private static float Degrees(CssToken token)
+		{
+			if (token.Type == CssTokenType.Number)
+				return 0;
+			if (token.Type != CssTokenType.Dimension)
+				return 0;
+			return token.Unit.ToLowerInvariant() switch
+			{
+				"deg" => (float)token.Number,
+				"rad" => (float)(token.Number * 180 / Math.PI),
+				"grad" => (float)(token.Number * 0.9),
+				"turn" => (float)(token.Number * 360),
+				_ => 0,
+			};
 		}
 
 		// Two translations along one axis combine when they are the same kind; a mix keeps the later one
