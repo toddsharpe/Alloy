@@ -314,8 +314,9 @@ namespace Alloy.Sdk.Web.Dom
 				source = script.TextContent;
 			Element previous = _currentScript;
 			_currentScript = script;
-			// A script run from inside another's await keeps that script's deadline when it hands back
+			// A script run from inside another's await gives that script its deadline back, moved on by the time this one took
 			double savedDeadline = Interpreter.Deadline;
+			double started = Now;
 			Interpreter.Deadline = Math.Min(Now + ScriptBudgetMs, _loadDeadline);
 			ScriptsRun++;
 			try
@@ -327,7 +328,10 @@ namespace Alloy.Sdk.Web.Dom
 			}
 			finally
 			{
-				Interpreter.Deadline = savedDeadline;
+				double spent = Now - started;
+				Interpreter.Deadline = double.IsPositiveInfinity(savedDeadline) ? savedDeadline : Math.Min(savedDeadline + spent, _loadDeadline);
+				if (!double.IsPositiveInfinity(savedDeadline))
+					Interpreter.BorrowedMs += spent;
 				_currentScript = previous;
 			}
 			if (target != null)

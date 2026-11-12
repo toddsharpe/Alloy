@@ -46,6 +46,8 @@ namespace Alloy.Sdk.Script
 		private readonly List<Timer> _timers = new List<Timer>();
 		private int _nextTimerId = 1;
 		public PumpHandler HostPump;
+		// Time an await spent running other scripts through the host pump, which neither the await nor the waiting script is charged for
+		public double BorrowedMs;
 		public ClockHandler Clock = () => Environment.TickCount64;
 		// The longest a single await may wait for a promise when no deadline is set, so a host that forgot one cannot be held forever
 		public double AwaitBudgetMs = 10000;
@@ -433,13 +435,14 @@ namespace Alloy.Sdk.Script
 			promise.Handled = true;
 			_unhandled.Remove(promise);
 			RunJobs();
-			double limit = Math.Min(Deadline, Clock() + AwaitBudgetMs);
+			double limit = Clock() + AwaitBudgetMs;
+			double borrowed = BorrowedMs;
 			while (promise.State == PromiseState.Pending)
 			{
 				if (RunJobs())
 					continue;
 				// A promise nothing will ever settle, kept company by an interval, would otherwise hold the thread forever
-				if (Clock() > limit)
+				if (Clock() > Math.Min(Deadline, limit + BorrowedMs - borrowed))
 					throw RangeError("Script ran too long");
 				if (!(HostPump ?? DefaultPump)())
 					break;
