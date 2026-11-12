@@ -543,4 +543,15 @@ line2 ${`nested ${1 + 1}`}`
 		Assert.Contains("caught RangeError", log);
 		Assert.True(watch.ElapsedMilliseconds < 5000, "await returned after " + watch.ElapsedMilliseconds + " ms");
 	}
+
+	[Fact]
+	public void ApproximatesBigIntWithNumbers()
+	{
+		Assert.Equal("function", Eval("typeof BigInt"));
+		Assert.Equal("124", Eval("String(BigInt('123') + 1n)"));
+		Assert.Equal("1", Eval("String(BigInt.asUintN(8, 257))"));
+		Assert.Equal("-1", Eval("String(BigInt.asIntN(8, 255))"));
+		Assert.Equal("9007199254740991", Eval("String(BigInt(Number.MAX_SAFE_INTEGER))"));
+		Assert.Contains("RangeError", Log("try { BigInt(1.5) } catch (e) { console.log(e.name) }"));
+	}
 }

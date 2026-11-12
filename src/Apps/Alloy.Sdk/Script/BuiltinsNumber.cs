@@ -7,6 +7,48 @@ namespace Alloy.Sdk.Script
 	// Number, Boolean and Math
 	public sealed partial class Interpreter
 	{
+		// BigInt as doubles: exact to 2^53, enough for the feature checks and constants pages compute at load; bigint literals lex as numbers
+		private void SetupBigInt()
+		{
+			JsFunction bigInt = NewNative("BigInt", 1, (i, t, a) =>
+			{
+				JsValue value = Arg(a, 0);
+				if (value.IsString)
+				{
+					string text = value.ToJsString().Trim();
+					if (text.Length == 0)
+						return 0;
+					if (!double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double parsed) || Math.Floor(parsed) != parsed)
+						throw new JsThrow(NewError("SyntaxError", "Cannot convert " + text + " to a BigInt"));
+					return parsed;
+				}
+				double number = value.ToNumber();
+				if (!double.IsFinite(number) || Math.Floor(number) != number)
+					throw RangeError("The number " + value.ToJsString() + " cannot be converted to a BigInt because it is not an integer");
+				return number;
+			});
+			Global.Put("BigInt", bigInt, false);
+			bigInt.Put("prototype", NumberPrototype, false);
+			DefineMethod(bigInt, "asUintN", 2, (i, t, a) =>
+			{
+				double bits = Arg(a, 0).ToNumber();
+				double value = Arg(a, 1).ToNumber();
+				double modulus = Math.Pow(2, bits);
+				double wrapped = value % modulus;
+				return wrapped < 0 ? wrapped + modulus : wrapped;
+			});
+			DefineMethod(bigInt, "asIntN", 2, (i, t, a) =>
+			{
+				double bits = Arg(a, 0).ToNumber();
+				double value = Arg(a, 1).ToNumber();
+				double modulus = Math.Pow(2, bits);
+				double wrapped = value % modulus;
+				if (wrapped < 0)
+					wrapped += modulus;
+				return wrapped >= modulus / 2 ? wrapped - modulus : wrapped;
+			});
+		}
+
 		private void SetupNumber()
 		{
 			JsFunction constructor = NewConstructor("Number", 1, NumberPrototype,
@@ -26,6 +68,7 @@ namespace Alloy.Sdk.Script
 			DefineMethod(constructor, "isNaN", 1, (i, t, a) => Arg(a, 0).IsNumber && double.IsNaN(a[0].Number));
 			constructor.Put("parseFloat", Global.Get("parseFloat", this), false);
 			constructor.Put("parseInt", Global.Get("parseInt", this), false);
+			SetupBigInt();
 			DefineMethod(NumberPrototype, "valueOf", 0, (i, t, a) => ThisNumber(t, "valueOf"));
 			DefineMethod(NumberPrototype, "toString", 1, (i, t, a) =>
 			{
