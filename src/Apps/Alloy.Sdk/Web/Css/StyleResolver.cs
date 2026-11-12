@@ -16,17 +16,100 @@ namespace Alloy.Sdk.Web.Css
 			public int Order;
 		}
 
-		private readonly List<StyleRule> _userAgent;
+		private struct IndexedSelector
+		{
+			public int Rule;
+			public Selector Selector;
+			public int Specificity;
+		}
+
+		// Selectors bucketed by the rightmost compound's id, class or type, so an element only tests the rules that could match it
+		private sealed class RuleIndex
+		{
+			public readonly List<StyleRule> Rules;
+			private readonly Dictionary<string, List<IndexedSelector>> _byId = new Dictionary<string, List<IndexedSelector>>(StringComparer.Ordinal);
+			private readonly Dictionary<string, List<IndexedSelector>> _byClass = new Dictionary<string, List<IndexedSelector>>(StringComparer.Ordinal);
+			private readonly Dictionary<string, List<IndexedSelector>> _byTag = new Dictionary<string, List<IndexedSelector>>(StringComparer.Ordinal);
+			private readonly List<IndexedSelector> _universal = new List<IndexedSelector>();
+
+			public RuleIndex(List<StyleRule> rules)
+			{
+				Rules = rules;
+				for (int r = 0; r < rules.Count; r++)
+				{
+					foreach (Selector selector in rules[r].Selectors)
+					{
+						if (selector.PseudoElement != null || selector.Compounds.Count == 0)
+							continue;
+						IndexedSelector entry = new IndexedSelector { Rule = r, Selector = selector, Specificity = selector.Specificity };
+						string id = null;
+						string cls = null;
+						string tag = null;
+						foreach (SimpleSelector part in selector.Compounds[selector.Compounds.Count - 1].Parts)
+						{
+							if (part.Type == SimpleSelector.Kind.Id && id == null)
+								id = part.Name;
+							else if (part.Type == SimpleSelector.Kind.Class && cls == null)
+								cls = part.Name;
+							else if (part.Type == SimpleSelector.Kind.Type && tag == null)
+								tag = part.Name;
+						}
+						if (id != null)
+							Add(_byId, id, entry);
+						else if (cls != null)
+							Add(_byClass, cls, entry);
+						else if (tag != null)
+							Add(_byTag, tag, entry);
+						else
+							_universal.Add(entry);
+					}
+				}
+			}
+
+			private static void Add(Dictionary<string, List<IndexedSelector>> buckets, string key, IndexedSelector entry)
+			{
+				if (!buckets.TryGetValue(key, out List<IndexedSelector> list))
+					buckets[key] = list = new List<IndexedSelector>();
+				list.Add(entry);
+			}
+
+			public void Candidates(Element element, List<IndexedSelector> into)
+			{
+				into.AddRange(_universal);
+				if (_byTag.TryGetValue(element.TagName, out List<IndexedSelector> byTag))
+					into.AddRange(byTag);
+				string id = element.Id;
+				if (id != null && _byId.TryGetValue(id, out List<IndexedSelector> byId))
+					into.AddRange(byId);
+				string className = _byClass.Count == 0 ? null : element.GetAttribute("class");
+				if (className == null)
+					return;
+				foreach (string name in className.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+				{
+					if (_byClass.TryGetValue(name, out List<IndexedSelector> byClass))
+						into.AddRange(byClass);
+				}
+			}
+		}
+
+		private readonly RuleIndex _userAgent;
 		private readonly List<StyleRule> _author = new List<StyleRule>();
+		private RuleIndex _authorIndex;
 		private readonly Dictionary<Element, ComputedStyle> _styles = new Dictionary<Element, ComputedStyle>();
 		private readonly List<MatchedDeclaration> _matched = new List<MatchedDeclaration>();
+		private readonly List<IndexedSelector> _candidates = new List<IndexedSelector>();
+		private static readonly Comparison<IndexedSelector> s_byRule = (a, b) => a.Rule.CompareTo(b.Rule);
 
 		public StyleResolver(MediaEnvironment media)
 		{
-			_userAgent = CssParser.Parse(UserAgentStylesheet.Css, media).Rules;
+			_userAgent = new RuleIndex(CssParser.Parse(UserAgentStylesheet.Css, media).Rules);
 		}
 
-		public void AddStylesheet(Stylesheet sheet) => _author.AddRange(sheet.Rules);
+		public void AddStylesheet(Stylesheet sheet)
+		{
+			_author.AddRange(sheet.Rules);
+			_authorIndex = null;
+		}
 
 		public float RootFontSize { get; private set; } = ComputedStyle.DefaultFontSize;
 
@@ -48,7 +131,7 @@ namespace Alloy.Sdk.Web.Css
 			ComputedStyle style = ComputedStyle.Inherit(parent);
 			_matched.Clear();
 			Collect(element, _userAgent, 0);
-			Collect(element, _author, 1);
+			Collect(element, _authorIndex ??= new RuleIndex(_author), 1);
 			string inline = element.GetAttribute("style");
 			if (inline != null)
 			{
@@ -89,22 +172,35 @@ namespace Alloy.Sdk.Web.Css
 			return style;
 		}
 
-		private void Collect(Element element, List<StyleRule> rules, int origin)
+		// The candidates for an element in rule order; a rule matched by several of its selectors counts once, at the highest specificity
+		private void Collect(Element element, RuleIndex index, int origin)
 		{
-			for (int r = 0; r < rules.Count; r++)
+			_candidates.Clear();
+			index.Candidates(element, _candidates);
+			if (_candidates.Count > 1)
+				_candidates.Sort(s_byRule);
+			int current = -1;
+			int best = -1;
+			foreach (IndexedSelector candidate in _candidates)
 			{
-				StyleRule rule = rules[r];
-				int best = -1;
-				foreach (Selector selector in rule.Selectors)
+				if (candidate.Rule != current)
 				{
-					if (selector.PseudoElement == null && selector.Matches(element))
-						best = Math.Max(best, selector.Specificity);
+					Flush(index, current, best, origin);
+					current = candidate.Rule;
+					best = -1;
 				}
-				if (best < 0)
-					continue;
-				foreach (Declaration declaration in rule.Declarations)
-					_matched.Add(new MatchedDeclaration { Declaration = declaration, Origin = origin, Specificity = best, Order = _matched.Count });
+				if (candidate.Selector.Matches(element))
+					best = Math.Max(best, candidate.Specificity);
 			}
+			Flush(index, current, best, origin);
+		}
+
+		private void Flush(RuleIndex index, int rule, int best, int origin)
+		{
+			if (best < 0)
+				return;
+			foreach (Declaration declaration in index.Rules[rule].Declarations)
+				_matched.Add(new MatchedDeclaration { Declaration = declaration, Origin = origin, Specificity = best, Order = _matched.Count });
 		}
 
 		// Later entries win: normal before important, user agent before author, lower specificity before higher, earlier before later

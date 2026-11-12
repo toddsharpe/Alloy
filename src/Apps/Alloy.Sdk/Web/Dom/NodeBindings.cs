@@ -194,7 +194,7 @@ namespace Alloy.Sdk.Web.Dom
 				return HtmlElementPrototype;
 			prototype = new JsObject(parent);
 			prototype.Put(Interpreter.SymbolToStringTag, interfaceName, false);
-			Interpreter.NewConstructor(interfaceName, 0, prototype, (i, t, a) => throw Interpreter.TypeError("Illegal constructor"), null);
+			Interpreter.NewConstructor(interfaceName, 0, prototype, (i, t, a) => throw Interpreter.TypeError("Illegal constructor"), (i, a, target) => ConstructCustomElement(target, prototype));
 			_tagPrototypes[interfaceName] = prototype;
 			return prototype;
 		}
@@ -249,8 +249,67 @@ namespace Alloy.Sdk.Web.Dom
 		{
 			JsObject prototype = new JsObject(parent);
 			prototype.Put(Interpreter.SymbolToStringTag, name, false);
-			Interpreter.NewConstructor(name, 0, prototype, (i, t, a) => throw Interpreter.TypeError("Illegal constructor"), null);
+			Interpreter.NewConstructor(name, 0, prototype, (i, t, a) => throw Interpreter.TypeError("Illegal constructor"), name == "HTMLElement" || name == "Element" ? (i, a, target) => ConstructCustomElement(target, prototype) : null);
 			return prototype;
+		}
+
+		// new on an element interface, reached from a custom element class's super(): the element the registry names for that class
+		private Element _constructing;
+
+		private JsValue ConstructCustomElement(JsObject newTarget, JsObject fallback)
+		{
+			string tag = null;
+			for (JsObject ctor = newTarget; ctor != null && tag == null; ctor = ctor.Prototype)
+				_customElementTags.TryGetValue(ctor, out tag);
+			if (tag == null && _constructing == null)
+				throw Interpreter.TypeError("Illegal constructor");
+			Element element = _constructing ?? new Element(tag);
+			_constructing = null;
+			JsNode wrapper = (JsNode)Wrap(element).Object;
+			wrapper.Prototype = Interpreter.PrototypeFromConstructor(newTarget, fallback);
+			return wrapper;
+		}
+
+		// Builds a registered custom element through its class, as createElement and the parser upgrade do
+		internal JsValue ConstructRegistered(string tag, Element existing)
+		{
+			JsValue ctor = _customElements[tag];
+			_constructing = existing;
+			try
+			{
+				return Interpreter.Construct(ctor, Array.Empty<JsValue>(), ctor);
+			}
+			finally
+			{
+				_constructing = null;
+			}
+		}
+
+		internal void CustomCallback(Element element, string name, params JsValue[] arguments)
+		{
+			if (_customElements.Count == 0 || !_customElements.ContainsKey(element.TagName) || !_wrappers.ContainsKey(element))
+				return;
+			JsValue callback = Interpreter.GetMember(Wrap(element), name);
+			if (!callback.IsCallable)
+				return;
+			try
+			{
+				Interpreter.Call(callback, Wrap(element), arguments);
+			}
+			catch (JsThrow t)
+			{
+				Interpreter.ReportError(t.Value);
+			}
+		}
+
+		private void ConnectCustomElements(Node node, string callback)
+		{
+			if (_customElements.Count == 0)
+				return;
+			if (node is Element element)
+				CustomCallback(element, callback);
+			foreach (Element descendant in node.DescendantElements())
+				CustomCallback(descendant, callback);
 		}
 
 		private void SetupPrototypes()
@@ -680,7 +739,11 @@ namespace Alloy.Sdk.Web.Dom
 			}
 			Mutated(parent, "childList", null, added, null);
 			foreach (Node item in added)
+			{
 				RunInsertedScripts(item);
+				if (IsConnected(item))
+					ConnectCustomElements(item, "connectedCallback");
+			}
 			return Wrap(child);
 		}
 
@@ -689,8 +752,11 @@ namespace Alloy.Sdk.Web.Dom
 			Node parent = child.Parent;
 			if (parent == null)
 				return;
+			bool connected = IsConnected(child);
 			parent.RemoveChild(child);
 			Mutated(parent, "childList", null, null, new List<Node> { child });
+			if (connected)
+				ConnectCustomElements(child, "disconnectedCallback");
 		}
 
 		private Node Clone(Node node, bool deep)
@@ -1047,18 +1113,39 @@ namespace Alloy.Sdk.Web.Dom
 
 		internal void SetAttribute(Element element, string name, string value)
 		{
-			if (element.GetAttribute(name) == value)
+			string old = element.GetAttribute(name);
+			if (old == value)
 				return;
 			element.SetAttribute(name, value);
 			Mutated(element, "attributes", name);
+			AttributeChanged(element, name, old, value);
 		}
 
 		internal void RemoveAttribute(Element element, string name)
 		{
-			if (!element.HasAttribute(name))
+			string old = element.GetAttribute(name);
+			if (old == null)
 				return;
 			element.Attributes.RemoveAll(a => a.Key == name);
 			Mutated(element, "attributes", name);
+			AttributeChanged(element, name, old, null);
+		}
+
+		private void AttributeChanged(Element element, string name, string old, string value)
+		{
+			if (_customElements.Count == 0 || !_customElements.TryGetValue(element.TagName, out JsValue ctor))
+				return;
+			JsValue observed = Interpreter.GetMember(ctor, "observedAttributes");
+			if (!observed.IsObject)
+				return;
+			foreach (JsValue attribute in Interpreter.Iterate(observed))
+			{
+				if (attribute.ToJsString() == name)
+				{
+					CustomCallback(element, "attributeChangedCallback", name, old == null ? JsValue.Null : old, value == null ? JsValue.Null : value);
+					return;
+				}
+			}
 		}
 
 		// Markup to nodes: parsed as a page, then the pieces that would land inside the context element are lifted out
@@ -1957,6 +2044,8 @@ namespace Alloy.Sdk.Web.Dom
 				string tag = Interpreter.Arg(a, 0).ToJsString().ToLowerInvariant();
 				if (tag.Length == 0)
 					throw DomException("InvalidCharacterError", "The tag name provided is not a valid name.");
+				if (_customElements.ContainsKey(tag))
+					return ConstructRegistered(tag, null);
 				return Wrap(new Element(tag));
 			});
 			Interpreter.DefineMethod(proto, "createElementNS", 2, (i, t, a) => Wrap(new Element(Interpreter.Arg(a, 1).ToJsString().ToLowerInvariant())));

@@ -554,7 +554,7 @@ namespace Alloy.Sdk.Script
 			return result;
 		}
 
-		// JavaScript pattern syntax to .NET: ASCII classes, the string-end anchor, [^] and \u{...}
+		// JavaScript pattern syntax to .NET: ASCII classes outside brackets (inside, .NET's own keep ranges like [\\w-$] legal), the string-end anchor, [^] and \u{...}
 		private static string TranslatePattern(string pattern, bool multiline)
 		{
 			StringBuilder builder = new StringBuilder(pattern.Length + 8);
@@ -569,13 +569,13 @@ namespace Alloy.Sdk.Script
 					switch (next)
 					{
 						case 'd':
-							builder.Append(inClass ? "0-9" : "[0-9]");
+							builder.Append(inClass ? "\\d" : "[0-9]");
 							break;
 						case 'D':
 							builder.Append(inClass ? "\\D" : "[^0-9]");
 							break;
 						case 'w':
-							builder.Append(inClass ? "a-zA-Z0-9_" : "[a-zA-Z0-9_]");
+							builder.Append(inClass ? "\\w" : "[a-zA-Z0-9_]");
 							break;
 						case 'W':
 							builder.Append(inClass ? "\\W" : "[^a-zA-Z0-9_]");

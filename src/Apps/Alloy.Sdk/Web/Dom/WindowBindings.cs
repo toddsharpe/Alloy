@@ -123,6 +123,7 @@ namespace Alloy.Sdk.Web.Dom
 		private JsObject _xhrPrototype;
 		private readonly double _timeOrigin;
 		private readonly Dictionary<string, JsValue> _customElements = new Dictionary<string, JsValue>(StringComparer.Ordinal);
+		private readonly Dictionary<JsObject, string> _customElementTags = new Dictionary<JsObject, string>();
 
 		public string Origin => Url == null || Url.Scheme != "http" && Url.Scheme != "https" ? "null" : Url.Scheme + "://" + Url.Host + (Url.IsDefaultPort ? "" : ":" + Url.Port);
 
@@ -1635,7 +1636,32 @@ namespace Alloy.Sdk.Web.Dom
 			customElements.Class = "CustomElementRegistry";
 			interpreter.DefineMethod(customElements, "define", 2, (i, t, a) =>
 			{
-				_customElements[Interpreter.Arg(a, 0).ToJsString()] = Interpreter.Arg(a, 1);
+				string name = Interpreter.Arg(a, 0).ToJsString().ToLowerInvariant();
+				JsValue ctor = Interpreter.Arg(a, 1);
+				if (!name.Contains('-'))
+					throw DomException("SyntaxError", "\"" + name + "\" is not a valid custom element name");
+				if (!ctor.IsCallable || !ctor.Function.IsConstructor)
+					throw interpreter.TypeError("The element constructor is not a constructor");
+				if (_customElements.ContainsKey(name))
+					throw DomException("NotSupportedError", "the name \"" + name + "\" has already been used with this registry");
+				_customElements[name] = ctor;
+				_customElementTags[ctor.Object] = name;
+				// Elements already in the document with that name take on the class now
+				foreach (Element element in new List<Element>(Document.DescendantElements()))
+				{
+					if (element.TagName != name)
+						continue;
+					try
+					{
+						ConstructRegistered(name, element);
+					}
+					catch (JsThrow x)
+					{
+						interpreter.ReportError(x.Value);
+						continue;
+					}
+					CustomCallback(element, "connectedCallback");
+				}
 				return JsValue.Undefined;
 			});
 			interpreter.DefineMethod(customElements, "get", 1, (i, t, a) => _customElements.TryGetValue(Interpreter.Arg(a, 0).ToJsString(), out JsValue ctor) ? ctor : JsValue.Undefined);

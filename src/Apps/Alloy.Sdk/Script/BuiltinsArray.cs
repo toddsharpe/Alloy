@@ -30,40 +30,32 @@ namespace Alloy.Sdk.Script
 				}
 				return result;
 			});
-			DefineMethod(ArrayPrototype, "push", 1, (i, t, a) =>
+			DefineMethod(ArrayPrototype, "push", 1, (i, t, a) => Mutate(t, "push", items =>
 			{
-				JsArray array = ThisArray(t, "push");
-				CheckWritable(array);
-				array.Elements.AddRange(a);
-				return array.Elements.Count;
-			});
-			DefineMethod(ArrayPrototype, "pop", 0, (i, t, a) =>
+				items.AddRange(a);
+				return items.Count;
+			}));
+			DefineMethod(ArrayPrototype, "pop", 0, (i, t, a) => Mutate(t, "pop", items =>
 			{
-				JsArray array = ThisArray(t, "pop");
-				CheckWritable(array);
-				if (array.Elements.Count == 0)
+				if (items.Count == 0)
 					return JsValue.Undefined;
-				JsValue last = array.Elements[array.Elements.Count - 1];
-				array.Elements.RemoveAt(array.Elements.Count - 1);
+				JsValue last = items[items.Count - 1];
+				items.RemoveAt(items.Count - 1);
 				return last;
-			});
-			DefineMethod(ArrayPrototype, "shift", 0, (i, t, a) =>
+			}));
+			DefineMethod(ArrayPrototype, "shift", 0, (i, t, a) => Mutate(t, "shift", items =>
 			{
-				JsArray array = ThisArray(t, "shift");
-				CheckWritable(array);
-				if (array.Elements.Count == 0)
+				if (items.Count == 0)
 					return JsValue.Undefined;
-				JsValue first = array.Elements[0];
-				array.Elements.RemoveAt(0);
+				JsValue first = items[0];
+				items.RemoveAt(0);
 				return first;
-			});
-			DefineMethod(ArrayPrototype, "unshift", 1, (i, t, a) =>
+			}));
+			DefineMethod(ArrayPrototype, "unshift", 1, (i, t, a) => Mutate(t, "unshift", items =>
 			{
-				JsArray array = ThisArray(t, "unshift");
-				CheckWritable(array);
-				array.Elements.InsertRange(0, a);
-				return array.Elements.Count;
-			});
+				items.InsertRange(0, a);
+				return items.Count;
+			}));
 			DefineMethod(ArrayPrototype, "slice", 2, (i, t, a) =>
 			{
 				List<JsValue> items = ThisElements(t);
@@ -71,20 +63,18 @@ namespace Alloy.Sdk.Script
 				int end = RelativeIndex(Arg(a, 1), items.Count, items.Count);
 				return NewArray(end > start ? items.GetRange(start, end - start) : new List<JsValue>());
 			});
-			DefineMethod(ArrayPrototype, "splice", 2, (i, t, a) =>
+			DefineMethod(ArrayPrototype, "splice", 2, (i, t, a) => Mutate(t, "splice", items =>
 			{
-				JsArray array = ThisArray(t, "splice");
-				CheckWritable(array);
-				int start = RelativeIndex(Arg(a, 0), array.Elements.Count, 0);
-				int count = a.Length < 2 ? array.Elements.Count - start : (int)Math.Max(0, Math.Min(array.Elements.Count - start, Arg(a, 1).ToNumber()));
+				int start = RelativeIndex(Arg(a, 0), items.Count, 0);
+				int count = a.Length < 2 ? items.Count - start : (int)Math.Max(0, Math.Min(items.Count - start, Arg(a, 1).ToNumber()));
 				if (a.Length == 0)
 					count = 0;
-				JsArray removed = NewArray(array.Elements.GetRange(start, count));
-				array.Elements.RemoveRange(start, count);
+				JsArray removed = NewArray(items.GetRange(start, count));
+				items.RemoveRange(start, count);
 				if (a.Length > 2)
-					array.Elements.InsertRange(start, a.AsSpan(2).ToArray());
+					items.InsertRange(start, a.AsSpan(2).ToArray());
 				return removed;
-			});
+			}));
 			DefineMethod(ArrayPrototype, "concat", 1, (i, t, a) =>
 			{
 				JsArray result = NewArray(new List<JsValue>(ThisElements(t)));
@@ -100,13 +90,11 @@ namespace Alloy.Sdk.Script
 			DefineMethod(ArrayPrototype, "join", 1, (i, t, a) => Join(ThisElements(t), Arg(a, 0).IsUndefined ? "," : a[0].ToJsString()));
 			DefineMethod(ArrayPrototype, "toString", 0, (i, t, a) => Join(ThisElements(t), ","));
 			DefineMethod(ArrayPrototype, "toLocaleString", 0, (i, t, a) => Join(ThisElements(t), ","));
-			DefineMethod(ArrayPrototype, "reverse", 0, (i, t, a) =>
+			DefineMethod(ArrayPrototype, "reverse", 0, (i, t, a) => Mutate(t, "reverse", items =>
 			{
-				JsArray array = ThisArray(t, "reverse");
-				CheckWritable(array);
-				array.Elements.Reverse();
-				return array;
-			});
+				items.Reverse();
+				return t;
+			}));
 			DefineMethod(ArrayPrototype, "toReversed", 0, (i, t, a) =>
 			{
 				List<JsValue> copy = new List<JsValue>(ThisElements(t));
@@ -213,11 +201,12 @@ namespace Alloy.Sdk.Script
 			DefineMethod(ArrayPrototype, "reduceRight", 1, (i, t, a) => Reduce(t, a, true));
 			DefineMethod(ArrayPrototype, "sort", 1, (i, t, a) =>
 			{
-				JsArray array = ThisArray(t, "sort");
-				CheckWritable(array);
 				JsFunction compare = Arg(a, 0).IsUndefined ? null : RequireCallable(a[0], "The comparison function");
-				SortElements(array.Elements, compare);
-				return array;
+				return Mutate(t, "sort", items =>
+				{
+					SortElements(items, compare);
+					return t;
+				});
 			});
 			DefineMethod(ArrayPrototype, "toSorted", 1, (i, t, a) =>
 			{
@@ -246,16 +235,14 @@ namespace Alloy.Sdk.Script
 				}
 				return result;
 			});
-			DefineMethod(ArrayPrototype, "fill", 1, (i, t, a) =>
+			DefineMethod(ArrayPrototype, "fill", 1, (i, t, a) => Mutate(t, "fill", items =>
 			{
-				JsArray array = ThisArray(t, "fill");
-				CheckWritable(array);
-				int start = RelativeIndex(Arg(a, 1), array.Elements.Count, 0);
-				int end = RelativeIndex(Arg(a, 2), array.Elements.Count, array.Elements.Count);
+				int start = RelativeIndex(Arg(a, 1), items.Count, 0);
+				int end = RelativeIndex(Arg(a, 2), items.Count, items.Count);
 				for (int n = start; n < end; n++)
-					array.Elements[n] = Arg(a, 0);
-				return array;
-			});
+					items[n] = Arg(a, 0);
+				return t;
+			}));
 			DefineMethod(ArrayPrototype, "copyWithin", 2, (i, t, a) =>
 			{
 				JsArray array = ThisArray(t, "copyWithin");
@@ -310,6 +297,29 @@ namespace Alloy.Sdk.Script
 		}
 
 		private static string Describe(JsValue[] arguments, int index) => Arg(arguments, index).IsUndefined ? "undefined" : Arg(arguments, index).ToJsString();
+
+		private delegate JsValue ListOperation(List<JsValue> items);
+
+		// A method that changes this: in place for an array, through length and the indices for anything array-like
+		private JsValue Mutate(JsValue thisValue, string method, ListOperation operation)
+		{
+			if (thisValue.IsObject && thisValue.Object is JsArray array)
+			{
+				CheckWritable(array);
+				return operation(array.Elements);
+			}
+			if (!thisValue.IsObject)
+				throw TypeError("Array.prototype." + method + " called on null or undefined");
+			List<JsValue> items = new List<JsValue>(ArgumentsFromArrayLike(thisValue));
+			int oldLength = items.Count;
+			JsValue result = operation(items);
+			for (int n = 0; n < items.Count; n++)
+				SetMember(thisValue, n.ToString(CultureInfo.InvariantCulture), items[n]);
+			for (int n = items.Count; n < oldLength; n++)
+				thisValue.Object.Delete(n.ToString(CultureInfo.InvariantCulture));
+			SetMember(thisValue, "length", items.Count);
+			return result;
+		}
 
 		private JsArray ThisArray(JsValue thisValue, string method)
 		{

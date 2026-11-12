@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+		<Nullable>disable</Nullable>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<NoWarn>CS0649;CS0169;CS8981</NoWarn>
+		<InvariantGlobalization>true</InvariantGlobalization>
+	</PropertyGroup>
+
+	<!-- The SDK's web stack compiled in directly, as the tests do, so a page can be probed on the host without Alloy -->
+	<ItemGroup>
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Html\*.cs" Link="Sdk\Web\Html\%(Filename)%(Extension)" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Css\*.cs" Link="Sdk\Web\Css\%(Filename)%(Extension)" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Layout\*.cs" Link="Sdk\Web\Layout\%(Filename)%(Extension)" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Images\*.cs" Link="Sdk\Web\Images\%(Filename)%(Extension)" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Dom\*.cs" Link="Sdk\Web\Dom\%(Filename)%(Extension)" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Address.cs" Link="Sdk\Web\Address.cs" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Forms.cs" Link="Sdk\Web\Forms.cs" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Cookies.cs" Link="Sdk\Web\Cookies.cs" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Script\*.cs" Link="Sdk\Script\%(Filename)%(Extension)" />
+	</ItemGroup>
+
+</Project>

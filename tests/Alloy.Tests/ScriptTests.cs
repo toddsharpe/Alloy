@@ -198,6 +198,7 @@ public class ScriptTests
 		Assert.Equal("3", Eval("Math.max(...[1, 3, 2])"));
 		Assert.Equal("[1,2,[3]]", Eval("JSON.stringify([1, 2, [3]])"));
 		Assert.Equal("1,2,3", Eval("function f() { return Array.prototype.slice.call(arguments) } f(1, 2, 3).join()"));
+		Assert.Equal("3,c,b,2,a", Eval("const o = {length: 1, 0: 'a'}; Array.prototype.push.call(o, 'b', 'c'); const r = [o.length, o[2]]; Array.prototype.splice.call(o, 0, 1); r.push(o[0], o.length, Array.prototype.pop.call({length: 2, 0: 'x', 1: 'a'})); r.join()"));
 	}
 
 	[Fact]
@@ -226,6 +227,7 @@ public class ScriptTests
 		Assert.Equal("1", Eval("const m = /(\\w)(\\d)/.exec('a1b2'); m.index + m[2].length"));
 		Assert.Equal("true", Eval("/^[\\w.]+@\\w+\\.\\w+$/.test('a.b@c.de') && !/^\\d+$/.test('12a')"));
 		Assert.Equal("no", Eval("'x\\n'.match(/x$/) ? 'x' : 'no'"));
+		Assert.Equal("true", Eval("/^[a-z$_][\\w-$]*$/.test('my-var$') && /[\\d.]+/.test('3.5') && !/^[\\w-]+$/.test('a b')"));
 		Assert.Equal("no", Eval("'x\\ny'.match(/x$/) ? 'x' : 'no'"));
 		Assert.Equal("x", Eval("'x\\ny'.match(/x$/m) ? 'x' : 'no'"));
 		Assert.Equal("1:a,3:b", Eval("[...'a-b'.matchAll(/(\\w)/g)].map(m => (m.index + 1) + ':' + m[1]).join()"));

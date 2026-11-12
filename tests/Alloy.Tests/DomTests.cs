@@ -315,6 +315,31 @@ public class DomTests
 	}
 
 	[Fact]
+	public void UpgradesAndBuildsCustomElements()
+	{
+		Harness h = Open(@"<x-greet name=early></x-greet><div id=slot></div><script>
+			window.log = [];
+			class Greet extends HTMLElement {
+				static get observedAttributes() { return ['name'] }
+				constructor() { super(); log.push('ctor:' + this.tagName) }
+				connectedCallback() { this.textContent = 'hello ' + (this.getAttribute('name') || 'world'); log.push('connected') }
+				disconnectedCallback() { log.push('disconnected') }
+				attributeChangedCallback(n, o, v) { log.push('attr:' + n + ':' + o + ':' + v) }
+				shout() { return this.textContent.toUpperCase() }
+			}
+			customElements.define('x-greet', Greet);
+			const late = document.createElement('x-greet');
+			late.setAttribute('name', 'late');
+			document.getElementById('slot').appendChild(late);
+			late.remove();
+			window.out = [document.querySelector('x-greet').shout(), late instanceof Greet, late instanceof HTMLElement, late.shout(), customElements.get('x-greet') === Greet];
+		</script>");
+		Assert.Empty(h.Log);
+		Assert.Equal("HELLO EARLY|true|true|HELLO LATE|true", Eval(h, "out.join('|')"));
+		Assert.Equal("ctor:X-GREET|connected|ctor:X-GREET|attr:name:null:late|connected|disconnected", Eval(h, "log.join('|')"));
+	}
+
+	[Fact]
 	public void ExposesWindowSurface()
 	{
 		Harness h = Open(@"<script>
