@@ -200,6 +200,8 @@ namespace Alloy.Sdk.Web.Css
 		public bool BorderBox;
 		// aspect-ratio as width over height, or 0 for auto
 		public float AspectRatio;
+		// z-index for positioned boxes; auto counts as 0 and keeps document order
+		public int ZIndex;
 		// The translation part of transform, applied after layout; percentages are of the box's own size
 		public Length TranslateX = Length.Zero;
 		public Length TranslateY = Length.Zero;

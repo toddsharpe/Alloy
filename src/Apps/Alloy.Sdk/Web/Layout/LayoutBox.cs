@@ -164,7 +164,10 @@ namespace Alloy.Sdk.Web.Layout
 				}
 			}
 			foreach (LayoutBox child in Children)
-				child.Translate(dx, dy);
+			{
+				if (!child.IsAbsolute)
+					child.Translate(dx, dy);
+			}
 			if (Positioned != null)
 			{
 				foreach (LayoutBox child in Positioned)

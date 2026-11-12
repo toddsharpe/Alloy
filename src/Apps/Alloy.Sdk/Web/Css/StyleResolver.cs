@@ -670,6 +670,9 @@ namespace Alloy.Sdk.Web.Css
 				case "transform":
 					ApplyTransform(tokens);
 					break;
+				case "z-index":
+					_style.ZIndex = tokens[0].Type == CssTokenType.Number ? (int)Math.Clamp(tokens[0].Number, -100000, 100000) : 0;
+					break;
 				case "aspect-ratio":
 				{
 					_style.AspectRatio = 0;

@@ -103,6 +103,16 @@ namespace Alloy.Sdk.Web.Layout
 				PaintBackgroundAndBorders(list, box);
 			if (box.Kind == BoxKind.Text)
 				return;
+			List<LayoutBox> positioned = box.Positioned != null ? OrderedPositioned(box) : null;
+			if (positioned != null)
+			{
+				// A negative z-index sits behind the container's own content but above its background
+				foreach (LayoutBox child in positioned)
+				{
+					if (child.Style.ZIndex < 0)
+						PaintBox(list, child, false);
+				}
+			}
 			bool clip = style.Overflow != Overflow.Visible && box.Kind != BoxKind.Inline;
 			if (clip)
 				list.Items.Add(new DisplayItem(DisplayItemKind.Clip, box.X, box.Y, box.Width, box.Height, default));
@@ -126,11 +136,29 @@ namespace Alloy.Sdk.Web.Layout
 				PaintAtomics(list, box);
 			if (clip)
 				list.Items.Add(new DisplayItem(DisplayItemKind.Unclip, 0, 0, 0, 0, default));
-			if (box.Positioned != null)
+			if (positioned != null)
 			{
-				foreach (LayoutBox child in box.Positioned)
-					PaintBox(list, child, false);
+				foreach (LayoutBox child in positioned)
+				{
+					if (child.Style.ZIndex >= 0)
+						PaintBox(list, child, false);
+				}
 			}
+		}
+
+		// The positioned boxes a container holds, lowest z-index first and document order within a level, as they paint
+		internal static List<LayoutBox> OrderedPositioned(LayoutBox box)
+		{
+			List<LayoutBox> ordered = new List<LayoutBox>(box.Positioned.Count);
+			foreach (LayoutBox child in box.Positioned)
+			{
+				int z = child.Style?.ZIndex ?? 0;
+				int at = ordered.Count;
+				while (at > 0 && (ordered[at - 1].Style?.ZIndex ?? 0) > z)
+					at--;
+				ordered.Insert(at, child);
+			}
+			return ordered;
 		}
 
 		private static void PaintBackgroundAndBorders(DisplayList list, LayoutBox box)
@@ -279,11 +307,14 @@ namespace Alloy.Sdk.Web.Layout
 		// The deepest box under a document point, text fragments first, so a click finds the link it landed on
 		public static LayoutBox HitTest(LayoutBox box, float x, float y)
 		{
-			if (box.Positioned != null)
+			List<LayoutBox> ordered = box.Positioned != null ? OrderedPositioned(box) : null;
+			if (ordered != null)
 			{
-				for (int i = box.Positioned.Count - 1; i >= 0; i--)
+				for (int i = ordered.Count - 1; i >= 0; i--)
 				{
-					LayoutBox hit = HitTest(box.Positioned[i], x, y);
+					if (ordered[i].Style.ZIndex < 0)
+						break;
+					LayoutBox hit = HitTest(ordered[i], x, y);
 					if (hit != null)
 						return hit;
 				}
@@ -311,11 +342,22 @@ namespace Alloy.Sdk.Web.Layout
 			for (int i = box.Children.Count - 1; i >= 0; i--)
 			{
 				LayoutBox child = box.Children[i];
-				if (child.Kind == BoxKind.Text || child.Kind == BoxKind.Inline || child.Kind == BoxKind.LineBreak || child.Kind == BoxKind.InlineBlock)
+				if (child.Kind == BoxKind.Text || child.Kind == BoxKind.Inline || child.Kind == BoxKind.LineBreak || child.Kind == BoxKind.InlineBlock || child.IsAbsolute)
 					continue;
 				LayoutBox hit = HitTest(child, x, y);
 				if (hit != null)
 					return hit;
+			}
+			if (ordered != null)
+			{
+				for (int i = ordered.Count - 1; i >= 0; i--)
+				{
+					if (ordered[i].Style.ZIndex >= 0)
+						continue;
+					LayoutBox hit = HitTest(ordered[i], x, y);
+					if (hit != null)
+						return hit;
+				}
 			}
 			return box.ContainsPoint(x, y) ? box : null;
 		}

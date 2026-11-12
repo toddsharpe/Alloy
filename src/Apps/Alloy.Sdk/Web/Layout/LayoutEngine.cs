@@ -197,6 +197,8 @@ namespace Alloy.Sdk.Web.Layout
 		// The children of a block whose position and width are settled; sets its height
 		private void LayoutContents(LayoutBox box, float containingHeight, FloatContext floats, bool formattingRoot)
 		{
+			// Descendants defer themselves here again on this pass; a measuring pass must not leave them behind twice
+			box.Positioned = null;
 			bool ownContext = formattingRoot || box.IsFloat || box.IsAbsolute || box.Kind == BoxKind.InlineBlock || box.Kind == BoxKind.TableCell || box.Style.Overflow != Overflow.Visible || box.Style.IsFlexContainer || box.Style.IsGridContainer;
 			if (ownContext)
 				floats = new FloatContext();
@@ -480,7 +482,9 @@ namespace Alloy.Sdk.Web.Layout
 				while (container.Parent != null)
 					container = container.Parent;
 			}
-			(container.Positioned ??= new List<LayoutBox>()).Add(child);
+			List<LayoutBox> positioned = container.Positioned ??= new List<LayoutBox>();
+			if (!positioned.Contains(child))
+				positioned.Add(child);
 		}
 
 		private void OffsetRelative(LayoutBox box, float containingWidth, float containingHeight)
@@ -502,12 +506,11 @@ namespace Alloy.Sdk.Web.Layout
 		// Absolutely positioned boxes deferred to this container: shrink-to-fit at their offsets, or where they would have been
 		private void LayoutPositioned(LayoutBox container, LayoutBox root, float containingWidth, float containingHeight)
 		{
-			if (container.Positioned == null)
-				return;
 			List<LayoutBox> positioned = container.Positioned;
-			container.Positioned = null;
-			foreach (LayoutBox box in positioned)
+			// The list stays on the container for painting and hit tests; a fixed box inside one of these joins the root's list mid-loop
+			for (int i = 0; positioned != null && i < positioned.Count; i++)
 			{
+				LayoutBox box = positioned[i];
 				float width = container == root ? _viewportWidth : container.ContentWidth;
 				float height = container == root ? Math.Max(_viewportHeight, container.Height) : container.ContentHeight;
 				float originX = container == root ? 0 : container.ContentX;
@@ -525,15 +528,10 @@ namespace Alloy.Sdk.Web.Layout
 				LayoutPositioned(box, root, box.ContentWidth, box.ContentHeight);
 			}
 			foreach (LayoutBox child in container.Children)
-				LayoutPositionedIn(child, root);
-		}
-
-		private void LayoutPositionedIn(LayoutBox box, LayoutBox root)
-		{
-			if (box.Positioned != null)
-				LayoutPositioned(box, root, box.ContentWidth, box.ContentHeight);
-			foreach (LayoutBox child in box.Children)
-				LayoutPositionedIn(child, root);
+			{
+				if (!child.IsAbsolute)
+					LayoutPositioned(child, root, child.ContentWidth, child.ContentHeight);
+			}
 		}
 
 		// A float: shrink-to-fit, then as high as the current line and as far to its side as earlier floats allow

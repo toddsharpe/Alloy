@@ -367,7 +367,10 @@ namespace Alloy.Tools.PageProbe
 				}
 			}
 			foreach (LayoutBox child in box.Children)
-				Walk(child, text);
+			{
+				if (!child.IsAbsolute)
+					Walk(child, text);
+			}
 			if (box.Positioned != null)
 			{
 				foreach (LayoutBox child in box.Positioned)

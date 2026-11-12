@@ -454,4 +454,28 @@ public class LayoutTests
 		Assert.Equal(30, FindId(root, "b").Height, 0.5f);
 		Assert.Equal(60, FindId(root, "c").Height, 0.5f);
 	}
+
+	[Fact]
+	public void PositionedBoxesPaintInZIndexOrder()
+	{
+		LayoutBox root = Lay("<body><div style=\"position:relative;height:100px\"><div id=\"top\" style=\"position:absolute;left:0;top:0;width:50px;height:50px;background:#ff0000;z-index:5\"></div><div id=\"mid\" style=\"position:absolute;left:10px;top:10px;width:50px;height:50px;background:#00ff00\"></div><div id=\"low\" style=\"position:absolute;left:20px;top:20px;width:50px;height:50px;background:#0000ff;z-index:-1\"></div></div></body>");
+		DisplayList list = Painter.Paint(root, Width, Height);
+		int red = list.Items.FindIndex(item => item.Kind == DisplayItemKind.Rect && item.Color.ToString() == "#ff0000");
+		int green = list.Items.FindIndex(item => item.Kind == DisplayItemKind.Rect && item.Color.ToString() == "#00ff00");
+		int blue = list.Items.FindIndex(item => item.Kind == DisplayItemKind.Rect && item.Color.ToString() == "#0000ff");
+		Assert.True(blue < green && green < red, $"paint order blue {blue} green {green} red {red}; rects: {string.Join(" ", list.Items.ConvertAll(i => i.Kind + ":" + i.Color + "@" + i.X + "," + i.Y + " " + i.Width + "x" + i.Height))}; top box {FindId(root, "top")?.Width}x{FindId(root, "top")?.Height} positioned {root.Positioned?.Count}");
+		Assert.Same(FindId(root, "top"), Painter.HitTest(root, 25, 25));
+	}
+
+	[Fact]
+	public void PositionedBoxesPaintWithoutAnyAtTheRoot()
+	{
+		LayoutBox root = Lay("<body><div style=\"position:relative;height:100px\"><div id=\"a\" style=\"position:absolute;left:5px;top:5px;width:50px;height:50px;background:#ff0000\"></div></div></body>");
+		LayoutBox a = FindId(root, "a");
+		Assert.Equal(50, a.Width);
+		Assert.Equal(5, a.Y);
+		DisplayList list = Painter.Paint(root, Width, Height);
+		Assert.Contains(list.Items, item => item.Kind == DisplayItemKind.Rect && item.Color.ToString() == "#ff0000");
+		Assert.Same(a, Painter.HitTest(root, 30, 30));
+	}
 }
