@@ -34,7 +34,7 @@ public class DomTests
 		host.Interpreter.Clock = () => harness.Now;
 		host.Console = (level, text) => harness.Log.Add(text);
 		host.Navigate = submission => harness.Navigations.Add(submission);
-		host.EnsureLayout = () =>
+		StyleResolver Resolver()
 		{
 			MediaEnvironment media = new MediaEnvironment(800, 600);
 			StyleResolver resolver = new StyleResolver(media);
@@ -45,6 +45,12 @@ public class DomTests
 					css.Append(style.TextContent);
 			}
 			resolver.AddStylesheet(CssParser.Parse(css.ToString(), media));
+			return resolver;
+		}
+		host.StyleFor = element => Resolver().Resolve(element);
+		host.EnsureLayout = () =>
+		{
+			StyleResolver resolver = Resolver();
 			harness.Root = new BoxBuilder(resolver).Build(document);
 			new LayoutEngine(new FixedFontProvider(), 800, 600).Layout(harness.Root);
 			host.Dirty = false;
@@ -71,6 +77,17 @@ public class DomTests
 	}
 
 	private static string Eval(Harness harness, string expression) => harness.Host.Interpreter.Evaluate(expression).ToJsString();
+
+	[Fact]
+	public void ComputedValuesWithoutGeometryForceNoLayout()
+	{
+		Harness harness = Open("<style>p { color: rgb(1, 2, 3); opacity: 0.5 }</style><p id=p>x</p>");
+		Assert.Contains("1, 2, 3", Eval(harness, "getComputedStyle(document.getElementById('p')).color"));
+		Assert.Equal("0.5", Eval(harness, "getComputedStyle(document.getElementById('p')).opacity"));
+		Assert.Equal(0, harness.Host.ForcedLayouts);
+		Assert.Equal("800px", Eval(harness, "getComputedStyle(document.getElementById('p')).width"));
+		Assert.Equal(1, harness.Host.ForcedLayouts);
+	}
 
 	[Fact]
 	public void AnAwaitThatCannotProgressRunsTheNextScript()

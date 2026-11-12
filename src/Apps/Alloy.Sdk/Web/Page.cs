@@ -228,6 +228,7 @@ namespace Alloy.Sdk.Web
 			Scripts.Fetch = (method, url, body, contentType, headers) => ToResource(Http.Request(method, url, body, contentType, timeoutMs, headers));
 			Scripts.FocusStyle = (previous, current) => SetFocus(current);
 			Scripts.BoxFor = BoxFor;
+			Scripts.StyleFor = StyleOf;
 			Scripts.EnsureLayout = () => Layout(DefaultViewportWidth, DefaultViewportHeight, DefaultFonts ?? new FixedFontProvider());
 			Scripts.ViewportWidth = DefaultViewportWidth;
 			Scripts.ViewportHeight = DefaultViewportHeight;
@@ -400,6 +401,32 @@ namespace Alloy.Sdk.Web
 			ulong start = Kernel.TickCount;
 			if (Scripts != null && Scripts.Dirty)
 				RefreshStylesheets();
+			_viewportWidth = width;
+			_viewportHeight = height;
+			EnsureResolver(width, height);
+			Root = new BoxBuilder(_resolver, ImageFor).Build(Document);
+			new LayoutEngine(fonts, width, height).Layout(Root);
+			Display = Painter.Paint(Root, width, height);
+			LayoutMs = (long)(Kernel.TickCount - start);
+			if (Scripts != null)
+				Scripts.Dirty = false;
+		}
+
+		private int _viewportWidth = DefaultViewportWidth;
+		private int _viewportHeight = DefaultViewportHeight;
+
+		// The cascade's style for an element as of the current stylesheets, without laying anything out
+		public ComputedStyle StyleOf(Element element)
+		{
+			if (Scripts != null && Scripts.Dirty)
+				RefreshStylesheets();
+			EnsureResolver(_viewportWidth, _viewportHeight);
+			return _resolver.Resolve(element);
+		}
+
+		// A resolver over the current stylesheets for a viewport, kept while neither changes
+		private void EnsureResolver(int width, int height)
+		{
 			CssValue.Viewport.Width = width;
 			CssValue.Viewport.Height = height;
 			MediaEnvironment media = new MediaEnvironment(width, height);
@@ -425,12 +452,6 @@ namespace Alloy.Sdk.Web
 				_resolver = resolver;
 				_resolverKey = resolverKeyText;
 			}
-			Root = new BoxBuilder(_resolver, ImageFor).Build(Document);
-			new LayoutEngine(fonts, width, height).Layout(Root);
-			Display = Painter.Paint(Root, width, height);
-			LayoutMs = (long)(Kernel.TickCount - start);
-			if (Scripts != null)
-				Scripts.Dirty = false;
 		}
 
 		// The form control under a document point (text field, button, checkbox, radio or select), if any

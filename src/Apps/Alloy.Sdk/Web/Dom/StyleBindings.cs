@@ -609,8 +609,15 @@ namespace Alloy.Sdk.Web.Dom
 
 		internal string ComputedValue(Element element, string property)
 		{
-			LayoutBox box = LayoutBoxOf(element);
-			ComputedStyle style = box?.Style;
+			Accessor = "getComputedStyle:" + property;
+			// Properties that need no geometry come from the cascade alone, so reading them forces no layout
+			LayoutBox box = null;
+			ComputedStyle style = StyleFor != null && !NeedsBox(property) ? StyleFor(element) : null;
+			if (style == null)
+			{
+				box = LayoutBoxOf(element);
+				style = box?.Style;
+			}
 			if (style == null)
 			{
 				switch (property)
@@ -779,6 +786,8 @@ namespace Alloy.Sdk.Web.Dom
 			}
 			return text.ToString();
 		}
+
+		private static bool NeedsBox(string property) => property is "width" or "height" || property.StartsWith("margin-", StringComparison.Ordinal) || property.StartsWith("padding-", StringComparison.Ordinal) || (property.StartsWith("border-", StringComparison.Ordinal) && property.EndsWith("-width", StringComparison.Ordinal));
 
 		private static string ColorText(Color color)
 		{

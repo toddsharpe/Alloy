@@ -28,6 +28,8 @@ namespace Alloy.Sdk.Web.Dom
 
 	public delegate LayoutBox BoxLookup(Element element);
 
+	public delegate Alloy.Sdk.Web.Css.ComputedStyle StyleLookup(Element element);
+
 	public delegate void NavigationHandler(FormSubmission request);
 
 	public delegate void HistoryHandler(int delta);
@@ -61,6 +63,8 @@ namespace Alloy.Sdk.Web.Dom
 		public Uri Url;
 		public ResourceFetcher Fetch;
 		public BoxLookup BoxFor;
+		// The cascade's style for an element without a layout, for computed values that need no geometry
+		public StyleLookup StyleFor;
 		public LayoutRequest EnsureLayout;
 		public NavigationHandler Navigate;
 		public HistoryHandler HistoryMove;
@@ -980,6 +984,9 @@ namespace Alloy.Sdk.Web.Dom
 
 		private bool _layoutValid;
 		public int ForcedLayouts;
+		// Which accessors forced the layouts, for the probe's report
+		public readonly Dictionary<string, int> ForcedLayoutsBy = new Dictionary<string, int>();
+		internal string Accessor;
 
 		internal LayoutBox LayoutBoxOf(Element element)
 		{
@@ -988,6 +995,8 @@ namespace Alloy.Sdk.Web.Dom
 				// A script that writes a style and reads a box in a loop forces a layout per round; the budget decides how many it gets
 				Interpreter.CheckDeadline();
 				ForcedLayouts++;
+				string accessor = Accessor ?? "other";
+				ForcedLayoutsBy[accessor] = ForcedLayoutsBy.TryGetValue(accessor, out int count) ? count + 1 : 1;
 				EnsureLayout?.Invoke();
 				_layoutValid = true;
 			}
@@ -996,6 +1005,7 @@ namespace Alloy.Sdk.Web.Dom
 
 		internal JsObject BoundingRect(Element element)
 		{
+			Accessor = "getBoundingClientRect";
 			LayoutBox box = LayoutBoxOf(element);
 			int scroll = ScrollY?.Invoke() ?? 0;
 			double x = box?.X ?? 0;

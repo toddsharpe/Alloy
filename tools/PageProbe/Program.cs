@@ -25,6 +25,7 @@ namespace Alloy.Tools.PageProbe
 		private static readonly HttpClient s_http = new HttpClient(new HttpClientHandler { UseCookies = false, AllowAutoRedirect = true, AutomaticDecompression = System.Net.DecompressionMethods.All }) { Timeout = TimeSpan.FromSeconds(20) };
 		private static bool s_verbose;
 		private static readonly Dictionary<string, string> s_sheetByUrl = new Dictionary<string, string>();
+		private static readonly Dictionary<string, Stylesheet> s_parsedSheets = new Dictionary<string, Stylesheet>(StringComparer.Ordinal);
 
 		// Deep page scripts need far more stack than the main thread has
 		private static int Main(string[] args)
@@ -115,16 +116,24 @@ namespace Alloy.Tools.PageProbe
 			MediaEnvironment media = new MediaEnvironment(width, 800);
 			StyleResolver resolver = null;
 			int resolverSheets = -1;
+			void EnsureResolver()
+			{
+				if (resolver != null && resolverSheets == sheets.Count)
+					return;
+				resolver = new StyleResolver(media);
+				foreach (string css in sheets)
+				{
+					// Parsed once per distinct text, as the page does, since scripts add sheets a few at a time
+					if (!s_parsedSheets.TryGetValue(css, out Stylesheet parsed))
+						s_parsedSheets[css] = parsed = CssParser.Parse(css, media);
+					resolver.AddStylesheet(parsed);
+				}
+				resolverSheets = sheets.Count;
+			}
 			void Layout()
 			{
 				Stopwatch sw = Stopwatch.StartNew();
-				if (resolver == null || resolverSheets != sheets.Count)
-				{
-					resolver = new StyleResolver(media);
-					foreach (string css in sheets)
-						resolver.AddStylesheet(CssParser.Parse(css, media));
-					resolverSheets = sheets.Count;
-				}
+				EnsureResolver();
 				resolver.Reused = 0;
 				resolver.Computed = 0;
 				long parsedCss = sw.ElapsedMilliseconds;
@@ -166,7 +175,7 @@ namespace Alloy.Tools.PageProbe
 			{
 				log.Add(level + ": " + line);
 				if (s_verbose || level == "error")
-					Console.WriteLine($"  [{level}] {Trim(line, 300)}");
+					Console.WriteLine($"  [{level}] {Trim(line, s_verbose ? 4000 : 300)}");
 			};
 			host.Navigate = request => Console.WriteLine($"  navigate: {request}");
 			host.Alert = message => Console.WriteLine($"  alert: {message}");
@@ -176,6 +185,11 @@ namespace Alloy.Tools.PageProbe
 				host.Dirty = false;
 			};
 			host.BoxFor = element => Find(root, element);
+			host.StyleFor = element =>
+			{
+				EnsureResolver();
+				return resolver.Resolve(element);
+			};
 			Stopwatch scripts = Stopwatch.StartNew();
 			host.RunScripts();
 			int before = sheets.Count;
@@ -199,6 +213,12 @@ namespace Alloy.Tools.PageProbe
 			}
 			if (pumps > 0)
 				Console.WriteLine($"timers: pumped {pumps} times over {idle.ElapsedMilliseconds} ms (longest pump {longestPump} ms), {host.ScriptErrors} errors so far, {host.ForcedLayouts} layouts forced by scripts");
+			if (host.ForcedLayouts > 0)
+			{
+				List<KeyValuePair<string, int>> forcers = new List<KeyValuePair<string, int>>(host.ForcedLayoutsBy);
+				forcers.Sort((a, b) => b.Value.CompareTo(a.Value));
+				Console.WriteLine("  forced by: " + string.Join(", ", forcers.ConvertAll(f => f.Key + " x" + f.Value)));
+			}
 
 			foreach (string selector in clicks)
 			{

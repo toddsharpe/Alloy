@@ -226,7 +226,11 @@ namespace Alloy.Sdk.Web.Dom
 
 		private void ElementGetter(JsObject prototype, string name, ElementReader getter, ElementWriter setter = null)
 		{
-			Interpreter.DefineGetter(prototype, name, (i, t, a) => getter(ThisElement(t)), setter == null ? null : (i, t, a) =>
+			Interpreter.DefineGetter(prototype, name, (i, t, a) =>
+			{
+				Accessor = name;
+				return getter(ThisElement(t));
+			}, setter == null ? null : (i, t, a) =>
 			{
 				setter(ThisElement(t), Interpreter.Arg(a, 0));
 				return JsValue.Undefined;

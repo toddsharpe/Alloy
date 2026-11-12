@@ -81,6 +81,7 @@ namespace Alloy.Sdk.Web.Render
 			if (scripts == null)
 				return;
 			scripts.BoxFor = Page.BoxFor;
+			scripts.StyleFor = Page.StyleOf;
 			scripts.EnsureLayout = EnsureLayout;
 			scripts.ScrollY = () => ScrollY;
 			scripts.ScrollTo = y =>
