@@ -553,6 +553,15 @@ line2 ${`nested ${1 + 1}`}`
 	}
 
 	[Fact]
+	public void AssignsThroughSuperAndKeepsIdentityEscapes()
+	{
+		Assert.Equal("3,3", Eval("class A { set speed(v) { this._s = v } get speed() { return this._s } } class B extends A { set speed(v) { super.speed = v + 1 } get speed() { return super.speed } } const b = new B(); b.speed = 2; [b.speed, b._s].join()"));
+		Assert.Equal("2n", Eval("class A { } class B extends A { bump() { super.n = 2; return this.n + (Object.keys(this).join()) } } new B().bump()"));
+		Assert.Equal("true", Eval("/a\\_b/.test('a_b')"));
+		Assert.Equal("true", Eval("/\\q\\-/.test('q-')"));
+	}
+
+	[Fact]
 	public void StackFramesNameTheirScript()
 	{
 		List<string> log = new List<string>();

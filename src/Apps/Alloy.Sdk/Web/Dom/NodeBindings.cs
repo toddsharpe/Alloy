@@ -1582,7 +1582,7 @@ namespace Alloy.Sdk.Web.Dom
 			Interpreter.DefineMethod(proto, "setCustomValidity", 1, (i, t, a) => JsValue.Undefined);
 			Interpreter.DefineMethod(proto, "select", 0, (i, t, a) => JsValue.Undefined);
 			Interpreter.DefineMethod(proto, "setSelectionRange", 2, (i, t, a) => JsValue.Undefined);
-			Interpreter.DefineMethod(proto, "getContext", 1, (i, t, a) => JsValue.Null);
+			Interpreter.DefineMethod(proto, "getContext", 1, (i, t, a) => CanvasContext(ThisElement(t), Interpreter.Arg(a, 0).ToJsString()));
 			Interpreter.DefineMethod(proto, "toDataURL", 0, (i, t, a) => "data:,");
 			Interpreter.DefineMethod(proto, "play", 0, (i, t, a) => Interpreter.PromiseResolve(JsValue.Undefined));
 			Interpreter.DefineMethod(proto, "pause", 0, (i, t, a) => JsValue.Undefined);

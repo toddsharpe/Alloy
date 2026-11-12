@@ -410,4 +410,11 @@ public class DomTests
 		Assert.Contains("GET /api x-token=abc", seen);
 		Assert.Contains("true true false true", harness.Log);
 	}
+
+	[Fact]
+	public void CanvasHasAQuiet2dContext()
+	{
+		Harness harness = Open("<canvas id=\"c\" width=\"10\" height=\"10\"></canvas><script>const c = document.getElementById('c'); const ctx = c.getContext('2d'); ctx.font = '20px sans-serif'; ctx.fillRect(0, 0, 5, 5); const m = ctx.measureText('abcd'); const d = ctx.getImageData(0, 0, 2, 2); console.log((ctx.canvas === c) + ' ' + (m.width > 20) + ' ' + d.data.length + ' ' + (c.getContext('webgl') === null) + ' ' + (c.getContext('2d') === ctx))</script>");
+		Assert.Contains("true true 16 true true", harness.Log);
+	}
 }

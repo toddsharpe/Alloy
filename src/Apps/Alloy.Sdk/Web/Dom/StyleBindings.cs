@@ -287,6 +287,105 @@ namespace Alloy.Sdk.Web.Dom
 		private JsObject _tokenListPrototype;
 
 		// camelCase to kebab-case, with the vendor and float special cases
+		private readonly Dictionary<Element, JsObject> _canvasContexts = new Dictionary<Element, JsObject>();
+
+		// A 2d context that accepts every call and draws nothing: pages measure text, probe fonts and fingerprint on it; WebGL stays unsupported
+		private JsValue CanvasContext(Element canvas, string kind)
+		{
+			if (kind != "2d")
+				return JsValue.Null;
+			if (_canvasContexts.TryGetValue(canvas, out JsObject existing))
+				return existing;
+			JsObject context = Interpreter.NewObject();
+			context.Class = "CanvasRenderingContext2D";
+			context.Put("canvas", Wrap(canvas));
+			context.Put("fillStyle", "#000000");
+			context.Put("strokeStyle", "#000000");
+			context.Put("font", "10px sans-serif");
+			context.Put("lineWidth", 1);
+			context.Put("lineCap", "butt");
+			context.Put("lineJoin", "miter");
+			context.Put("miterLimit", 10);
+			context.Put("globalAlpha", 1);
+			context.Put("globalCompositeOperation", "source-over");
+			context.Put("textAlign", "start");
+			context.Put("textBaseline", "alphabetic");
+			context.Put("direction", "ltr");
+			context.Put("imageSmoothingEnabled", true);
+			context.Put("shadowBlur", 0);
+			context.Put("shadowColor", "rgba(0, 0, 0, 0)");
+			context.Put("shadowOffsetX", 0);
+			context.Put("shadowOffsetY", 0);
+			context.Put("filter", "none");
+			foreach (string name in new[] { "fillRect", "clearRect", "strokeRect", "beginPath", "closePath", "moveTo", "lineTo", "arc", "arcTo", "ellipse", "bezierCurveTo", "quadraticCurveTo", "rect", "roundRect", "fill", "stroke", "clip", "save", "restore", "translate", "rotate", "scale", "transform", "setTransform", "resetTransform", "drawImage", "fillText", "strokeText", "putImageData", "setLineDash", "drawFocusIfNeeded" })
+				Interpreter.DefineMethod(context, name, 0, (i, t, a) => JsValue.Undefined);
+			Interpreter.DefineMethod(context, "getLineDash", 0, (i, t, a) => Interpreter.NewArray());
+			Interpreter.DefineMethod(context, "isPointInPath", 2, (i, t, a) => false);
+			Interpreter.DefineMethod(context, "isPointInStroke", 2, (i, t, a) => false);
+			Interpreter.DefineMethod(context, "getTransform", 0, (i, t, a) =>
+			{
+				JsObject matrix = Interpreter.NewObject();
+				matrix.Put("a", 1);
+				matrix.Put("b", 0);
+				matrix.Put("c", 0);
+				matrix.Put("d", 1);
+				matrix.Put("e", 0);
+				matrix.Put("f", 0);
+				return matrix;
+			});
+			Interpreter.DefineMethod(context, "measureText", 1, (i, t, a) =>
+			{
+				string text = Interpreter.Arg(a, 0).ToJsString();
+				float size = 10;
+				string font = t.IsObject ? t.Object.Get("font", Interpreter).ToJsString() : "";
+				foreach (string part in font.Split(' '))
+				{
+					if (part.EndsWith("px", StringComparison.Ordinal) && float.TryParse(part.AsSpan(0, part.Length - 2), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float parsed))
+						size = parsed;
+				}
+				JsObject metrics = Interpreter.NewObject();
+				metrics.Put("width", Math.Round(text.Length * size * 0.55, 2));
+				metrics.Put("actualBoundingBoxAscent", Math.Round(size * 0.75, 2));
+				metrics.Put("actualBoundingBoxDescent", Math.Round(size * 0.22, 2));
+				metrics.Put("actualBoundingBoxLeft", 0);
+				metrics.Put("actualBoundingBoxRight", Math.Round(text.Length * size * 0.55, 2));
+				metrics.Put("fontBoundingBoxAscent", Math.Round(size * 0.9, 2));
+				metrics.Put("fontBoundingBoxDescent", Math.Round(size * 0.25, 2));
+				return metrics;
+			});
+			NativeFunction imageData = (i, t, a) =>
+			{
+				int width = Math.Max(0, (int)Interpreter.Arg(a, a.Length > 2 ? 2 : 0).ToNumber());
+				int height = Math.Max(0, (int)Interpreter.Arg(a, a.Length > 2 ? 3 : 1).ToNumber());
+				if (a.Length == 1 && a[0].IsObject)
+				{
+					width = (int)a[0].Object.Get("width", Interpreter).ToNumber();
+					height = (int)a[0].Object.Get("height", Interpreter).ToNumber();
+				}
+				long count = Math.Min((long)width * height * 4, 64L * 1024 * 1024);
+				JsObject data = Interpreter.NewObject();
+				data.Put("width", width);
+				data.Put("height", height);
+				data.Put("data", Interpreter.NewUint8Array(new byte[count]));
+				return data;
+			};
+			Interpreter.DefineMethod(context, "getImageData", 4, imageData);
+			Interpreter.DefineMethod(context, "createImageData", 2, imageData);
+			NativeFunction gradient = (i, t, a) =>
+			{
+				JsObject result = Interpreter.NewObject();
+				result.Class = "CanvasGradient";
+				Interpreter.DefineMethod(result, "addColorStop", 2, (i2, t2, a2) => JsValue.Undefined);
+				return result;
+			};
+			Interpreter.DefineMethod(context, "createLinearGradient", 4, gradient);
+			Interpreter.DefineMethod(context, "createRadialGradient", 6, gradient);
+			Interpreter.DefineMethod(context, "createConicGradient", 3, gradient);
+			Interpreter.DefineMethod(context, "createPattern", 2, gradient);
+			_canvasContexts[canvas] = context;
+			return context;
+		}
+
 		public static string ToCssName(string property)
 		{
 			if (property == "cssFloat" || property == "styleFloat")

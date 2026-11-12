@@ -990,9 +990,11 @@ namespace Alloy.Sdk.Script
 					JsValue value = EvaluateNamed(assignment.Value, scope, assignment.Target as Identifier);
 					if (assignment.Target is MemberExpression member)
 					{
-						JsValue target = Evaluate(member.Object, scope);
 						string key = MemberKey(member, scope);
-						SetMember(target, key, value);
+						if (member.Object is SuperExpression)
+							SuperSet(scope, key, value);
+						else
+							SetMember(Evaluate(member.Object, scope), key, value);
 					}
 					else
 						BindPattern(assignment.Target, value, scope, null);
@@ -1015,8 +1017,14 @@ namespace Alloy.Sdk.Script
 					string op = assignment.Operator.Substring(0, assignment.Operator.Length - 1);
 					if (assignment.Target is MemberExpression member)
 					{
-						JsValue target = Evaluate(member.Object, scope);
 						string key = MemberKey(member, scope);
+						if (member.Object is SuperExpression)
+						{
+							JsValue superResult = BinaryOperation(op, Evaluate(member, scope), Evaluate(assignment.Value, scope));
+							SuperSet(scope, key, superResult);
+							return superResult;
+						}
+						JsValue target = Evaluate(member.Object, scope);
 						JsValue result = BinaryOperation(op, GetMember(target, key), Evaluate(assignment.Value, scope));
 						SetMember(target, key, result);
 						return result;
@@ -1552,6 +1560,32 @@ namespace Alloy.Sdk.Script
 				return fallback;
 			JsValue prototype = GetMember(newTarget, "prototype");
 			return prototype.IsObject ? prototype.Object : fallback;
+		}
+
+		// super.x = v: a setter found from the home object's prototype runs with this as receiver; otherwise the value lands on this itself
+		private void SuperSet(Scope scope, string key, JsValue value)
+		{
+			JsObject home = HomeOf(scope);
+			JsValue self = ResolveThis(scope);
+			JsProperty inherited = home?.Prototype?.GetProperty(key);
+			if (inherited != null && inherited.IsAccessor)
+			{
+				if (inherited.Setter != null)
+					Call(inherited.Setter, self, new[] { value });
+				return;
+			}
+			if (!self.IsObject)
+				throw TypeError("Cannot set properties of " + self.ToJsString() + " (setting '" + key + "')");
+			JsProperty own = self.Object.GetOwnProperty(key);
+			if (own == null)
+				self.Object.DefineOwn(key, new JsProperty { Value = value });
+			else if (own.IsAccessor)
+			{
+				if (own.Setter != null)
+					Call(own.Setter, self, new[] { value });
+			}
+			else if (own.Writable)
+				own.Value = value;
 		}
 
 		private JsValue SuperCall(CallExpression call, Scope scope)

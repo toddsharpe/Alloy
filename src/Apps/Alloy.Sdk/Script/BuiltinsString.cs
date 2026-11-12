@@ -610,7 +610,11 @@ namespace Alloy.Sdk.Script
 							break;
 						}
 						default:
-							builder.Append('\\').Append(next);
+							// An identity escape of a word character, \\_ or \\q, means the character itself; .NET rejects it as unknown
+							if ((char.IsLetterOrDigit(next) || next == '_') && "bBdDsSwWnrtfv0123456789xucpPk".IndexOf(next) < 0)
+								builder.Append(next);
+							else
+								builder.Append('\\').Append(next);
 							break;
 					}
 					continue;
