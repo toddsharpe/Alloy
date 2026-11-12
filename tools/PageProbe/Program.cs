@@ -136,7 +136,7 @@ namespace Alloy.Tools.PageProbe
 			CollectStylesheets(document, finalUrl, sheets, ref linked);
 			host.FireLoad();
 			scripts.Stop();
-			Console.WriteLine($"scripts: {host.ScriptsRun} run, {host.ScriptErrors} errors, {scripts.ElapsedMilliseconds} ms, {sheets.Count - before} stylesheets added by scripts, document now {Count(document)} elements, title \"{document.Title}\"");
+			Console.WriteLine($"scripts: {host.ScriptsRun} run, {host.ScriptErrors} errors, {host.ScriptsSkipped} skipped, {scripts.ElapsedMilliseconds} ms, {sheets.Count - before} stylesheets added by scripts, document now {Count(document)} elements, title \"{document.Title}\"");
 
 			int pumps = 0;
 			Stopwatch idle = Stopwatch.StartNew();

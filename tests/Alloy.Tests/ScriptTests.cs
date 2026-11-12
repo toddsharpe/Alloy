@@ -530,4 +530,17 @@ line2 ${`nested ${1 + 1}`}`
 		Assert.Equal("kab", interpreter.Call(callback, thisObject, new JsValue[] { "a", "b" }).ToJsString());
 		Assert.Equal("[object Object]", interpreter.Evaluate("String(host)").ToJsString());
 	}
+
+	[Fact]
+	public void AwaitOnAPromiseNobodySettlesGivesUpAtTheDeadline()
+	{
+		List<string> log = new List<string>();
+		Interpreter interpreter = New(log);
+		interpreter.Deadline = interpreter.Clock() + 300;
+		System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+		interpreter.TryEvaluate("setInterval(() => {}, 10); (async () => { try { await new Promise(() => {}); } catch (e) { console.log('caught ' + e.name) } })()");
+		watch.Stop();
+		Assert.Contains("caught RangeError", log);
+		Assert.True(watch.ElapsedMilliseconds < 5000, "await returned after " + watch.ElapsedMilliseconds + " ms");
+	}
 }

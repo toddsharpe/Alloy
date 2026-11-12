@@ -140,6 +140,8 @@ namespace Alloy.Sdk.Script
 				throw TypeError("Failed to resolve module specifier \"" + specifier + "\"" + (referrer == null ? "" : " from " + referrer));
 			if (_modules.TryGetValue(url, out ModuleRecord existing))
 				return existing;
+			if (Clock() > Deadline)
+				throw RangeError("Script ran too long");
 			string source = FetchModule?.Invoke(url);
 			if (source == null)
 				throw TypeError("Failed to fetch dynamically imported module: " + url);

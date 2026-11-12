@@ -70,12 +70,16 @@ namespace Alloy.Sdk.Web.Dom
 		public int ViewportHeight = 746;
 		public double ScriptBudgetMs = 8000;
 		public double EventBudgetMs = 3000;
+		// Wall time all the scripts of a page load may take together, fetches included; what does not fit is skipped so the page still appears
+		public double LoadBudgetMs = 20000;
+		private double _loadDeadline = double.PositiveInfinity;
 		public string ReadyState = "loading";
 		// The document changed since it was last laid out
 		public bool Dirty;
 		public bool TitleChanged;
 		public int ScriptsRun;
 		public int ScriptErrors;
+		public int ScriptsSkipped;
 
 		private readonly Dictionary<Node, JsNode> _wrappers = new Dictionary<Node, JsNode>();
 		private readonly Dictionary<object, List<Listener>> _listeners = new Dictionary<object, List<Listener>>();
@@ -119,6 +123,7 @@ namespace Alloy.Sdk.Web.Dom
 		// Runs the classic scripts in document order, then the modules (which defer), then fires DOMContentLoaded
 		public void RunScripts()
 		{
+			_loadDeadline = Now + LoadBudgetMs;
 			Interpreter.ScriptUrl = Url?.ToString();
 			Interpreter.ResolveModule = ResolveSpecifier;
 			Interpreter.FetchModule = FetchModuleSource;
@@ -140,7 +145,21 @@ namespace Alloy.Sdk.Web.Dom
 			ReadyState = "interactive";
 			DispatchSimple("readystatechange", Document, false, false);
 			DispatchSimple("DOMContentLoaded", Document, true, false);
-			Interpreter.RunJobs();
+			RunJobsBudgeted();
+		}
+
+		// Pending promise jobs under the event budget, never unbounded: a page that chains work forever must not hold the load
+		private void RunJobsBudgeted()
+		{
+			Interpreter.Deadline = Math.Min(Now + EventBudgetMs, _loadDeadline);
+			try
+			{
+				Interpreter.RunJobs();
+			}
+			finally
+			{
+				Interpreter.Deadline = double.PositiveInfinity;
+			}
 		}
 
 		// The load event, once the page's resources are in
@@ -151,7 +170,8 @@ namespace Alloy.Sdk.Web.Dom
 			JsEvent load = NewEvent("load", false, false);
 			DispatchEvent(load, Interpreter.Global);
 			DispatchSimple("pageshow", Interpreter.Global, false, false);
-			Interpreter.RunJobs();
+			RunJobsBudgeted();
+			_loadDeadline = double.PositiveInfinity;
 		}
 
 		// classic, module, importmap, or other for the data blocks pages keep in script tags; nomodule scripts are for browsers without modules
@@ -235,6 +255,13 @@ namespace Alloy.Sdk.Web.Dom
 			string source;
 			string src = script.GetAttribute("src");
 			Uri target = null;
+			if (Now > _loadDeadline)
+			{
+				ScriptsSkipped++;
+				if (ScriptsSkipped == 1)
+					Log("warn", "script: page script budget spent, later scripts skipped");
+				return;
+			}
 			if (!string.IsNullOrWhiteSpace(src))
 			{
 				target = Resolve(src.Trim());
@@ -253,7 +280,7 @@ namespace Alloy.Sdk.Web.Dom
 				source = script.TextContent;
 			Element previous = _currentScript;
 			_currentScript = script;
-			Interpreter.Deadline = Now + ScriptBudgetMs;
+			Interpreter.Deadline = Math.Min(Now + ScriptBudgetMs, _loadDeadline);
 			ScriptsRun++;
 			try
 			{

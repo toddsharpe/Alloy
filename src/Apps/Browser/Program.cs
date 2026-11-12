@@ -230,7 +230,7 @@ namespace Alloy.Apps.Browser
 			}
 			if (!s_address.Focused)
 				s_address.Text = shown;
-			Status(page.Error != null ? page.Error : $"{page.Title}  ({page.Status}, {page.StylesheetUrls.Count} stylesheets, {page.Scripts?.ScriptsRun ?? 0} scripts, fetched in {page.FetchMs} ms)");
+			Status(page.Error != null ? page.Error : $"{page.Title}  ({page.Status}, {page.StylesheetUrls.Count} stylesheets, {page.Scripts?.ScriptsRun ?? 0} scripts{(page.Scripts?.ScriptsSkipped > 0 ? $" ({page.Scripts.ScriptsSkipped} skipped)" : "")}, fetched in {page.FetchMs} ms)");
 			if (s_pending != null)
 			{
 				FormSubmission next = s_pending;

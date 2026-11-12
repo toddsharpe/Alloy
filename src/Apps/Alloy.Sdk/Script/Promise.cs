@@ -435,6 +435,9 @@ namespace Alloy.Sdk.Script
 			{
 				if (RunJobs())
 					continue;
+				// A promise nothing will ever settle, kept company by an interval, would otherwise hold the thread forever
+				if (Clock() > Deadline)
+					throw RangeError("Script ran too long");
 				if (!(HostPump ?? DefaultPump)())
 					break;
 			}
@@ -447,7 +450,7 @@ namespace Alloy.Sdk.Script
 		{
 			if (_timers.Count == 0)
 				return false;
-			double wait = NextTimerDue - Clock();
+			double wait = Math.Min(NextTimerDue, Deadline) - Clock();
 			if (wait > 0)
 				Thread.Sleep((int)Math.Min(wait, 250));
 			RunTimers();
