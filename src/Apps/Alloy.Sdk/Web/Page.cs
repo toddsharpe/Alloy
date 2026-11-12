@@ -22,7 +22,7 @@ namespace Alloy.Sdk.Web
 		public readonly Dictionary<string, Bitmap> Images = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
 		public int ImageCount;
 		private volatile bool _imagesChanged;
-		private volatile int _imagesPending;
+		private int _imagesPending;
 
 		// True once since the last call when a picture finished decoding, so the host relayouts to show it
 		public bool TakeImagesChanged()
@@ -33,7 +33,14 @@ namespace Alloy.Sdk.Web
 			return true;
 		}
 
-		public int ImagesPending => _imagesPending;
+		public int ImagesPending
+		{
+			get
+			{
+				lock (Images)
+					return _imagesPending;
+			}
+		}
 		public const int MaxImages = 60;
 		public const int MaxImageBytes = 8 * 1024 * 1024;
 		public const int ImageThreads = 4;
@@ -337,7 +344,9 @@ namespace Alloy.Sdk.Web
 					}
 					finally
 					{
-						System.Threading.Interlocked.Decrement(ref _imagesPending);
+						// Counted under the dictionary's lock rather than with Interlocked, which faults on this platform's runtime
+						lock (Images)
+							_imagesPending--;
 					}
 				}
 			}
