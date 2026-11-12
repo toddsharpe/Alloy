@@ -20,6 +20,7 @@ namespace Alloy.Sdk.Web.Render
 		private int _pressX = -1;
 		private int _pressY = -1;
 		private Element _hovered;
+		private Element _hoverElement;
 
 		public Page Page { get; private set; }
 		public int ScrollY;
@@ -49,6 +50,7 @@ namespace Alloy.Sdk.Web.Render
 			ScrollY = 0;
 			_laidOutWidth = 0;
 			_hovered = null;
+			_hoverElement = null;
 			FocusedField = null;
 			Attach(page.Scripts);
 		}
@@ -547,10 +549,29 @@ namespace Alloy.Sdk.Web.Render
 		private void UpdateHover(int x, int y)
 		{
 			Element link = LinkAt(x, y);
-			if (link == _hovered)
+			if (link != _hovered)
+			{
+				_hovered = link;
+				LinkHovered?.Invoke(link == null ? null : Page.Resolve(link.GetAttribute("href")));
+			}
+			// The element under the pointer gets mouseover and mouseout, and the :hover chain follows it
+			float px = x - Bounds.X;
+			float py = y - Bounds.Y + ScrollY;
+			Element at = Bounds.Contains(x, y) && Page.Root != null ? ElementAt(px, py) : null;
+			if (at == _hoverElement)
 				return;
-			_hovered = link;
-			LinkHovered?.Invoke(link == null ? null : Page.Resolve(link.GetAttribute("href")));
+			Element previous = _hoverElement;
+			_hoverElement = at;
+			if (Page.Scripts != null)
+			{
+				if (previous != null)
+					Page.Scripts.DispatchMouse("mouseout", previous, px, py);
+				if (at != null)
+					Page.Scripts.DispatchMouse("mouseover", at, px, py);
+				Touch();
+			}
+			if (Page.SetHover(at))
+				Invalidate();
 		}
 	}
 }

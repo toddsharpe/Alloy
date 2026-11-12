@@ -41,6 +41,90 @@ namespace Alloy.Sdk.Web
 		// The resolver lives across layouts while the viewport and stylesheets stay the same, so most elements keep their computed styles
 		private StyleResolver _resolver;
 		private string _resolverKey;
+		private Element _hoverTarget;
+		private Element _focusTarget;
+
+		// Moves the :hover chain to the element under the pointer; true when some styled element changed state and a relayout is due
+		public bool SetHover(Element target)
+		{
+			if (target == _hoverTarget)
+				return false;
+			bool changed = false;
+			for (Element e = _hoverTarget; e != null; e = e.ParentElement)
+			{
+				if (!IsAncestorOrSelf(e, target))
+				{
+					e.Hovered = false;
+					changed |= InvalidateState(e);
+				}
+			}
+			for (Element e = target; e != null; e = e.ParentElement)
+			{
+				if (!e.Hovered)
+				{
+					e.Hovered = true;
+					changed |= InvalidateState(e);
+				}
+			}
+			_hoverTarget = target;
+			return changed;
+		}
+
+		// Moves :focus to the element and :focus-within to it and its ancestors
+		public bool SetFocus(Element target)
+		{
+			if (target == _focusTarget)
+				return false;
+			bool changed = false;
+			if (_focusTarget != null)
+			{
+				_focusTarget.Focused = false;
+				changed |= InvalidateState(_focusTarget);
+			}
+			for (Element e = _focusTarget; e != null; e = e.ParentElement)
+			{
+				if (!IsAncestorOrSelf(e, target))
+				{
+					e.FocusWithin = false;
+					changed |= InvalidateState(e);
+				}
+			}
+			for (Element e = target; e != null; e = e.ParentElement)
+			{
+				if (!e.FocusWithin)
+				{
+					e.FocusWithin = true;
+					changed |= InvalidateState(e);
+				}
+			}
+			if (target != null)
+			{
+				target.Focused = true;
+				changed |= InvalidateState(target);
+			}
+			_focusTarget = target;
+			if (changed && Scripts != null)
+				Scripts.Dirty = true;
+			return changed;
+		}
+
+		private static bool IsAncestorOrSelf(Element candidate, Element element)
+		{
+			for (Element e = element; e != null; e = e.ParentElement)
+			{
+				if (e == candidate)
+					return true;
+			}
+			return false;
+		}
+
+		private bool InvalidateState(Element element)
+		{
+			if (_resolver == null || !_resolver.DependsOnState(element))
+				return false;
+			element.AttributeVersion++;
+			return true;
+		}
 		public const int MaxStylesheets = 40;
 
 		public string Title => Document?.Title ?? Url?.Host ?? "";
@@ -122,6 +206,7 @@ namespace Alloy.Sdk.Web
 				return;
 			Scripts = new ScriptHost(Document, Url);
 			Scripts.Fetch = (method, url, body, contentType, headers) => ToResource(Http.Request(method, url, body, contentType, timeoutMs, headers));
+			Scripts.FocusStyle = (previous, current) => SetFocus(current);
 			Scripts.BoxFor = BoxFor;
 			Scripts.EnsureLayout = () => Layout(DefaultViewportWidth, DefaultViewportHeight, DefaultFonts ?? new FixedFontProvider());
 			Scripts.ViewportWidth = DefaultViewportWidth;

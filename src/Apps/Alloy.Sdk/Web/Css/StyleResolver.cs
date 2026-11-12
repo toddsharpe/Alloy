@@ -92,11 +92,48 @@ namespace Alloy.Sdk.Web.Css
 
 			public List<IndexedSelector> Universal => _universal;
 
+			// The ids, classes and tags of compounds that carry a hover or focus pseudo-class, or everything when one has no key
+			public readonly HashSet<string> StateKeys = new HashSet<string>(StringComparer.Ordinal);
+			public bool StateAnywhere;
+
+			private void CollectStateKeys(Selector selector)
+			{
+				foreach (CompoundSelector compound in selector.Compounds)
+				{
+					bool stateful = false;
+					string key = null;
+					foreach (SimpleSelector part in compound.Parts)
+					{
+						if (part.Type == SimpleSelector.Kind.PseudoClass && part.Inner == null && Selector.IsStatePseudoClass(part.Name))
+							stateful = true;
+						if (part.Inner != null)
+						{
+							foreach (Selector inner in part.Inner)
+								CollectStateKeys(inner);
+						}
+						if (part.Type == SimpleSelector.Kind.Id)
+							key = "#" + part.Name;
+						else if (part.Type == SimpleSelector.Kind.Class && (key == null || key[0] != '#'))
+							key = "." + part.Name;
+						else if (part.Type == SimpleSelector.Kind.Type && key == null)
+							key = part.Name;
+					}
+					if (!stateful)
+						continue;
+					if (key == null)
+						StateAnywhere = true;
+					else
+						StateKeys.Add(key);
+				}
+			}
+
 			public RuleIndex(List<StyleRule> rules)
 			{
 				Rules = rules;
 				for (int r = 0; r < rules.Count; r++)
 				{
+					foreach (Selector selector in rules[r].Selectors)
+						CollectStateKeys(selector);
 					foreach (Selector selector in rules[r].Selectors)
 					{
 						if (selector.PseudoElement != null || selector.Compounds.Count == 0)
@@ -272,6 +309,27 @@ namespace Alloy.Sdk.Web.Css
 			for (int i = 0; i < sorted.Count && i < 20; i++)
 				result.Append("  x").Append(sorted[i].Value).Append(' ').Append(sorted[i].Key).Append('\n');
 			return result.ToString();
+		}
+
+		// Whether some rule's hover or focus pseudo-class could apply to this element, so its style must be recomputed when its state changes
+		public bool DependsOnState(Element element)
+		{
+			RuleIndex index = _authorIndex ??= new RuleIndex(_author);
+			if (index.StateAnywhere)
+				return true;
+			if (index.StateKeys.Count == 0)
+				return false;
+			if (index.StateKeys.Contains(element.TagName))
+				return true;
+			string id = element.Id;
+			if (id != null && index.StateKeys.Contains("#" + id))
+				return true;
+			foreach (string name in element.Classes)
+			{
+				if (index.StateKeys.Contains("." + name))
+					return true;
+			}
+			return false;
 		}
 
 		// The style of an element, computing its ancestors' first since most properties inherit; a style from an earlier layout is reused while nothing it depends on has changed

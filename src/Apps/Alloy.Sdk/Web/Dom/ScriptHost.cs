@@ -21,6 +21,8 @@ namespace Alloy.Sdk.Web.Dom
 		public bool Ok => Status >= 200 && Status < 300;
 	}
 
+	public delegate void FocusHandler(Element previous, Element current);
+
 	// Fetches a resource for scripts; headers are the ones the script set on the request, Accept among them, or null
 	public delegate ResourceResponse ResourceFetcher(string method, Uri url, byte[] body, string contentType, IReadOnlyList<KeyValuePair<string, string>> headers);
 
@@ -487,12 +489,16 @@ namespace Alloy.Sdk.Web.Dom
 		}
 
 		// Focus moves: blur and focusout on the old element, focus and focusin on the new one
+		// Told when the focused element changes, so the page can restyle :focus
+		public FocusHandler FocusStyle;
+
 		public void SetActiveElement(Element element)
 		{
 			if (_activeElement == element)
 				return;
 			Element previous = _activeElement;
 			_activeElement = element;
+			FocusStyle?.Invoke(previous, element);
 			if (previous != null)
 			{
 				DispatchSimple("blur", previous, false, false);

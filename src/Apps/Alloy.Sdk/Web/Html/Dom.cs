@@ -201,6 +201,10 @@ namespace Alloy.Sdk.Web.Html
 		public readonly List<KeyValuePair<string, string>> Attributes = new List<KeyValuePair<string, string>>();
 		// Bumped on every attribute change, which is what a cached computed style must watch
 		public int AttributeVersion;
+		// The pointer and focus states the page keeps up to date for :hover, :focus and :focus-within
+		public bool Hovered;
+		public bool Focused;
+		public bool FocusWithin;
 		// A shadow tree a script attached: its Parent is this element, it is not among Children, and layout renders it in place of them
 		public Element ShadowRoot;
 

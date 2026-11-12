@@ -234,6 +234,40 @@ public class CssTests
 	}
 
 	[Fact]
+	public void HoverAndFocusFollowTheElementFlags()
+	{
+		Document document = HtmlParser.Parse("<div class=\"card\"><a id=\"link\" href=\"#\">go</a><span class=\"title\">t</span></div><input id=\"field\"><p id=\"plain\">p</p>");
+		MediaEnvironment media = new MediaEnvironment(800, 600);
+		StyleResolver resolver = new StyleResolver(media);
+		resolver.AddStylesheet(CssParser.Parse("a:hover { color: red } .card:hover .title { color: blue } input:focus { color: green } div:focus-within { color: purple }", media));
+		Element link = Find(document, "link");
+		Element card = link.ParentElement;
+		Element title = (Element)card.Children[1];
+		Element field = Find(document, "field");
+		Assert.NotEqual("#ff0000", resolver.Resolve(link).Color.ToString());
+		Assert.True(resolver.DependsOnState(link));
+		Assert.True(resolver.DependsOnState(card));
+		Assert.True(resolver.DependsOnState(field));
+		Assert.False(resolver.DependsOnState(title));
+		Assert.False(resolver.DependsOnState(Find(document, "plain")));
+		link.Hovered = true;
+		card.Hovered = true;
+		link.AttributeVersion++;
+		card.AttributeVersion++;
+		Assert.Equal("#ff0000", resolver.Resolve(link).Color.ToString());
+		Assert.Equal("#0000ff", resolver.Resolve(title).Color.ToString());
+		field.Focused = true;
+		field.AttributeVersion++;
+		Assert.Equal("#008000", resolver.Resolve(field).Color.ToString());
+		card.FocusWithin = true;
+		card.AttributeVersion++;
+		Assert.Equal("#800080", resolver.Resolve(card).Color.ToString());
+		StyleResolver anywhere = new StyleResolver(media);
+		anywhere.AddStylesheet(CssParser.Parse(":hover { outline: 1px solid red }", media));
+		Assert.True(anywhere.DependsOnState(Find(document, "plain")));
+	}
+
+	[Fact]
 	public void KeepsComputedStylesUntilTheirInputsChange()
 	{
 		Document document = HtmlParser.Parse("<div id=\"a\" class=\"x\"><p id=\"b\">t</p><p id=\"c\">u</p></div><div id=\"d\">v</div>");

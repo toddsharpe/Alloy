@@ -115,7 +115,10 @@ namespace Alloy.Sdk.Web.Css
 		public bool Matches(Element element) => Compounds.Count > 0 && MatchesFrom(element, Compounds.Count - 1);
 
 		// The pseudo-classes MatchesPseudo can answer; the rest (hover, focus, visited, host and the like) never match here
-		public static bool SupportsPseudoClass(string name) => name is "not" or "is" or "where" or "root" or "link" or "any-link" or "empty" or "first-child" or "last-child" or "only-child" or "first-of-type" or "last-of-type" or "nth-child" or "nth-last-child" or "nth-of-type" or "nth-last-of-type" or "checked" or "disabled" or "enabled" or "lang";
+		public static bool SupportsPseudoClass(string name) => name is "not" or "is" or "where" or "root" or "link" or "any-link" or "empty" or "first-child" or "last-child" or "only-child" or "first-of-type" or "last-of-type" or "nth-child" or "nth-last-child" or "nth-of-type" or "nth-last-of-type" or "checked" or "disabled" or "enabled" or "lang" or "hover" or "focus" or "focus-visible" or "focus-within";
+
+		// The pseudo-classes that follow the pointer and the focus, whose styles a page recomputes as they move
+		public static bool IsStatePseudoClass(string name) => name is "hover" or "focus" or "focus-visible" or "focus-within";
 
 		// Right to left: the last compound must match the element, each earlier one an element the combinator points at
 		private bool MatchesFrom(Element element, int index)
@@ -239,6 +242,13 @@ namespace Alloy.Sdk.Web.Css
 					return false;
 				case "root":
 					return element.ParentElement == null && element.TagName == "html";
+				case "hover":
+					return element.Hovered;
+				case "focus":
+				case "focus-visible":
+					return element.Focused;
+				case "focus-within":
+					return element.FocusWithin;
 				case "link":
 				case "any-link":
 					return (element.TagName == "a" || element.TagName == "area") && element.HasAttribute("href");
