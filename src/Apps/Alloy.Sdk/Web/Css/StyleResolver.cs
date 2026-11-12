@@ -24,6 +24,8 @@ namespace Alloy.Sdk.Web.Css
 			// The tags, ids and classes the element's ancestors must carry for this selector to match at all
 			public ulong NeedLow;
 			public ulong NeedHigh;
+			// The shadow root whose stylesheet the rule came from, or null for the document's own
+			public Element Scope;
 		}
 
 		// Two bits per name in a 128-bit filter, as browsers do for ancestor matching
@@ -129,8 +131,11 @@ namespace Alloy.Sdk.Web.Css
 
 			public int Count;
 
-			// Indexes the selectors without a pseudo-element, or with pseudoElement set only those for that ::before or ::after
-			public RuleIndex(List<StyleRule> rules, string pseudoElement = null)
+			// The vendor spellings of ::placeholder count as the standard one
+			public static string NormalizePseudoElement(string name) => name is "-webkit-input-placeholder" or "-moz-placeholder" or "-ms-input-placeholder" or "input-placeholder" ? "placeholder" : name;
+
+			// Indexes the selectors without a pseudo-element, or with pseudoElement set only those for that ::before, ::after or ::placeholder
+			public RuleIndex(List<StyleRule> rules, string pseudoElement = null, List<Element> scopes = null)
 			{
 				Rules = rules;
 				for (int r = 0; r < rules.Count; r++)
@@ -139,9 +144,9 @@ namespace Alloy.Sdk.Web.Css
 						CollectStateKeys(selector);
 					foreach (Selector selector in rules[r].Selectors)
 					{
-						if (selector.PseudoElement != pseudoElement || selector.Compounds.Count == 0)
+						if (NormalizePseudoElement(selector.PseudoElement) != pseudoElement || selector.Compounds.Count == 0)
 							continue;
-						IndexedSelector entry = new IndexedSelector { Rule = r, Selector = selector, Specificity = selector.Specificity };
+						IndexedSelector entry = new IndexedSelector { Rule = r, Selector = selector, Specificity = selector.Specificity, Scope = scopes != null && r < scopes.Count ? scopes[r] : null };
 						SelectorNeeds(selector, out entry.NeedLow, out entry.NeedHigh);
 						_keys.Clear();
 						if (!KeysOf(selector.Compounds[selector.Compounds.Count - 1], _keys))
@@ -285,17 +290,50 @@ namespace Alloy.Sdk.Web.Css
 			_userAgent = new RuleIndex(CssParser.Parse(UserAgentStylesheet.Css, media).Rules);
 		}
 
-		public void AddStylesheet(Stylesheet sheet)
+		public void AddStylesheet(Stylesheet sheet) => AddStylesheet(sheet, null);
+
+		// A stylesheet from inside a shadow root styles that tree only; the document's sheets style the light tree only
+		public void AddStylesheet(Stylesheet sheet, Element scope)
 		{
 			_author.AddRange(sheet.Rules);
+			for (int i = 0; i < sheet.Rules.Count; i++)
+				_authorScopes.Add(scope);
 			_authorIndex = null;
-			_beforeIndex = null;
-			_afterIndex = null;
+			_pseudoIndexes.Clear();
 			_pseudoStyles.Clear();
 		}
 
-		private RuleIndex _beforeIndex;
-		private RuleIndex _afterIndex;
+		private readonly List<Element> _authorScopes = new List<Element>();
+		private Element _elementScope;
+
+		// True inside a template element's content, which is inert: its styles and links are not the document's until a script moves them out
+		public static bool InTemplate(Node node)
+		{
+			for (Node up = node.Parent; up != null; up = up.Parent)
+			{
+				if (up is Element element)
+				{
+					if (element.TagName == "template")
+						return true;
+					if (element.TagName == Element.ShadowRootTag)
+						return false;
+				}
+			}
+			return false;
+		}
+
+		// The shadow root a node lives in, or null in the document
+		public static Element ShadowScopeOf(Node node)
+		{
+			for (Node up = node.Parent; up != null; up = up.Parent)
+			{
+				if (up is Element element && element.TagName == Element.ShadowRootTag)
+					return element;
+			}
+			return null;
+		}
+
+		private readonly Dictionary<string, RuleIndex> _pseudoIndexes = new Dictionary<string, RuleIndex>(StringComparer.Ordinal);
 
 		private sealed class CachedPseudo
 		{
@@ -303,19 +341,21 @@ namespace Alloy.Sdk.Web.Css
 			public ComputedStyle Host;
 		}
 
-		private readonly Dictionary<(Element, bool), CachedPseudo> _pseudoStyles = new Dictionary<(Element, bool), CachedPseudo>();
+		private readonly Dictionary<(Element, string), CachedPseudo> _pseudoStyles = new Dictionary<(Element, string), CachedPseudo>();
 
-		// The style of an element's ::before or ::after from the author rules naming it, inheriting from the element's own style; null when no rule applies
-		public ComputedStyle ResolvePseudo(Element element, bool after, ComputedStyle host)
+		// The style of an element's ::before, ::after or ::placeholder from the author rules naming it, inheriting from the element's own style; null when no rule applies
+		public ComputedStyle ResolvePseudo(Element element, string pseudo, ComputedStyle host)
 		{
-			RuleIndex index = after ? (_afterIndex ??= new RuleIndex(_author, "after")) : (_beforeIndex ??= new RuleIndex(_author, "before"));
+			if (!_pseudoIndexes.TryGetValue(pseudo, out RuleIndex index))
+				_pseudoIndexes[pseudo] = index = new RuleIndex(_author, pseudo, _authorScopes);
 			if (index.Count == 0)
 				return null;
-			(Element, bool) key = (element, after);
+			(Element, string) key = (element, pseudo);
 			if (_pseudoStyles.TryGetValue(key, out CachedPseudo cached) && ReferenceEquals(cached.Host, host))
 				return cached.Style;
 			_ancestorLow = host.AncestorBitsLow;
 			_ancestorHigh = host.AncestorBitsHigh;
+			_elementScope = ShadowScopeOf(element);
 			_matched.Clear();
 			Collect(element, index, 1);
 			ComputedStyle style = null;
@@ -338,7 +378,7 @@ namespace Alloy.Sdk.Web.Css
 		// What sits in the catch-all bucket of the author index, for tuning: the selectors every element must test
 		public string DescribeUniversal()
 		{
-			RuleIndex index = _authorIndex ??= new RuleIndex(_author);
+			RuleIndex index = _authorIndex ??= new RuleIndex(_author, null, _authorScopes);
 			Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
 			foreach (IndexedSelector entry in index.Universal)
 			{
@@ -360,7 +400,7 @@ namespace Alloy.Sdk.Web.Css
 		// Whether some rule's hover or focus pseudo-class could apply to this element, so its style must be recomputed when its state changes
 		public bool DependsOnState(Element element)
 		{
-			RuleIndex index = _authorIndex ??= new RuleIndex(_author);
+			RuleIndex index = _authorIndex ??= new RuleIndex(_author, null, _authorScopes);
 			if (index.StateAnywhere)
 				return true;
 			if (index.StateKeys.Count == 0)
@@ -411,9 +451,10 @@ namespace Alloy.Sdk.Web.Css
 			style.AncestorBitsLow = _ancestorLow;
 			style.AncestorBitsHigh = _ancestorHigh;
 			ElementBits(element, ref style.AncestorBitsLow, ref style.AncestorBitsHigh);
+			_elementScope = ShadowScopeOf(element);
 			_matched.Clear();
 			Collect(element, _userAgent, 0);
-			Collect(element, _authorIndex ??= new RuleIndex(_author), 1);
+			Collect(element, _authorIndex ??= new RuleIndex(_author, null, _authorScopes), 1);
 			string inline = element.GetAttribute("style");
 			if (inline != null)
 			{
@@ -477,6 +518,9 @@ namespace Alloy.Sdk.Web.Css
 					best = -1;
 				}
 				if ((candidate.NeedLow & _ancestorLow) != candidate.NeedLow || (candidate.NeedHigh & _ancestorHigh) != candidate.NeedHigh)
+					continue;
+				// Author rules stay in the tree their stylesheet belongs to; the user agent's apply everywhere
+				if (origin != 0 && !ReferenceEquals(candidate.Scope, _elementScope))
 					continue;
 				if (candidate.Selector.Matches(element))
 					best = Math.Max(best, candidate.Specificity);

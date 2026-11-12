@@ -38,13 +38,12 @@ public class DomTests
 		{
 			MediaEnvironment media = new MediaEnvironment(800, 600);
 			StyleResolver resolver = new StyleResolver(media);
-			StringBuilder css = new StringBuilder("body { margin: 0 } ");
+			resolver.AddStylesheet(CssParser.Parse("body { margin: 0 }", media));
 			foreach (Element style in document.DescendantElementsWithShadow())
 			{
 				if (style.TagName == "style")
-					css.Append(style.TextContent);
+					resolver.AddStylesheet(CssParser.Parse(style.TextContent, media), StyleResolver.ShadowScopeOf(style));
 			}
-			resolver.AddStylesheet(CssParser.Parse(css.ToString(), media));
 			return resolver;
 		}
 		host.StyleFor = element => Resolver().Resolve(element);

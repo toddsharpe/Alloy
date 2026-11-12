@@ -49,6 +49,7 @@ namespace Alloy.Tools.PageProbe
 			List<string> styles = new List<string>();
 			List<string> ats = new List<string>();
 			List<string> evals = new List<string>();
+			List<string> pseudos = new List<string>();
 			bool text = false;
 			int width = 1200;
 			int repeat = 1;
@@ -84,6 +85,8 @@ namespace Alloy.Tools.PageProbe
 					fixedFont = true;
 				else if (args[i] == "-wait" && i + 1 < args.Length)
 					waitMs = int.Parse(args[++i]);
+				else if (args[i] == "-pseudo" && i + 2 < args.Length)
+					pseudos.Add(args[++i] + "|" + args[++i]);
 				else if (args[i] == "-eval" && i + 1 < args.Length)
 					evals.Add(args[++i]);
 				else if (args[i] == "-budget" && i + 1 < args.Length)
@@ -113,8 +116,9 @@ namespace Alloy.Tools.PageProbe
 			Console.WriteLine($"{finalUrl}: {response.Status}, {html.Length} chars, parsed in {parse.ElapsedMilliseconds} ms, {Count(document)} elements");
 
 			List<string> sheets = new List<string>();
+			List<Element> sheetScopes = new List<Element>();
 			int linked = 0;
-			CollectStylesheets(document, finalUrl, sheets, ref linked);
+			CollectStylesheets(document, finalUrl, sheets, sheetScopes, ref linked);
 			Console.WriteLine($"stylesheets: {sheets.Count} ({linked} linked)");
 
 			LayoutBox root = null;
@@ -129,12 +133,13 @@ namespace Alloy.Tools.PageProbe
 				if (resolver != null && resolverSheets == sheets.Count)
 					return;
 				resolver = new StyleResolver(media);
-				foreach (string css in sheets)
+				for (int i = 0; i < sheets.Count; i++)
 				{
+					string css = sheets[i];
 					// Parsed once per distinct text, as the page does, since scripts add sheets a few at a time
 					if (!s_parsedSheets.TryGetValue(css, out Stylesheet parsed))
 						s_parsedSheets[css] = parsed = CssParser.Parse(css, media);
-					resolver.AddStylesheet(parsed);
+					resolver.AddStylesheet(parsed, i < sheetScopes.Count ? sheetScopes[i] : null);
 				}
 				resolverSheets = sheets.Count;
 			}
@@ -207,7 +212,7 @@ namespace Alloy.Tools.PageProbe
 			Stopwatch scripts = Stopwatch.StartNew();
 			host.RunScripts();
 			int before = sheets.Count;
-			CollectStylesheets(document, finalUrl, sheets, ref linked);
+			CollectStylesheets(document, finalUrl, sheets, sheetScopes, ref linked);
 			host.FireLoad();
 			scripts.Stop();
 			Console.WriteLine($"scripts: {host.ScriptsRun} run, {host.ScriptErrors} errors, {host.ScriptsSkipped} skipped, {scripts.ElapsedMilliseconds} ms, {sheets.Count - before} stylesheets added by scripts, document now {Count(document)} elements, title \"{document.Title}\"");
@@ -275,6 +280,14 @@ namespace Alloy.Tools.PageProbe
 							Console.WriteLine("    " + Describe(child.Element, child));
 					}
 				}
+			}
+			foreach (string pseudo in pseudos)
+			{
+				string[] parts = pseudo.Split('|');
+				Element target = host.QueryFirst(document, parts[0]);
+				ComputedStyle hostStyle = target == null ? null : resolver.Resolve(target);
+				ComputedStyle pseudoStyle = target == null ? null : resolver.ResolvePseudo(target, parts[1], hostStyle);
+				Console.WriteLine($"pseudo {parts[0]}::{parts[1]}: " + (target == null ? "no match" : pseudoStyle == null ? "no rules" : $"opacity={pseudoStyle.Opacity} color={pseudoStyle.Color} display={pseudoStyle.Display} content={(pseudoStyle.Content == null ? "none" : pseudoStyle.Content.Count.ToString())}"));
 			}
 			foreach (string expression in evals)
 			{
@@ -386,15 +399,20 @@ namespace Alloy.Tools.PageProbe
 			return result;
 		}
 
-		private static void CollectStylesheets(Document document, Uri url, List<string> sheets, ref int linked)
+		private static void CollectStylesheets(Document document, Uri url, List<string> sheets, List<Element> scopes, ref int linked)
 		{
 			int index = 0;
 			foreach (Element element in document.DescendantElementsWithShadow())
 			{
+				if (StyleResolver.InTemplate(element))
+					continue;
 				if (element.TagName == "style")
 				{
 					if (index >= sheets.Count)
+					{
 						sheets.Add(element.TextContent);
+						scopes.Add(StyleResolver.ShadowScopeOf(element));
+					}
 					index++;
 					continue;
 				}
@@ -415,6 +433,7 @@ namespace Alloy.Tools.PageProbe
 						s_sheetByUrl[target.ToString()] = css;
 					}
 					sheets.Add(css);
+					scopes.Add(StyleResolver.ShadowScopeOf(element));
 					linked++;
 				}
 				index++;

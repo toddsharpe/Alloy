@@ -483,6 +483,9 @@ namespace Alloy.Sdk.Web.Css
 						if (at >= tokens.Count || tokens[at].Type != CssTokenType.Ident)
 							return false;
 						selector.PseudoElement = tokens[at].Value.ToLowerInvariant();
+						// A bare ::after in a list such as *,::after is the universal selector's pseudo-element, not an empty compound that would void the rule
+						if (compound.Parts.Count == 0)
+							compound.Parts.Add(new SimpleSelector { Type = SimpleSelector.Kind.Universal });
 						at++;
 						continue;
 					}

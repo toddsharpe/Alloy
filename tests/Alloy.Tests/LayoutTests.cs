@@ -577,4 +577,13 @@ public class LayoutTests
 		Assert.Equal(2, d.Children.Count);
 		Assert.Single(FindId(root, "s").Children);
 	}
+
+	[Fact]
+	public void PlaceholderRulesRecolourOrHideTheHint()
+	{
+		LayoutBox root = Lay("<body><input id=\"a\" placeholder=\"hint\"><input id=\"b\" placeholder=\"hint\"><input id=\"c\" placeholder=\"hint\"></body>", "#a::placeholder { opacity: 0 } #b::placeholder { color: #ff0000 } #c::-webkit-input-placeholder { color: #00ff00 }");
+		Assert.Empty(FindId(root, "a").Children);
+		Assert.Equal("#ff0000", FindId(root, "b").Children[0].Style.Color.ToString());
+		Assert.Equal("#00ff00", FindId(root, "c").Children[0].Style.Color.ToString());
+	}
 }

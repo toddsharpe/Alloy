@@ -266,6 +266,29 @@ public class CssTests
 	}
 
 	[Fact]
+	public void ShadowRootStylesStayInTheirTree()
+	{
+		Document document = HtmlParser.Parse("<div id=host></div><p id=light>x</p>");
+		Element host = document.DescendantElements().First(e => e.Id == "host");
+		Element root = host.AttachShadow();
+		Element inner = new Element("p");
+		root.AppendChild(inner);
+		StyleResolver resolver = new StyleResolver(Screen);
+		resolver.AddStylesheet(Sheet("p { color: #0000ff; margin-top: 7px }"));
+		resolver.AddStylesheet(Sheet("p { color: #ff0000 }"), root);
+		Assert.Equal("#ff0000", resolver.Resolve(inner).Color.ToString());
+		Assert.Equal(16, resolver.Resolve(inner).Margin.Top.Value);
+		Assert.Equal("#0000ff", resolver.Resolve(document.DescendantElements().First(e => e.Id == "light")).Color.ToString());
+	}
+
+	[Fact]
+	public void ABarePseudoElementInAListKeepsTheRule()
+	{
+		Assert.Equal(0, Style("<p>x</p>", "*,:after,:before,::backdrop { margin: 0 }", "p").Margin.Top.Value);
+		Assert.Equal(0, Style("<p>x</p>", "*,::after { margin: 0 }", "p").Margin.Top.Value);
+	}
+
+	[Fact]
 	public void ParsesContent()
 	{
 		Assert.Null(Style("<p>x</p>", "p { content: none }", "p").Content);
@@ -445,9 +468,10 @@ public class CssTests
 	public void DropsRulesWithUnsupportedSelectorsOnly()
 	{
 		Stylesheet sheet = Sheet("p::before { content: 'x' } p:hover, q { color: red } ::selection { color: blue } .ok { color: green } a:has(b) { color: red }");
-		Assert.Equal(3, sheet.Rules.Count);
+		Assert.Equal(4, sheet.Rules.Count);
 		Assert.Equal(2, sheet.Rules[1].Selectors.Count);
-		Assert.Equal("ok", sheet.Rules[2].Selectors[0].Compounds[0].Parts[0].Name);
+		Assert.Equal("selection", sheet.Rules[2].Selectors[0].PseudoElement);
+		Assert.Equal("ok", sheet.Rules[3].Selectors[0].Compounds[0].Parts[0].Name);
 		Assert.Equal("before", sheet.Rules[0].Selectors[0].PseudoElement);
 	}
 

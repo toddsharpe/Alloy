@@ -68,7 +68,7 @@ namespace Alloy.Sdk.Web.Layout
 		// A ::before or ::after with content becomes a first or last child box holding its text
 		private void AddPseudo(LayoutBox parent, Element element, ComputedStyle hostStyle, bool after)
 		{
-			ComputedStyle style = _styles.ResolvePseudo(element, after, hostStyle);
+			ComputedStyle style = _styles.ResolvePseudo(element, after ? "after" : "before", hostStyle);
 			if (style == null || style.Content == null || style.Display == Display.None)
 				return;
 			BoxKind kind = style.Display switch
@@ -192,7 +192,7 @@ namespace Alloy.Sdk.Web.Layout
 
 		private static bool IsLeaf(string tag) => tag is "br" or "img" or "input" or "select" or "textarea" or "iframe" or "video" or "canvas" or "embed" or "object" or "svg" or "audio";
 
-		private static LayoutBox CreateBox(Element element, ComputedStyle style, LayoutBox parent, Func<Element, Alloy.Sdk.Web.Images.Bitmap> images)
+		private LayoutBox CreateBox(Element element, ComputedStyle style, LayoutBox parent, Func<Element, Alloy.Sdk.Web.Images.Bitmap> images)
 		{
 			string tag = element.TagName;
 			switch (tag)
@@ -243,6 +243,15 @@ namespace Alloy.Sdk.Web.Layout
 						{
 							ComputedStyle hint = style.Clone();
 							hint.Color = Color.FromRgb(0x75, 0x75, 0x75);
+							// A ::placeholder rule may recolour the hint or fade it out, as pages with floating labels do
+							ComputedStyle placeholder = _styles.ResolvePseudo(element, "placeholder", style);
+							if (placeholder != null && placeholder.Opacity <= 0.01f)
+								return input;
+							if (placeholder != null)
+							{
+								Color color = placeholder.Color.Argb != style.Color.Argb ? placeholder.Color : hint.Color;
+								hint.Color = placeholder.Opacity < 1 ? Color.FromRgb(color.R, color.G, color.B, (int)(color.A * placeholder.Opacity)) : color;
+							}
 							input.Add(new LayoutBox(BoxKind.Text, element, hint) { Text = element.GetAttribute("placeholder") });
 						}
 					}

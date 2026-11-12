@@ -46,6 +46,8 @@ namespace Alloy.Sdk.Web
 		public const int ImageThreads = 4;
 		public readonly List<string> StylesheetUrls = new List<string>();
 		public readonly List<string> StylesheetText = new List<string>();
+		// The shadow root each entry of StylesheetText came from, or null for the document
+		public readonly List<Element> StylesheetScopes = new List<Element>();
 		public LayoutBox Root;
 		public DisplayList Display;
 		public long FetchMs;
@@ -262,7 +264,7 @@ namespace Alloy.Sdk.Web
 		{
 			foreach (Element element in new List<Element>(Document.DescendantElementsWithShadow()))
 			{
-				if (element.TagName != "link" || _linkSheets.ContainsKey(element) || StylesheetUrls.Count >= MaxStylesheets)
+				if (element.TagName != "link" || _linkSheets.ContainsKey(element) || StylesheetUrls.Count >= MaxStylesheets || StyleResolver.InTemplate(element))
 					continue;
 				string rel = element.GetAttribute("rel") ?? "";
 				if (!rel.Contains("stylesheet", StringComparison.OrdinalIgnoreCase) || rel.Contains("alternate", StringComparison.OrdinalIgnoreCase))
@@ -291,15 +293,24 @@ namespace Alloy.Sdk.Web
 		private void RefreshStylesheets()
 		{
 			StylesheetText.Clear();
+			StylesheetScopes.Clear();
 			foreach (Element element in Document.DescendantElementsWithShadow())
 			{
+				if (StyleResolver.InTemplate(element))
+					continue;
 				if (element.TagName == "style")
 				{
 					if (MediaAttributeApplies(element))
+					{
 						StylesheetText.Add(element.TextContent);
+						StylesheetScopes.Add(StyleResolver.ShadowScopeOf(element));
+					}
 				}
 				else if (_linkSheets.TryGetValue(element, out string css))
+				{
 					StylesheetText.Add(css);
+					StylesheetScopes.Add(StyleResolver.ShadowScopeOf(element));
+				}
 			}
 		}
 
@@ -453,8 +464,9 @@ namespace Alloy.Sdk.Web
 			if (_resolver == null || _resolverKey != resolverKeyText)
 			{
 				StyleResolver resolver = new StyleResolver(media);
-				foreach (string css in StylesheetText)
+				for (int i = 0; i < StylesheetText.Count; i++)
 				{
+					string css = StylesheetText[i];
 					// Parsed once per text and viewport; a relayout after a script tick must not pay for megabytes of CSS again
 					string key = width + "x" + height + "\n" + css;
 					if (!_parsedSheets.TryGetValue(key, out Stylesheet sheet))
@@ -463,7 +475,7 @@ namespace Alloy.Sdk.Web
 							_parsedSheets.Clear();
 						_parsedSheets[key] = sheet = CssParser.Parse(css, media);
 					}
-					resolver.AddStylesheet(sheet);
+					resolver.AddStylesheet(sheet, i < StylesheetScopes.Count ? StylesheetScopes[i] : null);
 				}
 				_resolver = resolver;
 				_resolverKey = resolverKeyText;
