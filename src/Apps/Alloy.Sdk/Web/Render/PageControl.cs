@@ -60,7 +60,7 @@ namespace Alloy.Sdk.Web.Render
 			_hoverElement = null;
 			_openSelect = null;
 			FocusedField = null;
-			Attach(page.Scripts);
+			Attach(page?.Scripts);
 		}
 
 		// Hooks the page's scripts to this control: layout for their measurements, scrolling, focus, navigation and the status line

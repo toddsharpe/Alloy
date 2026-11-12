@@ -57,7 +57,91 @@ namespace Alloy.Apps.Browser
 		}
 	}
 
-	// The browser window: toolbar with back, forward, reload and the address bar, the page, and a status line; pages load on their own thread
+	// One tab: its history, the load in flight, and the page it shows when it is the current tab
+	internal sealed class Tab
+	{
+		public readonly List<FormSubmission> History = new List<FormSubmission>();
+		public int HistoryIndex = -1;
+		public Page Page;
+		public int ScrollY;
+		public string Title = "New tab";
+		public int LoadSequence;
+		public FormSubmission Loading;
+		public Page Loaded;
+		public bool LoadedPush;
+		public FormSubmission Pending;
+		public bool PendingPush;
+
+		public FormSubmission Current => HistoryIndex >= 0 && HistoryIndex < History.Count ? History[HistoryIndex] : null;
+	}
+
+	// The strip of tabs above the toolbar: the current one raised, a close mark on it, and a plus at the end for a new tab
+	internal sealed class TabBar : Control
+	{
+		public const int Height = 30;
+		public const int PlusWidth = 30;
+		public const int CloseWidth = 18;
+		public List<Tab> Tabs;
+		public Tab Current;
+
+		public TabBar(Rectangle bounds) : base(bounds)
+		{
+		}
+
+		public int TabWidth => Tabs == null || Tabs.Count == 0 ? 0 : Math.Clamp((Bounds.Width - 12 - PlusWidth) / Tabs.Count, 60, 220);
+
+		public Rectangle TabBounds(int index) => new Rectangle(Bounds.X + 4 + index * TabWidth, Bounds.Y + 4, TabWidth - 2, Height - 4);
+
+		public Rectangle PlusBounds => new Rectangle(Bounds.X + 4 + (Tabs?.Count ?? 0) * TabWidth + 2, Bounds.Y + 4, PlusWidth, Height - 4);
+
+		// The tab under a point, -1 for the plus, or -2 for nothing; closing when the point is on the current tab's close mark
+		public int HitTest(int x, int y, out bool close)
+		{
+			close = false;
+			if (!Bounds.Contains(x, y) || Tabs == null)
+				return -2;
+			if (PlusBounds.Contains(x, y))
+				return -1;
+			for (int i = 0; i < Tabs.Count; i++)
+			{
+				Rectangle tab = TabBounds(i);
+				if (!tab.Contains(x, y))
+					continue;
+				close = Tabs[i] == Current && x >= tab.X + tab.Width - CloseWidth;
+				return i;
+			}
+			return -2;
+		}
+
+		public override void Draw(in Surface surface)
+		{
+			surface.FillRectangle(Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height, Theme.IronDeep);
+			if (Tabs == null)
+				return;
+			for (int i = 0; i < Tabs.Count; i++)
+			{
+				Tab tab = Tabs[i];
+				Rectangle bounds = TabBounds(i);
+				bool current = tab == Current;
+				if (current)
+					surface.DrawFace(bounds.X, bounds.Y, bounds.Width, bounds.Height, Theme.Raised);
+				else
+					surface.FillRectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height, Theme.AccentOff);
+				string title = tab.Loading != null && tab.Page == null ? "Loading..." : tab.Title.Length == 0 ? "New tab" : tab.Title;
+				int room = Math.Max(1, (bounds.Width - 12 - (current ? CloseWidth : 0)) / 8);
+				if (title.Length > room)
+					title = room > 3 ? title.Substring(0, room - 3) + "..." : title.Substring(0, room);
+				surface.DrawText(bounds.X + 6, bounds.Y + (bounds.Height - 8) / 2, title, current ? Theme.Bone : Theme.TextDim, 1);
+				if (current)
+					surface.DrawText(bounds.X + bounds.Width - CloseWidth + 5, bounds.Y + (bounds.Height - 8) / 2, "x", Theme.Hint, 1);
+			}
+			Rectangle plus = PlusBounds;
+			surface.DrawFace(plus.X, plus.Y, plus.Width, plus.Height, Theme.Raised);
+			surface.DrawText(plus.X + (plus.Width - 8) / 2, plus.Y + (plus.Height - 8) / 2, "+", Theme.Bone, 1);
+		}
+	}
+
+	// The browser window: tabs, a toolbar with back, forward, reload and the address bar, the page, and a status line; pages load on their own thread
 	internal static class Program
 	{
 		private const int ToolbarHeight = 44;
@@ -65,6 +149,7 @@ namespace Alloy.Apps.Browser
 		private const string Home = "http://info.cern.ch";
 
 		private static Gui s_gui;
+		private static TabBar s_tabBar;
 		private static Button s_back;
 		private static Button s_forward;
 		private static Button s_reload;
@@ -72,19 +157,13 @@ namespace Alloy.Apps.Browser
 		private static PageControl s_page;
 		private static Label s_status;
 
-		private static readonly List<FormSubmission> s_history = new List<FormSubmission>();
-		private static int s_historyIndex = -1;
+		private static readonly List<Tab> s_tabs = new List<Tab>();
+		private static Tab s_tab;
+		private static readonly object s_loadLock = new object();
 		private static bool s_shift;
 		private static bool s_ctrl;
 		private static bool s_alt;
-
-		// The load in flight and its result, handed from the fetch thread to the UI thread on the next tick
-		private static int s_loadSequence;
-		private static FormSubmission s_loading;
-		private static Page s_loaded;
-		private static bool s_loadedPush;
-		private static FormSubmission s_pending;
-		private static bool s_pendingPush;
+		private static bool s_leftDown;
 
 		private static int Main(string[] args)
 		{
@@ -93,15 +172,22 @@ namespace Alloy.Apps.Browser
 			if (s_gui == null)
 				return 1;
 			s_gui.Background = Theme.Iron;
+			s_tabBar = new TabBar(default) { Tabs = s_tabs };
 			s_back = new Button("<", default) { Click = _ => Back() };
 			s_forward = new Button(">", default) { Click = _ => Forward() };
 			s_reload = new Button("Reload", default) { Click = _ => Reload() };
 			s_address = new AddressBar(default) { Submit = Go };
 			s_page = new PageControl(default)
 			{
-				LinkClicked = target => Navigate(Get(target), true),
+				LinkClicked = target =>
+				{
+					if (s_ctrl)
+						NewTab(Get(target), false);
+					else
+						Navigate(s_tab, Get(target), true);
+				},
 				LinkHovered = ShowLink,
-				FormSubmitted = submission => Navigate(submission, true),
+				FormSubmitted = submission => Navigate(s_tab, submission, true),
 				HistoryRequested = delta =>
 				{
 					if (delta < 0)
@@ -116,6 +202,7 @@ namespace Alloy.Apps.Browser
 			s_status = new Label("", default, 1) { Foreground = Theme.Hint, Background = Theme.Iron };
 			Arrange();
 			s_gui.Add(s_page);
+			s_gui.Add(s_tabBar);
 			s_gui.Add(s_back);
 			s_gui.Add(s_forward);
 			s_gui.Add(s_reload);
@@ -123,7 +210,7 @@ namespace Alloy.Apps.Browser
 			s_gui.Add(s_status);
 			s_gui.OnEvent = OnEvent;
 			s_gui.OnTick = OnTick;
-			Navigate(Get(new Uri(start)), true);
+			NewTab(Get(new Uri(start)), true);
 			s_gui.Run();
 			return 0;
 		}
@@ -134,12 +221,14 @@ namespace Alloy.Apps.Browser
 		{
 			int width = s_gui.Width;
 			int height = s_gui.Height;
-			int y = (ToolbarHeight - 30) / 2;
+			s_tabBar.Bounds = new Rectangle(0, 0, width, TabBar.Height);
+			int y = TabBar.Height + (ToolbarHeight - 30) / 2;
 			s_back.Bounds = new Rectangle(8, y, 34, 30);
 			s_forward.Bounds = new Rectangle(46, y, 34, 30);
 			s_reload.Bounds = new Rectangle(84, y, 110, 30);
 			s_address.Bounds = new Rectangle(202, y, Math.Max(100, width - 210), 30);
-			s_page.SetBounds(new Rectangle(0, ToolbarHeight, width, Math.Max(0, height - ToolbarHeight - StatusHeight)));
+			int top = TabBar.Height + ToolbarHeight;
+			s_page.SetBounds(new Rectangle(0, top, width, Math.Max(0, height - top - StatusHeight)));
 			s_status.Bounds = new Rectangle(0, height - StatusHeight, width, StatusHeight);
 		}
 
@@ -152,30 +241,98 @@ namespace Alloy.Apps.Browser
 				return;
 			}
 			s_address.Focused = false;
-			Navigate(Get(new Uri(url)), true);
+			Navigate(s_tab, Get(new Uri(url)), true);
 		}
 
-		// Starts loading on a worker thread; a load already running finishes first and the newest request follows it
-		private static void Navigate(FormSubmission request, bool push)
+		// Opens a tab, loading the request in it; it becomes the current tab unless it was opened in the background
+		private static void NewTab(FormSubmission request, bool select)
 		{
-			if (s_loading != null)
+			Tab tab = new Tab();
+			s_tabs.Add(tab);
+			if (select || s_tab == null)
+				Select(tab);
+			if (request != null)
+				Navigate(tab, request, true);
+			else if (select)
 			{
-				s_pending = request;
-				s_pendingPush = push;
+				s_address.Focused = true;
+				s_address.Text = "";
+				s_page.Blur();
+			}
+		}
+
+		// Makes a tab current: the page control shows its page at its scroll position, the bar and the address bar follow
+		private static void Select(Tab tab)
+		{
+			if (tab == s_tab)
+				return;
+			if (s_tab != null)
+				s_tab.ScrollY = s_page.ScrollY;
+			s_tab = tab;
+			s_tabBar.Current = tab;
+			s_page.Show(tab.Page);
+			s_page.ScrollY = tab.ScrollY;
+			s_address.Focused = false;
+			s_address.Text = tab.Page != null ? Address.Display(tab.Page.Url) : tab.Current?.Url?.ToString() ?? "";
+			if (tab.Loading != null)
+				Status("Loading " + tab.Loading + " ...");
+			else if (tab.Page != null)
+				Status(tab.Page.Error ?? tab.Title);
+			else
+				Status("");
+		}
+
+		// Closes a tab; the one before it takes over, and the last tab closing leaves a fresh empty one
+		private static void CloseTab(Tab tab)
+		{
+			int index = s_tabs.IndexOf(tab);
+			if (index < 0)
+				return;
+			s_tabs.RemoveAt(index);
+			tab.LoadSequence++;
+			if (s_tabs.Count == 0)
+			{
+				s_tab = null;
+				NewTab(null, true);
 				return;
 			}
-			s_loading = request;
-			int sequence = ++s_loadSequence;
-			Status("Loading " + request + " ...");
+			if (tab == s_tab)
+			{
+				s_tab = null;
+				Select(s_tabs[Math.Min(index, s_tabs.Count - 1)]);
+			}
+		}
+
+		private static void CycleTab(int delta)
+		{
+			if (s_tabs.Count < 2)
+				return;
+			int index = (s_tabs.IndexOf(s_tab) + delta + s_tabs.Count) % s_tabs.Count;
+			Select(s_tabs[index]);
+		}
+
+		// Starts loading on a worker thread; a load already running in the tab finishes first and the newest request follows it
+		private static void Navigate(Tab tab, FormSubmission request, bool push)
+		{
+			if (tab.Loading != null)
+			{
+				tab.Pending = request;
+				tab.PendingPush = push;
+				return;
+			}
+			tab.Loading = request;
+			int sequence = ++tab.LoadSequence;
+			if (tab == s_tab)
+				Status("Loading " + request + " ...");
 			Thread worker = new Thread(() =>
 			{
 				Page page = Page.Load(request);
-				lock (s_history)
+				lock (s_loadLock)
 				{
-					if (sequence == s_loadSequence)
+					if (sequence == tab.LoadSequence)
 					{
-						s_loaded = page;
-						s_loadedPush = push;
+						tab.Loaded = page;
+						tab.LoadedPush = push;
 					}
 				}
 			}, 16 * 1024 * 1024);
@@ -194,80 +351,89 @@ namespace Alloy.Apps.Browser
 			}
 		}
 
-		// Every tick: the page's timers run, a finished load becomes the shown page, and any request made meanwhile starts
+		// Every tick: the current page's timers run, finished loads become their tabs' pages, and requests made meanwhile start
 		private static bool OnTick(Gui gui)
 		{
 			bool changed = s_page.Tick();
 			if (s_page.Page?.Scripts is { TitleChanged: true } scripts)
 			{
 				scripts.TitleChanged = false;
-				if (s_loading == null)
+				s_tab.Title = s_page.Title;
+				if (s_tab.Loading == null)
 					Status(s_page.Title);
 				changed = true;
 			}
-			Page page;
-			bool push;
-			FormSubmission request;
-			lock (s_history)
+			foreach (Tab tab in s_tabs)
 			{
-				page = s_loaded;
-				push = s_loadedPush;
-				request = s_loading;
-				s_loaded = null;
+				Page page;
+				bool push;
+				FormSubmission request;
+				lock (s_loadLock)
+				{
+					page = tab.Loaded;
+					push = tab.LoadedPush;
+					request = tab.Loading;
+					tab.Loaded = null;
+				}
+				if (page == null)
+					continue;
+				tab.Loading = null;
+				tab.Page = page;
+				tab.Title = page.Error != null ? "Error" : page.Title.Length > 0 ? page.Title : Address.Display(page.Url);
+				if (push)
+				{
+					if (tab.HistoryIndex < tab.History.Count - 1)
+						tab.History.RemoveRange(tab.HistoryIndex + 1, tab.History.Count - tab.HistoryIndex - 1);
+					// A POST is remembered as what was posted, so Reload asks again; anything else as the page's final URL
+					tab.History.Add(request.Method == "POST" ? request : Get(page.Url ?? request.Url));
+					tab.HistoryIndex = tab.History.Count - 1;
+				}
+				if (tab == s_tab)
+				{
+					s_page.Show(page);
+					if (!s_address.Focused)
+						s_address.Text = Address.Display(page.Url);
+					Status(page.Error != null ? page.Error : $"{page.Title}  ({page.Status}, {page.StylesheetUrls.Count} stylesheets, {page.Scripts?.ScriptsRun ?? 0} scripts{(page.Scripts?.ScriptsSkipped > 0 ? $" ({page.Scripts.ScriptsSkipped} skipped)" : "")}, fetched in {page.FetchMs} ms)");
+				}
+				if (tab.Pending != null)
+				{
+					FormSubmission next = tab.Pending;
+					bool nextPush = tab.PendingPush;
+					tab.Pending = null;
+					Navigate(tab, next, nextPush);
+				}
+				changed = true;
 			}
-			if (page == null)
-				return changed;
-			s_loading = null;
-			s_page.Show(page);
-			string shown = Address.Display(page.Url);
-			if (push)
-			{
-				if (s_historyIndex < s_history.Count - 1)
-					s_history.RemoveRange(s_historyIndex + 1, s_history.Count - s_historyIndex - 1);
-				// A POST is remembered as what was posted, so Reload asks again; anything else as the page's final URL
-				s_history.Add(request.Method == "POST" ? request : Get(page.Url ?? request.Url));
-				s_historyIndex = s_history.Count - 1;
-			}
-			if (!s_address.Focused)
-				s_address.Text = shown;
-			Status(page.Error != null ? page.Error : $"{page.Title}  ({page.Status}, {page.StylesheetUrls.Count} stylesheets, {page.Scripts?.ScriptsRun ?? 0} scripts{(page.Scripts?.ScriptsSkipped > 0 ? $" ({page.Scripts.ScriptsSkipped} skipped)" : "")}, fetched in {page.FetchMs} ms)");
-			if (s_pending != null)
-			{
-				FormSubmission next = s_pending;
-				bool nextPush = s_pendingPush;
-				s_pending = null;
-				Navigate(next, nextPush);
-			}
-			return true;
+			return changed;
 		}
 
 		private static void Back()
 		{
-			if (s_historyIndex <= 0)
+			if (s_tab.HistoryIndex <= 0)
 				return;
-			s_historyIndex--;
-			Navigate(s_history[s_historyIndex], false);
+			s_tab.HistoryIndex--;
+			Navigate(s_tab, s_tab.History[s_tab.HistoryIndex], false);
 		}
 
 		private static void Forward()
 		{
-			if (s_historyIndex >= s_history.Count - 1)
+			if (s_tab.HistoryIndex >= s_tab.History.Count - 1)
 				return;
-			s_historyIndex++;
-			Navigate(s_history[s_historyIndex], false);
+			s_tab.HistoryIndex++;
+			Navigate(s_tab, s_tab.History[s_tab.HistoryIndex], false);
 		}
 
 		private static void Reload()
 		{
-			if (s_historyIndex >= 0)
-				Navigate(s_history[s_historyIndex], false);
+			if (s_tab.HistoryIndex >= 0)
+				Navigate(s_tab, s_tab.History[s_tab.HistoryIndex], false);
 		}
 
 		private static void ShowLink(Uri link)
 		{
 			if (link != null)
 				Status(link.ToString());
-			else if (s_page.Page != null && s_loading == null)
+			else if (s_page.Page != null && s_tab.Loading == null)
 				Status(s_page.Page.Error ?? s_page.Title);
 			s_gui.Draw();
 		}
@@ -294,7 +460,12 @@ namespace Alloy.Apps.Browser
 					int x = (int)(long)message.Data[2];
 					int y = (int)(long)message.Data[3];
 					int wheel = (int)(long)message.Data[4];
-					if ((buttons & InputEvent.LeftButton) != 0)
+					bool left = (buttons & InputEvent.LeftButton) != 0;
+					bool released = s_leftDown && !left;
+					s_leftDown = left;
+					if (released && s_tabBar.Bounds.Contains(x, y))
+						return OnTabClick(x, y);
+					if (left)
 					{
 						bool onAddress = s_address.Bounds.Contains(x, y);
 						if (onAddress != s_address.Focused && (onAddress || s_page.Bounds.Contains(x, y)))
@@ -307,6 +478,21 @@ namespace Alloy.Apps.Browser
 				default:
 					return false;
 			}
+		}
+
+		// A release on the tab strip: the plus opens a tab, the current tab's mark closes it, any other tab becomes current
+		private static bool OnTabClick(int x, int y)
+		{
+			int hit = s_tabBar.HitTest(x, y, out bool close);
+			if (hit == -2)
+				return false;
+			if (hit == -1)
+				NewTab(null, true);
+			else if (close)
+				CloseTab(s_tabs[hit]);
+			else
+				Select(s_tabs[hit]);
+			return true;
 		}
 
 		private static bool OnKey(ushort key, bool pressed)
@@ -332,6 +518,28 @@ namespace Alloy.Apps.Browser
 				s_address.Focused = true;
 				s_address.Text = "";
 				s_page.Blur();
+				return true;
+			}
+			if (s_ctrl && key == 'T')
+			{
+				NewTab(null, true);
+				return true;
+			}
+			if (s_ctrl && key == 'W')
+			{
+				CloseTab(s_tab);
+				return true;
+			}
+			if (s_ctrl && key == VirtualKey.Tab)
+			{
+				CycleTab(s_shift ? -1 : 1);
+				return true;
+			}
+			if (s_ctrl && key >= '1' && key <= '9')
+			{
+				int index = key - '1';
+				if (index < s_tabs.Count)
+					Select(s_tabs[index]);
 				return true;
 			}
 			if (key == VirtualKey.F1 + 4)
