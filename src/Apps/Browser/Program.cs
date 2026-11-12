@@ -57,53 +57,6 @@ namespace Alloy.Apps.Browser
 		}
 	}
 
-	// US keyboard virtual keys to the characters a URL needs
-	internal static class KeyMap
-	{
-		public static char ToChar(ushort key, bool shift)
-		{
-			if (key >= 'A' && key <= 'Z')
-				return shift ? (char)key : (char)(key - 'A' + 'a');
-			if (key >= '0' && key <= '9')
-				return shift ? ")!@#$%^&*("[key - '0'] : (char)key;
-			if (key >= VirtualKey.Numpad0 && key <= VirtualKey.Numpad0 + 9)
-				return (char)('0' + key - VirtualKey.Numpad0);
-			switch (key)
-			{
-				case VirtualKey.Space:
-					return ' ';
-				case VirtualKey.OemPeriod:
-					return shift ? '>' : '.';
-				case VirtualKey.OemComma:
-					return shift ? '<' : ',';
-				case VirtualKey.OemMinus:
-					return shift ? '_' : '-';
-				case VirtualKey.OemPlus:
-					return shift ? '+' : '=';
-				case VirtualKey.OemSlash:
-					return shift ? '?' : '/';
-				case VirtualKey.OemSemicolon:
-					return shift ? ':' : ';';
-				case VirtualKey.OemTilde:
-					return shift ? '~' : '`';
-				case VirtualKey.OemOpenBracket:
-					return shift ? '{' : '[';
-				case VirtualKey.OemCloseBracket:
-					return shift ? '}' : ']';
-				case VirtualKey.OemBackslash:
-					return shift ? '|' : '\\';
-				case VirtualKey.OemQuote:
-					return shift ? '"' : '\'';
-				case VirtualKey.Decimal:
-					return '.';
-				case VirtualKey.Divide:
-					return '/';
-				default:
-					return '\0';
-			}
-		}
-	}
-
 	// The browser window: toolbar with back, forward, reload and the address bar, the page, and a status line; pages load on their own thread
 	internal static class Program
 	{
@@ -119,7 +72,7 @@ namespace Alloy.Apps.Browser
 		private static PageControl s_page;
 		private static Label s_status;
 
-		private static readonly List<string> s_history = new List<string>();
+		private static readonly List<FormSubmission> s_history = new List<FormSubmission>();
 		private static int s_historyIndex = -1;
 		private static bool s_shift;
 		private static bool s_ctrl;
@@ -127,11 +80,10 @@ namespace Alloy.Apps.Browser
 
 		// The load in flight and its result, handed from the fetch thread to the UI thread on the next tick
 		private static int s_loadSequence;
-		private static string s_loadingUrl;
+		private static FormSubmission s_loading;
 		private static Page s_loaded;
-		private static int s_loadedSequence;
 		private static bool s_loadedPush;
-		private static string s_pendingUrl;
+		private static FormSubmission s_pending;
 		private static bool s_pendingPush;
 
 		private static int Main(string[] args)
@@ -145,7 +97,7 @@ namespace Alloy.Apps.Browser
 			s_forward = new Button(">", default) { Click = _ => Forward() };
 			s_reload = new Button("Reload", default) { Click = _ => Reload() };
 			s_address = new AddressBar(default) { Submit = Go };
-			s_page = new PageControl(default) { LinkClicked = target => Navigate(target.ToString(), true), LinkHovered = ShowLink };
+			s_page = new PageControl(default) { LinkClicked = target => Navigate(Get(target), true), LinkHovered = ShowLink, FormSubmitted = submission => Navigate(submission, true) };
 			s_status = new Label("", default, 1) { Foreground = Theme.Hint, Background = Theme.Iron };
 			Arrange();
 			s_gui.Add(s_page);
@@ -156,10 +108,12 @@ namespace Alloy.Apps.Browser
 			s_gui.Add(s_status);
 			s_gui.OnEvent = OnEvent;
 			s_gui.OnTick = OnTick;
-			Navigate(start, true);
+			Navigate(Get(new Uri(start)), true);
 			s_gui.Run();
 			return 0;
 		}
+
+		private static FormSubmission Get(Uri url) => new FormSubmission { Url = url, Method = "GET" };
 
 		private static void Arrange()
 		{
@@ -183,30 +137,29 @@ namespace Alloy.Apps.Browser
 				return;
 			}
 			s_address.Focused = false;
-			Navigate(url, true);
+			Navigate(Get(new Uri(url)), true);
 		}
 
-		// Starts loading a URL on a worker thread; a load already running finishes first and the newest request follows it
-		private static void Navigate(string url, bool push)
+		// Starts loading on a worker thread; a load already running finishes first and the newest request follows it
+		private static void Navigate(FormSubmission request, bool push)
 		{
-			if (s_loadingUrl != null)
+			if (s_loading != null)
 			{
-				s_pendingUrl = url;
+				s_pending = request;
 				s_pendingPush = push;
 				return;
 			}
-			s_loadingUrl = url;
+			s_loading = request;
 			int sequence = ++s_loadSequence;
-			Status("Loading " + url + " ...");
+			Status("Loading " + request + " ...");
 			Thread worker = new Thread(() =>
 			{
-				Page page = Page.Load(url);
+				Page page = Page.Load(request);
 				lock (s_history)
 				{
 					if (sequence == s_loadSequence)
 					{
 						s_loaded = page;
-						s_loadedSequence = sequence;
 						s_loadedPush = push;
 					}
 				}
@@ -220,32 +173,35 @@ namespace Alloy.Apps.Browser
 		{
 			Page page;
 			bool push;
+			FormSubmission request;
 			lock (s_history)
 			{
 				page = s_loaded;
 				push = s_loadedPush;
+				request = s_loading;
 				s_loaded = null;
 			}
 			if (page == null)
 				return false;
-			s_loadingUrl = null;
+			s_loading = null;
 			s_page.Show(page);
-			string shown = Address.Display(page.Url) is { Length: > 0 } display ? display : s_history.Count > 0 ? s_history[s_historyIndex] : "";
+			string shown = Address.Display(page.Url);
 			if (push)
 			{
 				if (s_historyIndex < s_history.Count - 1)
 					s_history.RemoveRange(s_historyIndex + 1, s_history.Count - s_historyIndex - 1);
-				s_history.Add(shown);
+				// A POST is remembered as what was posted, so Reload asks again; anything else as the page's final URL
+				s_history.Add(request.Method == "POST" ? request : Get(page.Url ?? request.Url));
 				s_historyIndex = s_history.Count - 1;
 			}
 			if (!s_address.Focused)
 				s_address.Text = shown;
 			Status(page.Error != null ? page.Error : $"{page.Title}  ({page.Status}, {page.StylesheetUrls.Count} stylesheets, fetched in {page.FetchMs} ms)");
-			if (s_pendingUrl != null)
+			if (s_pending != null)
 			{
-				string next = s_pendingUrl;
+				FormSubmission next = s_pending;
 				bool nextPush = s_pendingPush;
-				s_pendingUrl = null;
+				s_pending = null;
 				Navigate(next, nextPush);
 			}
 			return true;
@@ -277,7 +233,7 @@ namespace Alloy.Apps.Browser
 		{
 			if (link != null)
 				Status(link.ToString());
-			else if (s_page.Page != null && s_loadingUrl == null)
+			else if (s_page.Page != null && s_loading == null)
 				Status(s_page.Page.Error ?? s_page.Title);
 			s_gui.Draw();
 		}
@@ -309,6 +265,8 @@ namespace Alloy.Apps.Browser
 						bool onAddress = s_address.Bounds.Contains(x, y);
 						if (onAddress != s_address.Focused && (onAddress || s_page.Bounds.Contains(x, y)))
 							s_address.Focused = onAddress;
+						if (onAddress)
+							s_page.Blur();
 					}
 					return s_page.OnMouse(buttons, x, y, wheel);
 				}
@@ -339,6 +297,7 @@ namespace Alloy.Apps.Browser
 			{
 				s_address.Focused = true;
 				s_address.Text = "";
+				s_page.Blur();
 				return true;
 			}
 			if (key == VirtualKey.F1 + 4)
@@ -356,14 +315,17 @@ namespace Alloy.Apps.Browser
 				Forward();
 				return true;
 			}
-			if (key == VirtualKey.Escape)
-			{
-				bool changed = s_address.Focused;
-				s_address.Focused = false;
-				return changed;
-			}
 			if (s_address.Focused)
+			{
+				if (key == VirtualKey.Escape)
+				{
+					s_address.Focused = false;
+					return true;
+				}
 				return s_address.OnKey(key, s_shift, s_ctrl);
+			}
+			if (s_page.FocusedField != null)
+				return s_page.OnFieldKey(key, s_shift, s_ctrl);
 			if (key == VirtualKey.Back)
 			{
 				Back();
