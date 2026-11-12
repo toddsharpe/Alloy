@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Form controls</title>
+<style>
+body { font-family: sans-serif; margin: 24px; max-width: 640px; }
+label { display: block; margin: 12px 0 4px; font-weight: bold; }
+select, input[type=text], textarea { font-size: 16px; padding: 4px 6px; }
+select:focus, input:focus, textarea:focus { outline: 2px solid #1a73e8; }
+a:hover { background: #ffe58a; }
+button:hover { background: #1a73e8; color: white; }
+.row { display: flex; gap: 16px; align-items: center; }
+#log { margin-top: 16px; padding: 8px; background: #f3f3f3; border: 1px solid #ccc; min-height: 40px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Form controls</h1>
+<p>A page for trying the browser's controls: the <a href="#top">dropdown</a>, hover styles, focus rings and change events.</p>
+<form id="form" action="https://httpbin.org/get" method="get">
+<label for="fruit">Fruit</label>
+<select id="fruit" name="fruit">
+<option value="apple">Apple</option>
+<option value="banana" selected>Banana</option>
+<option value="cherry">Cherry</option>
+<option value="damson">Damson</option>
+<option value="elderberry">Elderberry</option>
+<option value="fig">Fig</option>
+<option value="grape">Grape</option>
+<option value="honeydew">Honeydew</option>
+<option value="kiwi">Kiwi</option>
+<option value="lemon">Lemon</option>
+<option value="mango">Mango</option>
+<option value="nectarine">Nectarine</option>
+<option value="orange">Orange</option>
+<option value="papaya">Papaya</option>
+<option value="quince">Quince</option>
+</select>
+<label for="size">Size</label>
+<select id="size" name="size">
+<option>Small</option>
+<option>Medium</option>
+<option>Large</option>
+</select>
+<label for="name">Name</label>
+<input type="text" id="name" name="name" value="Todd">
+<div class="row">
+<label><input type="checkbox" name="gift" checked> Gift wrap</label>
+<label><input type="radio" name="ship" value="post" checked> Post</label>
+<label><input type="radio" name="ship" value="courier"> Courier</label>
+</div>
+<label for="notes">Notes</label>
+<textarea id="notes" name="notes" rows="3" cols="40">Ripe, please.</textarea>
+<p><button type="submit">Order</button> <button type="button" id="count">Count changes</button></p>
+</form>
+<div id="log">No changes yet.</div>
+<script>
+let changes = 0;
+document.getElementById('form').addEventListener('change', e => {
+	changes++;
+	document.getElementById('log').textContent = 'change ' + changes + ': ' + e.target.name + ' = ' + e.target.value;
+});
+document.getElementById('count').addEventListener('click', () => {
+	document.getElementById('log').textContent += '\n' + changes + ' change event' + (changes === 1 ? '' : 's') + ' so far';
+});
+</script>
+</body>
+</html>
