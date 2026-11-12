@@ -49,6 +49,7 @@
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Forms.cs" Link="Shared\Sdk\Web\Forms.cs" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Images\*.cs" Link="Shared\Sdk\Web\Images\%(Filename)%(Extension)" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Security\**\*.cs" Link="Shared\Sdk\Security\%(RecursiveDir)%(Filename)%(Extension)" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Script\*.cs" Link="Shared\Sdk\Script\%(Filename)%(Extension)" />
 	</ItemGroup>
 
 </Project>

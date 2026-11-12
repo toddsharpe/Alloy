@@ -168,6 +168,77 @@ BOOL SystemTimeToFileTime(const SYSTEMTIME* systemTime, FILETIME* fileTime)
 	return TRUE;
 }
 
+// A FILETIME back to civil time (Hinnant's algorithm in reverse), for DateTime.UtcNow's fallback path
+BOOL FileTimeToSystemTime(const FILETIME* fileTime, SYSTEMTIME* systemTime)
+{
+	ULONG64 ticks = ((ULONG64)fileTime->dwHighDateTime << 32) | fileTime->dwLowDateTime;
+	ULONG64 seconds = ticks / 10000000;
+	LONG64 days = (LONG64)(seconds / 86400) - 134774;
+	DWORD secondOfDay = (DWORD)(seconds % 86400);
+	LONG64 z = days + 719468;
+	LONG64 era = (z >= 0 ? z : z - 146096) / 146097;
+	LONG64 dayOfEra = z - era * 146097;
+	LONG64 yearOfEra = (dayOfEra - dayOfEra / 1460 + dayOfEra / 36524 - dayOfEra / 146096) / 365;
+	LONG64 dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100);
+	LONG64 mp = (5 * dayOfYear + 2) / 153;
+	LONG64 day = dayOfYear - (153 * mp + 2) / 5 + 1;
+	LONG64 month = mp < 10 ? mp + 3 : mp - 9;
+	LONG64 year = yearOfEra + era * 400 + (month <= 2);
+	systemTime->wYear = (WORD)year;
+	systemTime->wMonth = (WORD)month;
+	systemTime->wDay = (WORD)day;
+	systemTime->wDayOfWeek = (WORD)(((days % 7) + 11) % 7);
+	systemTime->wHour = (WORD)(secondOfDay / 3600);
+	systemTime->wMinute = (WORD)(secondOfDay / 60 % 60);
+	systemTime->wSecond = (WORD)(secondOfDay % 60);
+	systemTime->wMilliseconds = (WORD)(ticks / 10000 % 1000);
+	return TRUE;
+}
+
+void GetSystemTime(SYSTEMTIME* systemTime)
+{
+	FILETIME now;
+	GetSystemTimeAsFileTime(&now);
+	FileTimeToSystemTime(&now, systemTime);
+}
+
+// Regex's non-backtracking engine links the thread pool and condition variables through Task; the pages' regexes never take that path
+PTP_WORK CreateThreadpoolWork(PTP_WORK_CALLBACK callback, PVOID context, PTP_CALLBACK_ENVIRON environment)
+{
+	(void)callback;
+	(void)context;
+	(void)environment;
+	PhxFatal(STATUS_FAIL_FAST_EXCEPTION, "CreateThreadpoolWork: the thread pool is not available");
+}
+
+void SubmitThreadpoolWork(PTP_WORK work)
+{
+	(void)work;
+}
+
+void CloseThreadpoolWork(PTP_WORK work)
+{
+	(void)work;
+}
+
+void InitializeConditionVariable(CONDITION_VARIABLE* variable)
+{
+	variable->Ptr = NULL;
+}
+
+BOOL SleepConditionVariableCS(CONDITION_VARIABLE* variable, CRITICAL_SECTION* section, DWORD milliseconds)
+{
+	(void)variable;
+	(void)section;
+	(void)milliseconds;
+	PhxFatal(STATUS_FAIL_FAST_EXCEPTION, "SleepConditionVariableCS: condition variables are not available");
+}
+
+void WakeConditionVariable(CONDITION_VARIABLE* variable)
+{
+	(void)variable;
+}
+
 // Alloy keeps the clock in UTC, so local and universal time are the same
 BOOL TzSpecificLocalTimeToSystemTime(PVOID timeZone, const SYSTEMTIME* localTime, SYSTEMTIME* universalTime)
 {

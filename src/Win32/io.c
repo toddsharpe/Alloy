@@ -297,6 +297,15 @@ HANDLE LocalFree(HANDLE memory)
 	return NULL;
 }
 
+// LMEM_ZEROINIT is 0x40; the registry and time zone code the runtime links allocate buffers this way
+HANDLE LocalAlloc(DWORD flags, SIZE_T size)
+{
+	void* block = malloc(size);
+	if (block != NULL && (flags & 0x40) != 0)
+		memset(block, 0, size);
+	return block;
+}
+
 static BOOL PhxIsUtf8CodePage(DWORD codePage)
 {
 	return codePage == 65001 || codePage == 0 || codePage == 1 || codePage == 3;
