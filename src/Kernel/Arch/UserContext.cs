@@ -39,7 +39,7 @@ namespace Alloy.Kernel.Arch
 		{
 			new Span<byte>(context, WindowsContext.Size).Clear();
 			context->ContextFlags = flags;
-			context->MxCsr = *(uint*)(frame->FxSave + MxcsrOffset);
+			context->MxCsr = *(uint*)(frame->XSave + MxcsrOffset);
 			context->SegCs = (ushort)frame->Cs;
 			context->SegSs = (ushort)frame->Ss;
 			context->SegDs = (ushort)frame->Ss;
@@ -63,7 +63,7 @@ namespace Alloy.Kernel.Arch
 			context->R14 = frame->R14;
 			context->R15 = frame->R15;
 			context->Rip = frame->Rip;
-			new ReadOnlySpan<byte>(frame->FxSave, 512).CopyTo(new Span<byte>(context->FltSave, 512));
+			new ReadOnlySpan<byte>(frame->XSave, 512).CopyTo(new Span<byte>(context->FltSave, 512));
 		}
 
 		// Applies the parts ContextFlags names; segments and privileged flags stay as ring 3 requires
@@ -96,8 +96,8 @@ namespace Alloy.Kernel.Arch
 			}
 			if ((flags & (WindowsContext.FloatingPoint & 0xFF)) != 0)
 			{
-				new ReadOnlySpan<byte>(context->FltSave, 512).CopyTo(new Span<byte>(frame->FxSave, 512));
-				*(uint*)(frame->FxSave + MxcsrOffset) = context->MxCsr & 0xFFFF;
+				new ReadOnlySpan<byte>(context->FltSave, 512).CopyTo(new Span<byte>(frame->XSave, 512));
+				*(uint*)(frame->XSave + MxcsrOffset) = context->MxCsr & 0xFFFF;
 			}
 		}
 
@@ -105,9 +105,9 @@ namespace Alloy.Kernel.Arch
 		public static unsafe void Initialize(InterruptFrame* frame, ulong rip, ulong rsp, ulong argument)
 		{
 			new Span<byte>(frame, InterruptFrame.Size).Clear();
-			*(ushort*)frame->FxSave = 0x037F;
-			*(uint*)(frame->FxSave + MxcsrOffset) = 0x1F80;
-			*(uint*)(frame->FxSave + MxcsrOffset + 4) = 0xFFFF;
+			*(ushort*)frame->XSave = 0x037F;
+			*(uint*)(frame->XSave + MxcsrOffset) = 0x1F80;
+			*(uint*)(frame->XSave + MxcsrOffset + 4) = 0xFFFF;
 			frame->Rip = rip;
 			frame->Rsp = rsp;
 			frame->Rcx = argument;

@@ -122,6 +122,25 @@ PhxInvalidatePage PROC
 	ret
 PhxInvalidatePage ENDP
 
+; uint64_t PhxReadXcr0()
+PhxReadXcr0 PROC
+	xor ecx, ecx
+	xgetbv
+	shl rdx, 32
+	or rax, rdx
+	ret
+PhxReadXcr0 ENDP
+
+; void PhxWriteXcr0(uint64_t value)
+PhxWriteXcr0 PROC
+	mov rax, rcx
+	mov rdx, rcx
+	shr rdx, 32
+	xor ecx, ecx
+	xsetbv
+	ret
+PhxWriteXcr0 ENDP
+
 ; uint64_t PhxReadTsc()
 PhxReadTsc PROC
 	rdtsc

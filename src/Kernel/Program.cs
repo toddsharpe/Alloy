@@ -15,14 +15,19 @@ namespace Alloy.Kernel
 	internal static class Program
 	{
 		private const ulong Cr0WriteProtect = 1 << 16;
+		private const ulong Cr4OsXsave = 1 << 18;
 		private const ulong Cr4Smep = 1 << 20;
 		private const ulong Cr4Smap = 1 << 21;
+		private const ulong Xcr0X87Sse = 0x3;
+		private const ulong Xcr0Avx = 0x4;
 
 		// A static, so the compiler can't turn the deliberate fault into a null-reference throw helper
 		private static ulong s_faultAddress;
+		private static bool s_avx;
 
 		private static unsafe void Main()
 		{
+			EnableExtendedState();
 			Log.Initialize();
 			BootInfo* info = KernelEnvironment.BootInfo;
 			if (!info->IsValid)
@@ -185,6 +190,19 @@ namespace Alloy.Kernel
 			}
 		}
 
+		// XSAVE with x87, SSE and AVX state, before the first interrupt stub runs xsave64 (Arch.asm), so frames carry the upper halves of the ymm registers ring 3 uses; wider state stays off
+		private static void EnableExtendedState()
+		{
+			CpuIdResult basic = Cpu.CpuId(1);
+			if ((basic.Ecx & (1u << 26)) == 0)
+				Cpu.HaltForever();
+			s_avx = (basic.Ecx & (1u << 28)) != 0;
+			Cpu.WriteCr4(Cpu.ReadCr4() | Cr4OsXsave);
+			Cpu.WriteXcr0(s_avx ? Xcr0X87Sse | Xcr0Avx : Xcr0X87Sse);
+			if (Cpu.CpuId(0xD).Ebx > InterruptFrame.XSaveSize)
+				Cpu.HaltForever();
+		}
+
 		// Write protection always; SMEP and SMAP when the CPU has them, so ring 0 can't run or touch user pages by accident
 		private static void EnableProtection()
 		{
@@ -203,6 +221,7 @@ namespace Alloy.Kernel
 			line.Append("Protection: WP, NX");
 			line.Append(smep ? ", SMEP" : "");
 			line.Append(smap ? ", SMAP" : "");
+			line.Append(s_avx ? "; XSAVE with AVX" : "; XSAVE");
 			Log.WriteLine(ref line);
 		}
 

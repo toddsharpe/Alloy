@@ -5,6 +5,10 @@ EXTERN KiSystemCall:PROC
 
 ISTACK_SIZE EQU 2000h
 
+; The extended state xsave64 writes for XCR0 = x87, SSE and AVX (Program.EnableProtection): the fxsave image, the xsave header, then the upper halves of ymm0-15
+XSAVE_SIZE EQU 340h
+XSAVE_MASK EQU 7
+
 _BSS SEGMENT
 ALIGN 16
 KiGdt db 64 dup (?)
@@ -64,25 +68,42 @@ SAVE_FRAME MACRO
 	push r13
 	push r14
 	push r15
-	sub rsp, 512
-	fxsave64 [rsp]
+	mov rbx, rsp
+	sub rsp, XSAVE_SIZE + 16
+	and rsp, -64
+	; xsave leaves the header's reserved bytes alone and xrstor faults unless they are zero, so the header is cleared first
+	xor eax, eax
+	mov [rsp + 200h], rax
+	mov [rsp + 208h], rax
+	mov [rsp + 210h], rax
+	mov [rsp + 218h], rax
+	mov [rsp + 220h], rax
+	mov [rsp + 228h], rax
+	mov [rsp + 230h], rax
+	mov [rsp + 238h], rax
+	mov eax, XSAVE_MASK
+	xor edx, edx
+	xsave64 [rsp]
 	cld
 ENDM
 
-; Builds the InterruptFrame (Interrupts.cs): GPRs, then the whole fxsave area; from ring 3 it is the thread's user context
+; Builds the InterruptFrame (Interrupts.cs): GPRs, then the xsave area, which needs 64-byte alignment; rbx keeps the GPR block for the restore
+; From ring 3 the stack starts at the aligned top of the kernel stack, so the frame has its fixed layout and is the thread's user context
 KiInterruptCommon PROC
 	test byte ptr [rsp + 24], 3
 	jz FromKernel
 	swapgs
 FromKernel:
 	SAVE_FRAME
-	mov rcx, rsp
+	lea rcx, [rbx - (XSAVE_SIZE + 16)]
 	sub rsp, 32
 	call KiInterruptDispatch
 	add rsp, 32
 KiRestoreFrame::
-	fxrstor64 [rsp]
-	add rsp, 512
+	mov eax, XSAVE_MASK
+	xor edx, edx
+	xrstor64 [rsp]
+	mov rsp, rbx
 	pop r15
 	pop r14
 	pop r13
@@ -262,7 +283,7 @@ PhxSyscallEntry PROC
 	push 0
 	push 100h
 	SAVE_FRAME
-	mov rcx, rsp
+	lea rcx, [rbx - (XSAVE_SIZE + 16)]
 	sub rsp, 32
 	sti
 	call KiSystemCall
@@ -280,6 +301,7 @@ PhxSyscallEntryAddress ENDP
 PhxResumeUser PROC
 	cli
 	mov rsp, rcx
+	lea rbx, [rcx + XSAVE_SIZE + 16]
 	jmp KiRestoreFrame
 PhxResumeUser ENDP
 

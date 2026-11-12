@@ -9,12 +9,16 @@ using Alloy.Text;
 namespace Alloy.Kernel.Arch
 {
 	// Mirrors what KiInterruptCommon and PhxSyscallEntry push, lowest address first; from ring 3 it is the thread's whole user context
+	// The xsave area (its first 512 bytes are the fxsave image) is in place only for frames from ring 3; a nested kernel frame keeps its state wherever alignment put it
 	internal struct InterruptFrame
 	{
-		public const int Size = 512 + 22 * 8;
+		public const int XSaveSize = 832;
+		public const int Size = XSaveSize + 16 + 22 * 8;
 		public const ulong SyscallVector = 0x100;
 
-		public unsafe fixed byte FxSave[512];
+		public unsafe fixed byte XSave[XSaveSize];
+		public ulong Padding0;
+		public ulong Padding1;
 		public ulong R15;
 		public ulong R14;
 		public ulong R13;

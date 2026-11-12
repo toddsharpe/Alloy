@@ -75,6 +75,14 @@ namespace Alloy.Arch.X64
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		public static extern void WriteCr4(ulong value);
 
+		[RuntimeImport("*", "PhxReadXcr0")]
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		public static extern ulong ReadXcr0();
+
+		[RuntimeImport("*", "PhxWriteXcr0")]
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		public static extern void WriteXcr0(ulong value);
+
 		[RuntimeImport("*", "PhxReadFlags")]
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		public static extern ulong ReadFlags();
