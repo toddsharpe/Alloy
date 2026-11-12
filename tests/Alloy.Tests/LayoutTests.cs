@@ -432,4 +432,17 @@ public class LayoutTests
 		Assert.True(big.Width <= 200.5f, "image width " + big.Width);
 		Assert.Equal(big.Width / 2, big.Height, 1f);
 	}
+
+	[Fact]
+	public void TranslationsMoveABoxWithoutMovingItsNeighbours()
+	{
+		LayoutBox root = Lay("<body><div id=\"a\" style=\"height:50px;transform:translate(20px, -50%)\">a</div><div id=\"b\" style=\"height:50px;transform:translateY(10px)\">b</div><div id=\"c\">c</div></body>");
+		LayoutBox a = FindId(root, "a");
+		LayoutBox b = FindId(root, "b");
+		LayoutBox c = FindId(root, "c");
+		Assert.Equal(20, a.X, 0.5f);
+		Assert.Equal(-25, a.Y, 0.5f);
+		Assert.Equal(60, b.Y, 0.5f);
+		Assert.Equal(100, c.Y, 0.5f);
+	}
 }

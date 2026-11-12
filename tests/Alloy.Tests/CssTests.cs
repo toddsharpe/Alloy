@@ -234,6 +234,23 @@ public class CssTests
 	}
 
 	[Fact]
+	public void ParsesTransformTranslations()
+	{
+		ComputedStyle both = Style("<p>x</p>", "p { transform: translate(10px, -50%) }", "p");
+		Assert.Equal(10, both.TranslateX.Value);
+		Assert.True(both.TranslateY.IsPercent);
+		Assert.Equal(-50, both.TranslateY.Value);
+		ComputedStyle chain = Style("<p>x</p>", "p { transform: rotate(3deg) translateX(1em) scale(2) translateY(4px); font-size: 10px }", "p");
+		Assert.Equal(10, chain.TranslateX.Value);
+		Assert.Equal(4, chain.TranslateY.Value);
+		ComputedStyle three = Style("<p>x</p>", "p { transform: translate3d(5px, 6px, 7px) }", "p");
+		Assert.Equal(5, three.TranslateX.Value);
+		Assert.Equal(6, three.TranslateY.Value);
+		Assert.Equal(0, Style("<p>x</p>", "p { transform: none }", "p").TranslateX.Value);
+		Assert.Equal(-50, Style("<p>x</p>", "p { translate: -50% 8px }", "p").TranslateX.Value);
+	}
+
+	[Fact]
 	public void HoverAndFocusFollowTheElementFlags()
 	{
 		Document document = HtmlParser.Parse("<div class=\"card\"><a id=\"link\" href=\"#\">go</a><span class=\"title\">t</span></div><input id=\"field\"><p id=\"plain\">p</p>");

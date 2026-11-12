@@ -198,6 +198,9 @@ namespace Alloy.Sdk.Web.Css
 		public bool Visible = true;
 		// box-sizing: border-box, where width and height include the padding and borders
 		public bool BorderBox;
+		// The translation part of transform, applied after layout; percentages are of the box's own size
+		public Length TranslateX = Length.Zero;
+		public Length TranslateY = Length.Zero;
 
 		public Edges Margin = new Edges(Length.Zero);
 		public Edges Padding = new Edges(Length.Zero);

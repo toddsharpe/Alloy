@@ -667,6 +667,19 @@ namespace Alloy.Sdk.Web.Css
 				case "box-sizing":
 					_style.BorderBox = tokens[0].IsIdent("border-box");
 					break;
+				case "transform":
+					ApplyTransform(tokens);
+					break;
+				case "translate":
+					_style.TranslateX = Length.Zero;
+					_style.TranslateY = Length.Zero;
+					if (!tokens[0].IsIdent("none") && CssValue.TryLength(tokens[0], _fontSize, _rootFontSize, true, true, out Length tx))
+					{
+						_style.TranslateX = tx;
+						if (tokens.Count > 1 && CssValue.TryLength(tokens[1], _fontSize, _rootFontSize, true, true, out Length ty))
+							_style.TranslateY = ty;
+					}
+					break;
 				case "clip":
 				case "clip-path":
 					if (StyleResolver.ClipHidesEverything(tokens))
@@ -1963,6 +1976,46 @@ namespace Alloy.Sdk.Web.Css
 			}
 			if (i < tokens.Count)
 				_style.FontFamily = ParseFamily(tokens.GetRange(i, tokens.Count - i));
+		}
+
+		// The translate(), translateX(), translateY() and translate3d() parts of a transform list are kept; scales and rotations are not drawn
+		private void ApplyTransform(List<CssToken> tokens)
+		{
+			_style.TranslateX = Length.Zero;
+			_style.TranslateY = Length.Zero;
+			for (int i = 0; i < tokens.Count; i++)
+			{
+				if (tokens[i].Type != CssTokenType.Function)
+					continue;
+				string name = tokens[i].Value.ToLowerInvariant();
+				List<CssToken> arguments = new List<CssToken>();
+				int j = i + 1;
+				for (; j < tokens.Count && tokens[j].Type != CssTokenType.CloseParen; j++)
+				{
+					if (tokens[j].Type != CssTokenType.Comma && tokens[j].Type != CssTokenType.Whitespace)
+						arguments.Add(tokens[j]);
+				}
+				i = j;
+				if (name == "translate" || name == "translate3d")
+				{
+					if (arguments.Count > 0 && CssValue.TryLength(arguments[0], _fontSize, _rootFontSize, true, true, out Length x))
+						_style.TranslateX = Add(_style.TranslateX, x);
+					if (arguments.Count > 1 && CssValue.TryLength(arguments[1], _fontSize, _rootFontSize, true, true, out Length y))
+						_style.TranslateY = Add(_style.TranslateY, y);
+				}
+				else if (name == "translatex" && arguments.Count > 0 && CssValue.TryLength(arguments[0], _fontSize, _rootFontSize, true, true, out Length onlyX))
+					_style.TranslateX = Add(_style.TranslateX, onlyX);
+				else if (name == "translatey" && arguments.Count > 0 && CssValue.TryLength(arguments[0], _fontSize, _rootFontSize, true, true, out Length onlyY))
+					_style.TranslateY = Add(_style.TranslateY, onlyY);
+			}
+		}
+
+		// Two translations along one axis combine when they are the same kind; a mix keeps the later one
+		private static Length Add(Length a, Length b)
+		{
+			if (a.IsPercent == b.IsPercent && !a.IsAuto)
+				return a.IsPercent ? new Length(a.Value + b.Value, LengthUnit.Percent) : Length.Px(a.Value + b.Value);
+			return a.Value == 0 ? b : b.Value == 0 ? a : b;
 		}
 
 		private void ApplyLineHeight(CssToken token)

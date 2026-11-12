@@ -222,6 +222,7 @@ namespace Alloy.Sdk.Web.Layout
 			SetHeight(box, contentHeight, containingHeight);
 			if (box.Style.Display == Display.ListItem && box.Style.ListStyleType != ListStyleType.None && !box.Style.ListInside)
 				box.Marker = MarkerText(box);
+			ApplyTranslate(box);
 		}
 
 		private void SetHeight(LayoutBox box, float contentHeight, float containingHeight)
@@ -480,6 +481,15 @@ namespace Alloy.Sdk.Web.Layout
 			float dx = box.Style.Left.IsAuto ? 0 : box.Style.Left.Resolve(containingWidth);
 			float dy = box.Style.Top.IsAuto ? 0 : (box.Style.Top.IsPercent && containingHeight < 0 ? 0 : box.Style.Top.Resolve(containingHeight));
 			box.Translate(dx, dy);
+		}
+
+		// A transform's translation moves the finished box and everything in it, without touching the flow around it
+		private static void ApplyTranslate(LayoutBox box)
+		{
+			ComputedStyle style = box.Style;
+			if (style == null || (style.TranslateX.Value == 0 && style.TranslateY.Value == 0))
+				return;
+			box.Translate(style.TranslateX.Resolve(box.Width), style.TranslateY.Resolve(box.Height));
 		}
 
 		// Absolutely positioned boxes deferred to this container: shrink-to-fit at their offsets, or where they would have been
