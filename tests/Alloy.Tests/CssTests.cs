@@ -227,6 +227,10 @@ public class CssTests
 		Assert.Equal(100, mixed.Width.Value);
 		Assert.Equal(16, Style("<p>x</p>", ":root { --gap: 4px } p { padding-left: calc(var(--gap) * 4) }", "p").Padding.Left.Value);
 		Assert.Equal(50, Style("<p>x</p>", "p { width: max(10px, min(50px, 80px)) }", "p").Width.Value);
+		ComputedStyle logical = Style("<p>x</p>", "p { inline-size: min(calc(100cqw - 32px), calc((100cqh - 64px) * 984 / 840)); min-block-size: 40px }", "p");
+		Assert.True(logical.Width.IsPercent);
+		Assert.Equal(100, logical.Width.Value);
+		Assert.Equal(40, logical.MinHeight.Value);
 	}
 
 	[Fact]

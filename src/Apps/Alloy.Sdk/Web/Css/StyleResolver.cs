@@ -640,21 +640,27 @@ namespace Alloy.Sdk.Web.Css
 					ApplyEdge(tokens[tokens.Count > 1 ? 1 : 0], ref _style.Padding.Bottom, false, false);
 					break;
 				case "width":
+				case "inline-size":
 					ApplySize(tokens[0], ref _style.Width, true);
 					break;
 				case "height":
+				case "block-size":
 					ApplySize(tokens[0], ref _style.Height, true);
 					break;
 				case "min-width":
+				case "min-inline-size":
 					ApplySize(tokens[0], ref _style.MinWidth, false);
 					break;
 				case "max-width":
+				case "max-inline-size":
 					ApplySize(tokens[0], ref _style.MaxWidth, true);
 					break;
 				case "min-height":
+				case "min-block-size":
 					ApplySize(tokens[0], ref _style.MinHeight, false);
 					break;
 				case "max-height":
+				case "max-block-size":
 					ApplySize(tokens[0], ref _style.MaxHeight, true);
 					break;
 				case "top":

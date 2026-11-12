@@ -36,8 +36,8 @@ namespace Alloy.Sdk.Web.Css
 
 			public Value Scale(double factor) => new Value { Px = Px * factor, Percent = Percent * factor, Number = Number * factor, HasPx = HasPx, HasPercent = HasPercent, HasNumber = HasNumber };
 
-			// The single quantity that stands for the value when a comparison is needed: pixels first, else the percentage, else the number
-			public double Magnitude => HasPx ? Px : HasPercent ? Percent : Number;
+			// The single quantity that stands for the value when a comparison is needed: the percentage when there is one, else pixels, else the number
+			public double Magnitude => HasPercent ? Percent : HasPx ? Px : Number;
 		}
 
 		public static List<CssToken> Collapse(List<CssToken> tokens, double fontSize, double rootFontSize)
@@ -264,7 +264,11 @@ namespace Alloy.Sdk.Web.Css
 						_at++;
 						return true;
 					case CssTokenType.Dimension:
-						value = new Value { Px = CssValue.ToPixels(token.Number, token.Unit, _fontSize, _rootFontSize), HasPx = true };
+						// Container query units stand in for percentages of the containing block, the nearest thing without container tracking
+						if (token.Unit is "cqw" or "cqi" or "cqh" or "cqb" or "cqmin" or "cqmax")
+							value = new Value { Percent = token.Number, HasPercent = true };
+						else
+							value = new Value { Px = CssValue.ToPixels(token.Number, token.Unit, _fontSize, _rootFontSize), HasPx = true };
 						_at++;
 						return true;
 					case CssTokenType.OpenParen:
