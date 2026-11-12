@@ -598,6 +598,16 @@ namespace Alloy.Sdk.Script
 						case '-':
 							builder.Append("\\-");
 							break;
+						case 'p' when i + 1 < pattern.Length && pattern[i + 1] == '{':
+						case 'P' when i + 1 < pattern.Length && pattern[i + 1] == '{':
+						{
+							int close = pattern.IndexOf('}', i + 1);
+							if (close < 0)
+								throw new ArgumentException("bad \\p{} escape");
+							AppendProperty(builder, pattern.Substring(i + 2, close - i - 2), next == 'P', inClass);
+							i = close;
+							break;
+						}
 						default:
 							builder.Append('\\').Append(next);
 							break;
@@ -651,6 +661,141 @@ namespace Alloy.Sdk.Script
 				}
 			}
 			return builder.ToString();
+		}
+
+		// \p{...} as .NET knows it: general categories pass through, long names and scripts are mapped, emoji properties are approximated by ranges
+		private static void AppendProperty(StringBuilder builder, string name, bool negated, bool inClass)
+		{
+			int equals = name.IndexOf('=');
+			string key = equals < 0 ? name : name.Substring(0, equals);
+			string value = equals < 0 ? name : name.Substring(equals + 1);
+			if (equals >= 0 && key is not ("Script" or "sc" or "Script_Extensions" or "scx" or "General_Category" or "gc"))
+				key = "?";
+			string category = equals >= 0 && key is "General_Category" or "gc" ? value : equals < 0 ? name : null;
+			string native = category == null ? null : CategoryName(category);
+			if (native != null)
+			{
+				builder.Append(negated ? "\\P{" : "\\p{").Append(native).Append('}');
+				return;
+			}
+			string ranges = category != null ? PropertyRanges(category) : key == "?" ? null : ScriptRanges(value);
+			ranges ??= "\\p{L}\\p{N}";
+			if (inClass)
+			{
+				// A negated property inside a class has no range form; letters stand in, which is what such classes nearly always mean
+				builder.Append(negated ? "\\P{L}" : ranges);
+				return;
+			}
+			builder.Append(negated ? "[^" : "[").Append(ranges).Append(']');
+		}
+
+		private static string CategoryName(string name)
+		{
+			switch (name)
+			{
+				case "L": case "Lu": case "Ll": case "Lt": case "Lm": case "Lo": case "M": case "Mn": case "Mc": case "Me": case "N": case "Nd": case "Nl": case "No":
+				case "P": case "Pc": case "Pd": case "Ps": case "Pe": case "Pi": case "Pf": case "Po": case "S": case "Sm": case "Sc": case "Sk": case "So":
+				case "Z": case "Zs": case "Zl": case "Zp": case "C": case "Cc": case "Cf": case "Cs": case "Co": case "Cn":
+					return name;
+				case "Letter": return "L";
+				case "Uppercase_Letter": return "Lu";
+				case "Lowercase_Letter": return "Ll";
+				case "Titlecase_Letter": return "Lt";
+				case "Modifier_Letter": return "Lm";
+				case "Other_Letter": return "Lo";
+				case "Mark": case "Combining_Mark": return "M";
+				case "Nonspacing_Mark": return "Mn";
+				case "Spacing_Mark": return "Mc";
+				case "Enclosing_Mark": return "Me";
+				case "Number": return "N";
+				case "Decimal_Number": case "digit": return "Nd";
+				case "Letter_Number": return "Nl";
+				case "Other_Number": return "No";
+				case "Punctuation": case "punct": return "P";
+				case "Connector_Punctuation": return "Pc";
+				case "Dash_Punctuation": return "Pd";
+				case "Open_Punctuation": return "Ps";
+				case "Close_Punctuation": return "Pe";
+				case "Initial_Punctuation": return "Pi";
+				case "Final_Punctuation": return "Pf";
+				case "Other_Punctuation": return "Po";
+				case "Symbol": return "S";
+				case "Math_Symbol": return "Sm";
+				case "Currency_Symbol": return "Sc";
+				case "Modifier_Symbol": return "Sk";
+				case "Other_Symbol": return "So";
+				case "Separator": return "Z";
+				case "Space_Separator": return "Zs";
+				case "Line_Separator": return "Zl";
+				case "Paragraph_Separator": return "Zp";
+				case "Other": return "C";
+				case "Control": case "cntrl": return "Cc";
+				case "Format": return "Cf";
+				case "Surrogate": return "Cs";
+				case "Private_Use": return "Co";
+				case "Unassigned": return "Cn";
+				case "Uppercase": case "Upper": return "Lu";
+				case "Lowercase": case "Lower": return "Ll";
+				default: return null;
+			}
+		}
+
+		private static string PropertyRanges(string name)
+		{
+			switch (name)
+			{
+				case "Alphabetic": case "Alpha": case "ID_Start": case "IDS": case "XID_Start": case "XIDS": case "Any": case "Assigned":
+					return name == "Any" || name == "Assigned" ? "\\s\\S" : "\\p{L}\\p{Nl}";
+				case "ID_Continue": case "IDC": case "XID_Continue": case "XIDC":
+					return "\\p{L}\\p{Nl}\\p{Mn}\\p{Mc}\\p{Nd}\\p{Pc}";
+				case "White_Space": case "space":
+					return "\\s";
+				case "ASCII":
+					return "\\u0000-\\u007F";
+				case "ASCII_Hex_Digit": case "AHex": case "Hex_Digit": case "Hex":
+					return "0-9A-Fa-f";
+				case "Emoji": case "Emoji_Presentation": case "EPres": case "Extended_Pictographic": case "ExtPict":
+					return "\\u00A9\\u00AE\\u203C\\u2049\\u2122\\u2139\\u2194-\\u21AA\\u231A-\\u23FF\\u24C2\\u25AA-\\u27BF\\u2934\\u2935\\u2B05-\\u2B55\\u3030\\u303D\\u3297\\u3299\\uD83C-\\uD83E\\uDC00-\\uDFFF";
+				case "Emoji_Modifier": case "EMod":
+					return "\\uDFFB-\\uDFFF";
+				case "Regional_Indicator": case "RI":
+					return "\\uDDE6-\\uDDFF";
+				case "Emoji_Modifier_Base": case "EBase":
+					return "\\uD83C-\\uD83E\\uDC00-\\uDFFF\\u261D\\u26F9\\u270A-\\u270D";
+				case "Emoji_Component": case "EComp":
+					return "#*0-9\\u200D\\u20E3\\uFE0F\\uDDE6-\\uDDFF\\uDFFB-\\uDFFF\\uDB40";
+				case "Variation_Selector": case "VS":
+					return "\\uFE00-\\uFE0F";
+				case "Dash":
+					return "\\p{Pd}";
+				case "Diacritic": case "Dia":
+					return "\\p{Mn}\\p{Lm}\\p{Sk}";
+				default:
+					return null;
+			}
+		}
+
+		private static string ScriptRanges(string name)
+		{
+			switch (name)
+			{
+				case "Latin": case "Latn": return "A-Za-z\\u00AA\\u00BA\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u1E00-\\u1EFF\\u2C60-\\u2C7F\\uA720-\\uA7FF";
+				case "Greek": case "Grek": return "\\u0370-\\u03FF\\u1F00-\\u1FFF";
+				case "Cyrillic": case "Cyrl": return "\\u0400-\\u052F\\u2DE0-\\u2DFF\\uA640-\\uA69F";
+				case "Armenian": case "Armn": return "\\u0530-\\u058F";
+				case "Hebrew": case "Hebr": return "\\u0590-\\u05FF";
+				case "Arabic": case "Arab": return "\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF";
+				case "Devanagari": case "Deva": return "\\u0900-\\u097F";
+				case "Bengali": case "Beng": return "\\u0980-\\u09FF";
+				case "Thai": return "\\u0E00-\\u0E7F";
+				case "Georgian": case "Geor": return "\\u10A0-\\u10FF";
+				case "Hangul": case "Hang": return "\\u1100-\\u11FF\\u3130-\\u318F\\uAC00-\\uD7AF";
+				case "Hiragana": case "Hira": return "\\u3040-\\u309F";
+				case "Katakana": case "Kana": return "\\u30A0-\\u30FF\\u31F0-\\u31FF";
+				case "Han": case "Hani": return "\\u2E80-\\u2FDF\\u3005\\u3007\\u3021-\\u3029\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF";
+				case "Common": case "Zyyy": return "\\p{P}\\p{S}\\p{Z}\\p{Nd}";
+				default: return null;
+			}
 		}
 
 		private JsRegExp ThisRegExp(JsValue thisValue)

@@ -553,6 +553,20 @@ line2 ${`nested ${1 + 1}`}`
 	}
 
 	[Fact]
+	public void TranslatesUnicodePropertyEscapes()
+	{
+		Assert.Equal("true", Eval("/^\\p{Letter}+$/u.test('Grüße')"));
+		Assert.Equal("false", Eval("/^\\p{Lu}+$/u.test('abc')"));
+		Assert.Equal("true", Eval("/^[\\p{Script=Latin}\\p{Nd}]+$/u.test('abc123')"));
+		Assert.Equal("false", Eval("/^\\p{Script=Latin}+$/u.test('абв')"));
+		Assert.Equal("true", Eval("/^\\p{Script=Cyrillic}+$/u.test('абв')"));
+		Assert.Equal("true", Eval("/\\P{L}/u.test('a1')"));
+		Assert.Equal("true", Eval("/\\p{Emoji}/u.test('hi \\u{1F600}')"));
+		Assert.Equal("2", Eval("'ab'.match(/\\p{RI}\\p{RI}|\\p{Emoji}(\\p{EMod}|\\u{FE0F}\\u{20E3}?)?|./gu).length"));
+		Assert.Equal("true", Eval("/^\\p{White_Space}$/u.test(' ')"));
+	}
+
+	[Fact]
 	public void KeepsWeakRefsStrongAndFinalizationRegistriesQuiet()
 	{
 		Assert.Equal("1", Eval("const o = {a: 1}; const r = new WeakRef(o); r.deref().a"));
