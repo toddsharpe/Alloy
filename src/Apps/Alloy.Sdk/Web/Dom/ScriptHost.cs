@@ -73,6 +73,8 @@ namespace Alloy.Sdk.Web.Dom
 		public double EventBudgetMs = 3000;
 		// Wall time all the scripts of a page load may take together, fetches included; what does not fit is skipped so the page still appears
 		public double LoadBudgetMs = 20000;
+		// How long one pump may spend on due timers before handing control back, so the window keeps painting and taking input
+		public double PumpSliceMs = 100;
 		private double _loadDeadline = double.PositiveInfinity;
 		public string ReadyState = "loading";
 		// The document changed since it was last laid out
@@ -350,7 +352,7 @@ namespace Alloy.Sdk.Web.Dom
 			try
 			{
 				Interpreter.RunJobs();
-				Interpreter.RunTimers();
+				Interpreter.RunTimers(Now + PumpSliceMs);
 			}
 			finally
 			{

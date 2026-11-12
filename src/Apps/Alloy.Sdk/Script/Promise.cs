@@ -523,7 +523,8 @@ namespace Alloy.Sdk.Script
 		}
 
 		// Runs every timer that is due, earliest first, and the jobs each one queues; true when any ran
-		public bool RunTimers()
+		// Runs the timers that are due; past stopAfter the rest wait for the next call, so a host can keep its own loop responsive
+		public bool RunTimers(double stopAfter = double.PositiveInfinity)
 		{
 			bool any = false;
 			Interpreter prior = Current;
@@ -532,6 +533,8 @@ namespace Alloy.Sdk.Script
 			{
 				for (int round = 0; round < 100; round++)
 				{
+					if (Clock() > stopAfter)
+						break;
 					double now = Clock();
 					List<Timer> due = new List<Timer>();
 					foreach (Timer timer in _timers)
@@ -545,6 +548,8 @@ namespace Alloy.Sdk.Script
 					due.Sort((a, b) => a.Due != b.Due ? a.Due.CompareTo(b.Due) : a.Id.CompareTo(b.Id));
 					foreach (Timer timer in due)
 					{
+						if (Clock() > stopAfter)
+							break;
 						if (!_timers.Contains(timer))
 							continue;
 						if (timer.Interval >= 0)
