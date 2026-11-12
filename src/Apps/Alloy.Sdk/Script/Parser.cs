@@ -11,6 +11,7 @@ namespace Alloy.Sdk.Script
 		private int _functionDepth;
 		private bool _inAsync;
 		private bool _inGenerator;
+		private bool _isModule;
 		private readonly List<FunctionNode> _functions = new List<FunctionNode>();
 
 		public Parser(string source)
@@ -19,6 +20,14 @@ namespace Alloy.Sdk.Script
 		}
 
 		public static Program Parse(string source) => new Parser(source).ParseProgram();
+
+		public static Program ParseModule(string source)
+		{
+			Parser parser = new Parser(source) { _isModule = true };
+			Program program = parser.ParseProgram();
+			program.IsModule = true;
+			return program;
+		}
 
 		public static FunctionNode ParseFunctionBody(string parameters, string body)
 		{
@@ -136,6 +145,12 @@ namespace Alloy.Sdk.Script
 						break;
 					case "class":
 						return new ClassDeclaration { Class = ParseClass(true) };
+					case "import":
+						if (Peek(1).Kind == TokenKind.Punctuator && (Peek(1).Text == "(" || Peek(1).Text == "."))
+							break;
+						return ParseImport();
+					case "export":
+						return ParseExport();
 					case "return":
 					{
 						Advance();
@@ -235,6 +250,145 @@ namespace Alloy.Sdk.Script
 			ExpressionStatement statement = new ExpressionStatement { Expression = ParseExpression() };
 			ConsumeSemicolon();
 			return statement;
+		}
+
+		// import "m"; import d from "m"; import * as ns from "m"; import { a, b as c } from "m"; and the combinations
+		private ImportDeclaration ParseImport()
+		{
+			ImportDeclaration import = new ImportDeclaration { Line = Current.Line };
+			Advance();
+			if (Current.Kind == TokenKind.String)
+			{
+				import.Source = Advance().Value;
+				ConsumeSemicolon();
+				return import;
+			}
+			if (IsIdentifierLike && !(Current.Kind == TokenKind.Identifier && Current.Text == "from" && Peek(1).Kind == TokenKind.String))
+			{
+				import.Specifiers.Add(new ImportSpecifier { Imported = "default", Local = Advance().Text });
+				Match(",");
+			}
+			if (Match("*"))
+			{
+				ExpectContextual("as");
+				import.Specifiers.Add(new ImportSpecifier { Imported = "*", Local = ExpectIdentifier() });
+			}
+			else if (Match("{"))
+			{
+				while (!IsPunctuator("}"))
+				{
+					string imported = Current.Kind == TokenKind.String ? Advance().Value : Advance().Text;
+					string local = imported;
+					if (Current.Kind == TokenKind.Identifier && Current.Text == "as")
+					{
+						Advance();
+						local = ExpectIdentifier();
+					}
+					import.Specifiers.Add(new ImportSpecifier { Imported = imported, Local = local });
+					if (!IsPunctuator("}"))
+						Expect(",");
+				}
+				Expect("}");
+			}
+			ExpectContextual("from");
+			if (Current.Kind != TokenKind.String)
+				throw Error("expected a module specifier");
+			import.Source = Advance().Value;
+			if (Current.Kind == TokenKind.Identifier && (Current.Text == "with" || Current.Text == "assert") && !Current.NewlineBefore)
+			{
+				Advance();
+				ParseObjectLiteral();
+			}
+			ConsumeSemicolon();
+			return import;
+		}
+
+		// export declarations, export default, export { a as b } [from "m"], export * [as ns] from "m"
+		private ExportDeclaration ParseExport()
+		{
+			ExportDeclaration export = new ExportDeclaration { Line = Current.Line };
+			Advance();
+			if (Match("*"))
+			{
+				ExportSpecifier star = new ExportSpecifier { Local = "*" };
+				if (Current.Kind == TokenKind.Identifier && Current.Text == "as")
+				{
+					Advance();
+					star.Exported = Current.Kind == TokenKind.String ? Advance().Value : Advance().Text;
+				}
+				export.Specifiers.Add(star);
+				ExpectContextual("from");
+				export.Source = Advance().Value;
+				ConsumeSemicolon();
+				return export;
+			}
+			if (IsKeyword("default"))
+			{
+				Advance();
+				bool isAsync = IsKeyword("async") && Peek(1).Kind == TokenKind.Keyword && Peek(1).Text == "function";
+				if ((IsKeyword("function") || isAsync) && (isAsync ? Peek(2) : Peek(1)) is { Kind: TokenKind.Identifier or TokenKind.Keyword } named && named.Text != "(" && !(named.Kind == TokenKind.Punctuator))
+				{
+					if (isAsync)
+						Advance();
+					FunctionNode function = ParseFunction(isAsync, true, true);
+					if (function.Name != null)
+					{
+						export.Declaration = new FunctionDeclaration { Function = function, Line = export.Line };
+						export.Specifiers.Add(new ExportSpecifier { Local = function.Name, Exported = "default" });
+						return export;
+					}
+					export.Default = new FunctionExpression { Function = function, Line = export.Line };
+					return export;
+				}
+				if (IsKeyword("class") && Peek(1).Kind != TokenKind.Punctuator)
+				{
+					ClassNode cls = ParseClass(true);
+					export.Declaration = new ClassDeclaration { Class = cls, Line = export.Line };
+					export.Specifiers.Add(new ExportSpecifier { Local = cls.Name, Exported = "default" });
+					return export;
+				}
+				export.Default = ParseAssignment(true);
+				ConsumeSemicolon();
+				return export;
+			}
+			if (Match("{"))
+			{
+				while (!IsPunctuator("}"))
+				{
+					string local = Current.Kind == TokenKind.String ? Advance().Value : Advance().Text;
+					string exported = local;
+					if (Current.Kind == TokenKind.Identifier && Current.Text == "as")
+					{
+						Advance();
+						exported = Current.Kind == TokenKind.String ? Advance().Value : Advance().Text;
+					}
+					export.Specifiers.Add(new ExportSpecifier { Local = local, Exported = exported });
+					if (!IsPunctuator("}"))
+						Expect(",");
+				}
+				Expect("}");
+				if (Current.Kind == TokenKind.Identifier && Current.Text == "from")
+				{
+					Advance();
+					export.Source = Advance().Value;
+				}
+				ConsumeSemicolon();
+				return export;
+			}
+			export.Declaration = ParseStatement();
+			if (export.Declaration is not (VariableDeclaration or FunctionDeclaration or ClassDeclaration))
+				throw Error("expected a declaration after export");
+			return export;
+		}
+
+		private void ExpectContextual(string word)
+		{
+			if (Current.Kind == TokenKind.Identifier && Current.Text == word)
+			{
+				Advance();
+				return;
+			}
+			throw Error($"expected '{word}' but found '{Current.Text}'");
 		}
 
 		private BlockStatement ParseBlock()
@@ -494,7 +648,7 @@ namespace Alloy.Sdk.Script
 			_functionDepth--;
 			_inAsync = outerAsync;
 			_inGenerator = outerGenerator;
-			if (body.Body.Count > 0 && body.Body[0] is ExpressionStatement { Expression: Literal { Value: { IsString: true } literal } } && literal.String == "use strict")
+			if (_isModule || body.Body.Count > 0 && body.Body[0] is ExpressionStatement { Expression: Literal { Value: { IsString: true } literal } } && literal.String == "use strict")
 				function.Strict = true;
 			return body;
 		}
@@ -1011,6 +1165,26 @@ namespace Alloy.Sdk.Script
 							return ParseClass(false);
 						case "new":
 							return ParseLeftHandSide();
+						case "import":
+						{
+							Advance();
+							if (Match("."))
+							{
+								if (ExpectIdentifier() != "meta")
+									throw Error("expected import.meta");
+								return new ImportMeta { Line = token.Line };
+							}
+							Expect("(");
+							ImportCall call = new ImportCall { Specifier = ParseAssignment(true), Line = token.Line };
+							if (Match(","))
+							{
+								if (!IsPunctuator(")"))
+									ParseAssignment(true);
+								Match(",");
+							}
+							Expect(")");
+							return call;
+						}
 						default:
 							if (IsContextualKeyword(token.Text))
 							{

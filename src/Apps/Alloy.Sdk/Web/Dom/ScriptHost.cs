@@ -116,12 +116,25 @@ namespace Alloy.Sdk.Web.Dom
 
 		// Scripts
 
-		// Runs every script in document order, then fires DOMContentLoaded; scripts added while running are run as they are inserted
+		// Runs the classic scripts in document order, then the modules (which defer), then fires DOMContentLoaded
 		public void RunScripts()
 		{
+			Interpreter.ScriptUrl = Url?.ToString();
+			Interpreter.ResolveModule = ResolveSpecifier;
+			Interpreter.FetchModule = FetchModuleSource;
 			foreach (Element script in new List<Element>(Document.DescendantElements()))
 			{
-				if (script.TagName == "script")
+				if (script.TagName == "script" && ScriptKind(script) == "importmap")
+					LoadImportMap(script);
+			}
+			foreach (Element script in new List<Element>(Document.DescendantElements()))
+			{
+				if (script.TagName == "script" && ScriptKind(script) == "classic")
+					RunScript(script);
+			}
+			foreach (Element script in new List<Element>(Document.DescendantElements()))
+			{
+				if (script.TagName == "script" && ScriptKind(script) == "module")
 					RunScript(script);
 			}
 			ReadyState = "interactive";
@@ -141,29 +154,90 @@ namespace Alloy.Sdk.Web.Dom
 			Interpreter.RunJobs();
 		}
 
-		private static bool IsClassicScript(Element script)
+		// classic, module, importmap, or other for the data blocks pages keep in script tags; nomodule scripts are for browsers without modules
+		private static string ScriptKind(Element script)
 		{
 			string type = (script.GetAttribute("type") ?? "").Trim().ToLowerInvariant();
+			if (type == "module")
+				return "module";
+			if (type == "importmap")
+				return "importmap";
 			if (type.Length == 0 || type == "text/javascript" || type == "application/javascript" || type == "text/ecmascript" || type == "application/ecmascript" || type == "text/jscript")
-				return true;
-			return false;
+				return script.HasAttribute("nomodule") ? "other" : "classic";
+			return "other";
+		}
+
+		private readonly Dictionary<string, string> _importMap = new Dictionary<string, string>(StringComparer.Ordinal);
+		private int _inlineModules;
+
+		private void LoadImportMap(Element script)
+		{
+			if (!_ranScripts.Add(script))
+				return;
+			try
+			{
+				JsValue parse = Interpreter.Global.Get("JSON", Interpreter).Object.Get("parse", Interpreter);
+				JsValue map = Interpreter.Call(parse, JsValue.Undefined, new JsValue[] { script.TextContent });
+				JsValue imports = Interpreter.GetMember(map, "imports");
+				if (!imports.IsObject)
+					return;
+				foreach (string key in Interpreter.OwnEnumerableKeys(imports.Object))
+				{
+					string target = imports.Object.Get(key, Interpreter).ToJsString();
+					_importMap[key] = Resolve(target)?.ToString() ?? target;
+				}
+			}
+			catch (JsThrow t)
+			{
+				Interpreter.ReportError(t.Value);
+			}
+		}
+
+		// Bare specifiers go through the import map, including its prefix entries; the rest resolve as URLs
+		private string ResolveSpecifier(string specifier, string referrer)
+		{
+			if (_importMap.TryGetValue(specifier, out string mapped))
+				return mapped;
+			foreach (KeyValuePair<string, string> entry in _importMap)
+			{
+				if (entry.Key.EndsWith("/", StringComparison.Ordinal) && specifier.StartsWith(entry.Key, StringComparison.Ordinal))
+					return entry.Value + specifier.Substring(entry.Key.Length);
+			}
+			return Interpreter.DefaultResolve(specifier, referrer ?? Url?.ToString());
+		}
+
+		private string FetchModuleSource(string url)
+		{
+			if (Fetch == null || !Uri.TryCreate(url, UriKind.Absolute, out Uri target))
+				return null;
+			ResourceResponse response = Fetch("GET", target, null, null);
+			if (response == null || !response.Ok)
+			{
+				Log("error", $"module: {url} failed ({response?.Error ?? response?.Status.ToString() ?? "no response"})");
+				return null;
+			}
+			return Decode(response.Body);
 		}
 
 		public void RunScript(Element script)
 		{
 			if (!_ranScripts.Add(script))
 				return;
-			if (!IsClassicScript(script))
+			string kind = ScriptKind(script);
+			if (kind == "importmap")
 			{
-				if ((script.GetAttribute("type") ?? "").Trim().ToLowerInvariant() == "module")
-					Log("warn", "script: modules are not supported, skipping " + (script.GetAttribute("src") ?? "inline module"));
+				_ranScripts.Remove(script);
+				LoadImportMap(script);
 				return;
 			}
+			if (kind == "other")
+				return;
 			string source;
 			string src = script.GetAttribute("src");
+			Uri target = null;
 			if (!string.IsNullOrWhiteSpace(src))
 			{
-				Uri target = Resolve(src.Trim());
+				target = Resolve(src.Trim());
 				if (target == null || Fetch == null)
 					return;
 				ResourceResponse response = Fetch("GET", target, null, null);
@@ -183,14 +257,17 @@ namespace Alloy.Sdk.Web.Dom
 			ScriptsRun++;
 			try
 			{
-				Interpreter.TryEvaluate(source);
+				if (kind == "module")
+					Interpreter.TryEvaluateModule(source, target?.ToString() ?? (Url?.ToString() ?? "about:blank") + "#module-" + ++_inlineModules);
+				else
+					Interpreter.TryEvaluate(source);
 			}
 			finally
 			{
 				Interpreter.Deadline = double.PositiveInfinity;
 				_currentScript = previous;
 			}
-			if (!string.IsNullOrWhiteSpace(src))
+			if (target != null)
 				DispatchSimple("load", script, false, false);
 		}
 

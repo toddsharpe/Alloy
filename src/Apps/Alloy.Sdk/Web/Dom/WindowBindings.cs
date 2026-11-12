@@ -1082,14 +1082,8 @@ namespace Alloy.Sdk.Web.Dom
 				}
 				return promise;
 			});
-			interpreter.DefineMethod(_responsePrototype, "arrayBuffer", 0, (i, t, a) =>
-			{
-				JsArray bytes = interpreter.NewArray();
-				foreach (byte b in ThisResponse(t).Body)
-					bytes.Elements.Add(b);
-				bytes.Put("byteLength", bytes.Elements.Count, false);
-				return interpreter.PromiseResolve(bytes);
-			});
+			interpreter.DefineMethod(_responsePrototype, "arrayBuffer", 0, (i, t, a) => interpreter.PromiseResolve(interpreter.NewArrayBuffer((byte[])ThisResponse(t).Body.Clone())));
+			interpreter.DefineMethod(_responsePrototype, "bytes", 0, (i, t, a) => interpreter.PromiseResolve(interpreter.NewUint8Array((byte[])ThisResponse(t).Body.Clone())));
 			interpreter.DefineMethod(_responsePrototype, "blob", 0, (i, t, a) =>
 			{
 				JsResponse response = ThisResponse(t);
@@ -1290,14 +1284,8 @@ namespace Alloy.Sdk.Web.Dom
 			blob.Put("size", bytes.Length, false);
 			blob.Put("type", type ?? "", false);
 			Interpreter.DefineMethod(blob, "text", 0, (i, t, a) => Interpreter.PromiseResolve(Decode(bytes)));
-			Interpreter.DefineMethod(blob, "arrayBuffer", 0, (i, t, a) =>
-			{
-				JsArray array = Interpreter.NewArray();
-				foreach (byte b in bytes)
-					array.Elements.Add(b);
-				array.Put("byteLength", bytes.Length, false);
-				return Interpreter.PromiseResolve(array);
-			});
+			Interpreter.DefineMethod(blob, "arrayBuffer", 0, (i, t, a) => Interpreter.PromiseResolve(Interpreter.NewArrayBuffer((byte[])bytes.Clone())));
+			Interpreter.DefineMethod(blob, "bytes", 0, (i, t, a) => Interpreter.PromiseResolve(Interpreter.NewUint8Array((byte[])bytes.Clone())));
 			Interpreter.DefineMethod(blob, "slice", 2, (i, t, a) =>
 			{
 				int start = Interpreter.RelativeIndex(Interpreter.Arg(a, 0), bytes.Length, 0);
@@ -1335,13 +1323,9 @@ namespace Alloy.Sdk.Web.Dom
 				contentType = type.Length > 0 ? type : null;
 				return blobBytes;
 			}
-			if (body.IsObject && body.Object is JsArray array)
-			{
-				byte[] bytes = new byte[array.Elements.Count];
-				for (int i = 0; i < bytes.Length; i++)
-					bytes[i] = (byte)array.Elements[i].ToInt32();
-				return bytes;
-			}
+			byte[] raw = Interpreter.BytesOf(body);
+			if (raw != null)
+				return raw;
 			contentType = "text/plain;charset=UTF-8";
 			return Encoding.UTF8.GetBytes(body.ToJsString());
 		}
@@ -1424,13 +1408,7 @@ namespace Alloy.Sdk.Web.Dom
 							return JsValue.Null;
 						}
 					case "arraybuffer":
-					{
-						JsArray array = interpreter.NewArray();
-						foreach (byte b in xhr.ResponseBody)
-							array.Elements.Add(b);
-						array.Put("byteLength", xhr.ResponseBody.Length, false);
-						return array;
-					}
+						return interpreter.NewArrayBuffer((byte[])xhr.ResponseBody.Clone());
 					case "blob":
 						return NewBlob(xhr.ResponseBody, xhr.ResponseHeaders.TryGetValue("content-type", out string type) ? type : "");
 					default:
@@ -1582,11 +1560,16 @@ namespace Alloy.Sdk.Web.Dom
 			Random random = new Random();
 			interpreter.DefineMethod(crypto, "getRandomValues", 1, (i, t, a) =>
 			{
-				if (Interpreter.Arg(a, 0).IsObject && a[0].Object is JsArray array)
+				if (Interpreter.Arg(a, 0).IsObject && a[0].Object is JsTypedArray typed)
 				{
-					int bits = array.Get("BYTES_PER_ELEMENT", interpreter) is { IsNumber: true } size ? (int)size.Number * 8 : 8;
+					byte[] bytes = new byte[typed.ByteLength];
+					random.NextBytes(bytes);
+					Array.Copy(bytes, 0, typed.Buffer.Data, typed.ByteOffset, bytes.Length);
+				}
+				else if (Interpreter.Arg(a, 0).IsObject && a[0].Object is JsArray array)
+				{
 					for (int n = 0; n < array.Elements.Count; n++)
-						array.Elements[n] = bits >= 32 ? (double)(uint)random.Next(int.MinValue, int.MaxValue) : bits == 16 ? random.Next(65536) : random.Next(256);
+						array.Elements[n] = random.Next(256);
 				}
 				return Interpreter.Arg(a, 0);
 			});
@@ -1719,14 +1702,20 @@ namespace Alloy.Sdk.Web.Dom
 				result.Put("encoding", "utf-8", false);
 				return result;
 			});
-			interpreter.DefineMethod(encoderPrototype, "encode", 1, (i, t, a) =>
+			interpreter.DefineMethod(encoderPrototype, "encode", 1, (i, t, a) => interpreter.NewUint8Array(Encoding.UTF8.GetBytes(Interpreter.Arg(a, 0).IsUndefined ? "" : a[0].ToJsString())));
+			interpreter.DefineMethod(encoderPrototype, "encodeInto", 2, (i, t, a) =>
 			{
-				JsArray bytes = interpreter.NewArray();
-				foreach (byte b in Encoding.UTF8.GetBytes(Interpreter.Arg(a, 0).IsUndefined ? "" : a[0].ToJsString()))
-					bytes.Elements.Add(b);
-				bytes.Put("BYTES_PER_ELEMENT", 1, false);
-				bytes.Put("byteLength", bytes.Elements.Count, false);
-				return bytes;
+				byte[] bytes = Encoding.UTF8.GetBytes(Interpreter.Arg(a, 0).ToJsString());
+				JsObject result = interpreter.NewObject();
+				int written = 0;
+				if (Interpreter.Arg(a, 1).IsObject && a[1].Object is JsTypedArray target)
+				{
+					written = Math.Min(bytes.Length, target.ByteLength);
+					Array.Copy(bytes, 0, target.Buffer.Data, target.ByteOffset, written);
+				}
+				result.Put("read", Interpreter.Arg(a, 0).ToJsString().Length);
+				result.Put("written", written);
+				return result;
 			});
 			JsObject decoderPrototype = interpreter.NewObject();
 			interpreter.NewConstructor("TextDecoder", 0, decoderPrototype, null, (i, a, target) =>
@@ -1737,12 +1726,8 @@ namespace Alloy.Sdk.Web.Dom
 			});
 			interpreter.DefineMethod(decoderPrototype, "decode", 1, (i, t, a) =>
 			{
-				if (!(Interpreter.Arg(a, 0).IsObject && a[0].Object is JsArray array))
-					return "";
-				byte[] bytes = new byte[array.Elements.Count];
-				for (int n = 0; n < bytes.Length; n++)
-					bytes[n] = (byte)array.Elements[n].ToInt32();
-				return Decode(bytes);
+				byte[] bytes = interpreter.BytesOf(Interpreter.Arg(a, 0));
+				return bytes == null ? "" : Decode(bytes);
 			});
 			_ = encoder;
 

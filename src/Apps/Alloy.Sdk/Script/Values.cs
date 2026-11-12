@@ -296,7 +296,7 @@ namespace Alloy.Sdk.Script
 			Prototype = prototype;
 		}
 
-		public IEnumerable<string> OwnKeys
+		public virtual IEnumerable<string> OwnKeys
 		{
 			get
 			{
@@ -325,7 +325,7 @@ namespace Alloy.Sdk.Script
 			return null;
 		}
 
-		public bool HasProperty(string key) => GetProperty(key) != null;
+		public virtual bool HasProperty(string key) => GetProperty(key) != null;
 
 		public bool HasOwnProperty(string key) => GetOwnProperty(key) != null;
 
@@ -572,7 +572,7 @@ namespace Alloy.Sdk.Script
 
 	public delegate JsValue NativeConstructor(Interpreter interpreter, JsValue[] arguments, JsObject newTarget);
 
-	public sealed class JsFunction : JsObject
+	public class JsFunction : JsObject
 	{
 		public string Name;
 		public FunctionNode Node;
@@ -663,6 +663,8 @@ namespace Alloy.Sdk.Script
 		public JsFunction FunctionObject;
 		public JsValue NewTarget;
 		public JsObject HomeObject;
+		// The module whose top level this scope is, for import() and import.meta inside it
+		public object Module;
 
 		public Scope(Scope parent, bool isFunctionScope)
 		{

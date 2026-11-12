@@ -446,6 +446,60 @@ line2 ${`nested ${1 + 1}`}`
 	}
 
 	[Fact]
+	public void ProvidesTypedArraysAndProxies()
+	{
+		Assert.Equal("44|3|1.5|2|2,4,88|513|2|true|[object Float32Array]|true|[-1,-1]|255,0,2", Eval(@"
+			const u = new Uint8Array([1, 2, 300]); const f = new Float32Array(2); f[0] = 1.5; const dv = new DataView(u.buffer);
+			[u[2], u.length, f[0], dv.getUint8(1), Array.from(u.map(x => x * 2)).join(), new Uint16Array(u.buffer, 0, 1)[0], u.subarray(1).length, ArrayBuffer.isView(u), Object.prototype.toString.call(f), u instanceof Uint8Array, JSON.stringify(Array.from(new Int8Array([-1, 255]))), Array.from(new Uint8ClampedArray([300, -5, 1.5])).join()].join('|')"));
+		Assert.Equal("16|4|-2|1.5|3,1,2|3|255", Eval(@"
+			const buffer = new ArrayBuffer(16); const view = new DataView(buffer); view.setInt16(0, -2); view.setFloat64(8, 1.5, true);
+			const bytes = new Uint8Array(buffer); const copy = new Uint8Array(buffer.slice(8, 12)); const i32 = Int32Array.of(3, 1, 2);
+			[buffer.byteLength, copy.length, view.getInt16(0), view.getFloat64(8, true), [...i32].join(), i32.reduce((a, b) => Math.max(a, b)), bytes.fill(255)[15]].join('|')"));
+		Assert.Equal("1|dflt|10|true|false|true|a,zzz|get:a;get:missing;get:b;del:a", Eval(@"
+			const log = []; const p = new Proxy({a: 1}, {
+				get(t, k, r) { log.push('get:' + String(k)); return k in t ? t[k] : 'dflt' },
+				set(t, k, v) { t[k] = v * 2; return true },
+				has(t, k) { return k === 'ghost' || k in t },
+				deleteProperty(t, k) { log.push('del:' + k); delete t[k]; return true },
+				ownKeys(t) { return ['a', 'zzz'] },
+				getOwnPropertyDescriptor(t, k) { return { value: t[k], enumerable: true, configurable: true } } });
+			p.b = 5;
+			[p.a, p.missing, p.b, 'ghost' in p, 'nope' in p, delete p.a, Object.keys(p).join(), log.join(';')].join('|')"));
+		Assert.Equal("20|2|TypeError|true", Eval(@"
+			const fp = new Proxy(function (x) { return x + 1 }, { apply(t, th, args) { return t(...args) * 10 } });
+			const P = new Proxy(class A { constructor(v) { this.v = v } }, { construct(t, args) { return new t(args[0] + 1) } });
+			const { proxy, revoke } = Proxy.revocable({}, {}); revoke(); let err = ''; try { proxy.x } catch (e) { err = e.name }
+			[fp(1), new P(1).v, err, typeof fp === 'function'].join('|')"));
+	}
+
+	[Fact]
+	public void LinksAndRunsModules()
+	{
+		Dictionary<string, string> sources = new Dictionary<string, string>
+		{
+			["https://m.test/lib/counter.js"] = "export let count = 0; export function bump() { count++ } export default class Thing { static name2 = 'thing' } export const pi = 3; export { pi as PI }",
+			["https://m.test/lib/index.js"] = "export * from './counter.js'; export { default as Thing } from './counter.js'; export const extra = import.meta.url",
+			["https://m.test/a.js"] = "import { b } from './b.js'; export const a = 'a' + (typeof b); export function fromA() { return b() }",
+			["https://m.test/b.js"] = "import { a } from './a.js'; export function b() { return 'b' + a }",
+			["https://m.test/bad.js"] = "import { missing } from './b.js';",
+		};
+		Interpreter interpreter = New();
+		interpreter.FetchModule = url => sources.TryGetValue(url, out string source) ? source : null;
+		interpreter.EvaluateModule(@"
+			import Thing, { count, bump, pi } from './lib/counter.js';
+			import * as lib from './lib/index.js';
+			import { fromA, a } from './a.js';
+			bump(); bump();
+			const dyn = await import('./lib/index.js');
+			let failed = '';
+			try { await import('./bad.js') } catch (e) { failed = e.name }
+			globalThis.result = [count, lib.count, lib.PI, pi, Thing === lib.Thing, lib.extra, dyn === lib, Object.prototype.toString.call(lib), fromA(), a, failed, typeof lib.default, this];
+		", "https://m.test/main.js");
+		Assert.Equal("2|2|3|3|true|https://m.test/lib/index.js|true|[object Module]|bafunction|afunction|SyntaxError|undefined|", interpreter.Evaluate("result.join('|')").ToJsString());
+		Assert.Equal("true", interpreter.Evaluate("(function() { return this === undefined })() === false && typeof import.meta.url === 'string'").ToJsString());
+	}
+
+	[Fact]
 	public void TracksLinesInStackTraces()
 	{
 		List<string> log = Log("function inner() {\n  throw new Error('deep');\n}\nfunction outer() {\n  inner();\n}\nouter();");

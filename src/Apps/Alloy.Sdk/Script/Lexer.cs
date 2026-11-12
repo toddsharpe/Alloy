@@ -51,7 +51,7 @@ namespace Alloy.Sdk.Script
 		private static readonly HashSet<string> Keywords = new HashSet<string>(StringComparer.Ordinal)
 		{
 			"var", "let", "const", "function", "return", "if", "else", "for", "while", "do", "break", "continue", "new", "delete", "typeof", "instanceof", "in", "of",
-			"this", "null", "undefined", "true", "false", "switch", "case", "default", "throw", "try", "catch", "finally", "class", "extends", "super", "void", "async", "await", "yield", "static", "get", "set",
+			"this", "null", "undefined", "true", "false", "switch", "case", "default", "throw", "try", "catch", "finally", "class", "extends", "super", "void", "async", "await", "yield", "static", "get", "set", "import", "export",
 		};
 
 		private static readonly string[] Punctuators =

@@ -19,6 +19,44 @@ namespace Alloy.Sdk.Script
 	public sealed class Program : Node
 	{
 		public readonly List<Statement> Body = new List<Statement>();
+		public bool IsModule;
+	}
+
+	// import x, { a as b } from "m"; Imported is "default" for the default binding and "*" for a namespace
+	public sealed class ImportSpecifier
+	{
+		public string Imported;
+		public string Local;
+	}
+
+	public sealed class ImportDeclaration : Statement
+	{
+		public string Source;
+		public readonly List<ImportSpecifier> Specifiers = new List<ImportSpecifier>();
+	}
+
+	// export { a as b }; Local is "*" for export *, with Exported null when the names are merged
+	public sealed class ExportSpecifier
+	{
+		public string Local;
+		public string Exported;
+	}
+
+	public sealed class ExportDeclaration : Statement
+	{
+		public Statement Declaration;
+		public Expression Default;
+		public string Source;
+		public readonly List<ExportSpecifier> Specifiers = new List<ExportSpecifier>();
+	}
+
+	public sealed class ImportCall : Expression
+	{
+		public Expression Specifier;
+	}
+
+	public sealed class ImportMeta : Expression
+	{
 	}
 
 	public sealed class BlockStatement : Statement

@@ -284,12 +284,11 @@ public class DomTests
 		h.Host.ScriptBudgetMs = 50;
 		h.Host.Interpreter.Clock = () => Environment.TickCount64;
 		h.Host.RunScripts();
-		Assert.Equal("1,2,,4,5", Eval(h, "[window.a, window.b, window.c, window.d, window.e].join()"));
+		Assert.Equal("1,2,3,4,5", Eval(h, "[window.a, window.b, window.c, window.d, window.e].join()"));
 		Assert.Equal(2, h.Host.ScriptErrors);
-		Assert.Equal(4, h.Host.ScriptsRun);
+		Assert.Equal(5, h.Host.ScriptsRun);
 		Assert.Contains(h.Log, line => line.Contains("undefinedFunction is not defined"));
 		Assert.Contains(h.Log, line => line.Contains("Script ran too long"));
-		Assert.Contains(h.Log, line => line.Contains("modules are not supported"));
 	}
 
 	[Fact]
@@ -337,6 +336,31 @@ public class DomTests
 		Assert.Empty(h.Log);
 		Assert.Equal("HELLO EARLY|true|true|HELLO LATE|true", Eval(h, "out.join('|')"));
 		Assert.Equal("ctor:X-GREET|connected|ctor:X-GREET|attr:name:null:late|connected|disconnected", Eval(h, "log.join('|')"));
+	}
+
+	[Fact]
+	public void RunsModuleScriptsWithAnImportMap()
+	{
+		ResourceFetcher fetch = (method, url, body, type) =>
+		{
+			string source = url.AbsolutePath switch
+			{
+				"/js/greet.js" => "export const greet = n => 'hi ' + n; export default 'dflt';",
+				"/dir/local.js" => "import { greet } from 'lib/greet.js'; export const text = greet('local');",
+				_ => null,
+			};
+			return source == null ? new ResourceResponse { Status = 404, Url = url } : new ResourceResponse { Status = 200, Url = url, Body = Encoding.UTF8.GetBytes(source) };
+		};
+		Harness h = Open(@"<script type=importmap>{ ""imports"": { ""lib/"": ""/js/"" } }</script>
+			<script nomodule>window.legacy = true</script>
+			<script>window.order = ['classic']</script>
+			<script type=module>import { text } from './local.js'; import d from 'lib/greet.js'; order.push('module:' + text + ':' + d); document.title = text;</script>
+			<script type=module src=/dir/local.js></script>
+			<script>order.push('classic2')</script>", fetch);
+		Assert.Empty(h.Log);
+		Assert.Equal("classic|classic2|module:hi local:dflt", Eval(h, "order.join('|')"));
+		Assert.Equal("hi local", h.Host.Document.Title);
+		Assert.Equal("undefined", Eval(h, "typeof window.legacy"));
 	}
 
 	[Fact]

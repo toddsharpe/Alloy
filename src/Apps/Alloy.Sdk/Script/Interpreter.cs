@@ -184,7 +184,19 @@ namespace Alloy.Sdk.Script
 					return Completion.Normal;
 				case FunctionDeclaration:
 				case EmptyStatement:
+				case ImportDeclaration:
 					return Completion.Normal;
+				case ExportDeclaration export:
+				{
+					if (export.Declaration != null)
+						return Execute(export.Declaration, scope);
+					if (export.Default != null)
+					{
+						JsValue value = EvaluateNamed(export.Default, scope, new Identifier { Name = "default" });
+						InitializeLexical(scope, "*default*", value, false);
+					}
+					return Completion.Normal;
+				}
 				case ClassDeclaration c:
 				{
 					JsFunction cls = EvaluateClass(c.Class, scope);
@@ -529,6 +541,9 @@ namespace Alloy.Sdk.Script
 				case LabeledStatement l:
 					HoistVarsIn(l.Body, scope, global);
 					break;
+				case ExportDeclaration e when e.Declaration != null:
+					HoistVarsIn(e.Declaration, scope, global);
+					break;
 			}
 		}
 
@@ -567,6 +582,12 @@ namespace Alloy.Sdk.Script
 						break;
 					case ClassDeclaration c:
 						scope.Declare(c.Class.Name, JsValue.Undefined, true, false);
+						break;
+					case ExportDeclaration e:
+						if (e.Declaration != null)
+							HoistLexical(new List<Statement> { e.Declaration }, scope, global);
+						else if (e.Default != null)
+							scope.Declare("*default*", JsValue.Undefined, false, false);
 						break;
 				}
 			}
@@ -814,6 +835,10 @@ namespace Alloy.Sdk.Script
 					return scope.ThisScope()?.NewTarget ?? JsValue.Undefined;
 				case AwaitExpression await:
 					return Await(Evaluate(await.Argument, scope));
+				case ImportCall call:
+					return DynamicImport(call, scope);
+				case ImportMeta:
+					return ImportMetaFor(scope);
 				case YieldExpression yield:
 					return EvaluateYield(yield, scope);
 				case SuperExpression:
@@ -1824,6 +1849,12 @@ namespace Alloy.Sdk.Script
 			{
 				for (int i = 0; i < array.Elements.Count; i++)
 					yield return array.Elements[i];
+				yield break;
+			}
+			if (iterable.IsObject && iterable.Object is JsTypedArray typed && typed.GetProperty(SymbolIterator) is { IsAccessor: false } typedIterator && typedIterator.Value.IsObject && ReferenceEquals(typedIterator.Value.Object, TypedArrayPrototype.GetOwnProperty("values")?.Value.Object))
+			{
+				for (int i = 0; i < typed.Length; i++)
+					yield return typed[i];
 				yield break;
 			}
 			if (iterable.IsString)

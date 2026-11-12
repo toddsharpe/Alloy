@@ -185,11 +185,23 @@ namespace Alloy.Sdk.Web.Dom
 			}
 		}
 
+		private static readonly string[] InterfaceNames =
+		{
+			"HTMLAnchorElement", "HTMLImageElement", "HTMLInputElement", "HTMLButtonElement", "HTMLFormElement", "HTMLSelectElement", "HTMLOptionElement", "HTMLTextAreaElement", "HTMLLabelElement",
+			"HTMLScriptElement", "HTMLStyleElement", "HTMLLinkElement", "HTMLMetaElement", "HTMLTitleElement", "HTMLBodyElement", "HTMLHeadElement", "HTMLHtmlElement", "HTMLDivElement", "HTMLSpanElement",
+			"HTMLParagraphElement", "HTMLHeadingElement", "HTMLUListElement", "HTMLOListElement", "HTMLLIElement", "HTMLTableElement", "HTMLTableRowElement", "HTMLTableCellElement", "HTMLTableSectionElement",
+			"HTMLIFrameElement", "HTMLCanvasElement", "HTMLTemplateElement", "HTMLVideoElement", "HTMLAudioElement", "HTMLMediaElement", "HTMLBRElement", "HTMLHRElement", "HTMLPreElement", "HTMLDetailsElement",
+			"HTMLDialogElement", "SVGElement", "SVGSVGElement", "HTMLFieldSetElement", "HTMLLegendElement", "HTMLPictureElement", "HTMLSourceElement", "HTMLObjectElement", "HTMLEmbedElement", "HTMLAreaElement",
+			"HTMLMapElement", "HTMLBaseElement", "HTMLDListElement", "HTMLQuoteElement", "HTMLProgressElement", "HTMLMeterElement", "HTMLOutputElement", "HTMLOptGroupElement", "HTMLDataListElement",
+			"HTMLTableCaptionElement", "HTMLTableColElement", "HTMLSlotElement", "HTMLMenuElement", "HTMLFontElement", "HTMLUnknownElement", "HTMLModElement", "HTMLTimeElement", "HTMLDataElement",
+		};
+
 		private JsObject PrototypeForTag(string tag, string interfaceName)
 		{
 			if (_tagPrototypes.TryGetValue(interfaceName, out JsObject prototype))
 				return prototype;
-			JsObject parent = interfaceName == "SVGElement" ? ElementPrototype : HtmlElementPrototype;
+			// SVG elements share HTMLElement's surface here (style, dataset, focus), which is close enough for pages that touch inline SVG
+			JsObject parent = HtmlElementPrototype;
 			if (interfaceName == "HTMLElement")
 				return HtmlElementPrototype;
 			prototype = new JsObject(parent);
@@ -820,6 +832,8 @@ namespace Alloy.Sdk.Web.Dom
 			ElementPrototype = NewPrototype(NodePrototype, "Element");
 			HtmlElementPrototype = NewPrototype(ElementPrototype, "HTMLElement");
 			_tagPrototypes["HTMLElement"] = HtmlElementPrototype;
+			foreach (string interfaceName in InterfaceNames)
+				PrototypeForTag(null, interfaceName);
 			JsObject proto = ElementPrototype;
 			ElementGetter(proto, "tagName", e => e.TagName.ToUpperInvariant());
 			ElementGetter(proto, "localName", e => e.TagName);
@@ -1356,10 +1370,20 @@ namespace Alloy.Sdk.Web.Dom
 			return result;
 		}
 
+		private JsObject _nodeListPrototype;
+
 		// A NodeList or HTMLCollection: an array snapshot with item() and namedItem(), since scripts index and iterate them alike
 		private JsArray NodeList()
 		{
-			JsArray list = Interpreter.NewArray();
+			if (_nodeListPrototype == null)
+			{
+				_nodeListPrototype = new JsObject(Interpreter.ArrayPrototype);
+				_nodeListPrototype.Put(Interpreter.SymbolToStringTag, "NodeList", false);
+				Interpreter.NewConstructor("NodeList", 0, _nodeListPrototype, (i, t, a) => throw Interpreter.TypeError("Illegal constructor"), null);
+				Interpreter.NewConstructor("HTMLCollection", 0, _nodeListPrototype, (i, t, a) => throw Interpreter.TypeError("Illegal constructor"), null);
+				_nodeListPrototype.Put("constructor", Interpreter.Global.Get("NodeList", Interpreter), false);
+			}
+			JsArray list = new JsArray(_nodeListPrototype);
 			list.Put("item", _nodeListItem ??= Interpreter.NewNative("item", 1, (i, t, a) =>
 			{
 				if (!(t.IsObject && t.Object is JsArray array))

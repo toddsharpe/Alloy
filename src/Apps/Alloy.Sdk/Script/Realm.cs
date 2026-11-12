@@ -76,6 +76,8 @@ namespace Alloy.Sdk.Script
 			SetupConsole();
 			SetupReflect();
 			SetupArray();
+			SetupTypedArrays();
+			SetupProxy();
 			SetupString();
 			SetupRegExp();
 			SetupNumber();
