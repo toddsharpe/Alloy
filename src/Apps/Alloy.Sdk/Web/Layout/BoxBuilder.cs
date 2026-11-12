@@ -34,6 +34,7 @@ namespace Alloy.Sdk.Web.Layout
 		private void BuildChildren(LayoutBox parent, Element element, ComputedStyle parentStyle)
 		{
 			bool preserveWhitespace = parentStyle.WhiteSpace == WhiteSpace.Pre || parentStyle.WhiteSpace == WhiteSpace.PreWrap || parentStyle.WhiteSpace == WhiteSpace.PreLine;
+			AddPseudo(parent, element, parentStyle, false);
 			foreach (Node node in RenderedChildren(element))
 			{
 				if (node is TextNode text)
@@ -60,7 +61,69 @@ namespace Alloy.Sdk.Web.Layout
 				if (!IsLeaf(child.TagName))
 					BuildChildren(box, child, style);
 			}
+			AddPseudo(parent, element, parentStyle, true);
 			Normalize(parent);
+		}
+
+		// A ::before or ::after with content becomes a first or last child box holding its text
+		private void AddPseudo(LayoutBox parent, Element element, ComputedStyle hostStyle, bool after)
+		{
+			ComputedStyle style = _styles.ResolvePseudo(element, after, hostStyle);
+			if (style == null || style.Content == null || style.Display == Display.None)
+				return;
+			BoxKind kind = style.Display switch
+			{
+				Display.Inline => BoxKind.Inline,
+				Display.InlineBlock or Display.InlineFlex or Display.InlineGrid => BoxKind.InlineBlock,
+				_ => BoxKind.Block,
+			};
+			LayoutBox box = new LayoutBox(kind, element, style);
+			string text = ContentText(style.Content, element);
+			if (text.Length > 0)
+				box.Add(new LayoutBox(BoxKind.Text, element, style) { Text = text });
+			parent.Add(box);
+		}
+
+		// Strings, attr() and the quote keywords of a content value, concatenated; counters and images contribute nothing
+		internal static string ContentText(List<CssToken> tokens, Element element)
+		{
+			System.Text.StringBuilder text = new System.Text.StringBuilder();
+			for (int i = 0; i < tokens.Count; i++)
+			{
+				CssToken token = tokens[i];
+				switch (token.Type)
+				{
+					case CssTokenType.String:
+						text.Append(token.Value);
+						break;
+					case CssTokenType.Ident:
+						if (token.IsIdent("open-quote"))
+							text.Append('\u201C');
+						else if (token.IsIdent("close-quote"))
+							text.Append('\u201D');
+						break;
+					case CssTokenType.Function:
+					{
+						int close = i + 1;
+						while (close < tokens.Count && tokens[close].Type != CssTokenType.CloseParen)
+							close++;
+						if (token.Value.Equals("attr", StringComparison.OrdinalIgnoreCase))
+						{
+							for (int j = i + 1; j < close; j++)
+							{
+								if (tokens[j].Type == CssTokenType.Ident)
+								{
+									text.Append(element.GetAttribute(tokens[j].Value) ?? "");
+									break;
+								}
+							}
+						}
+						i = close;
+						break;
+					}
+				}
+			}
+			return text.ToString();
 		}
 
 		// What an element shows: its shadow tree when it has one, a slot's assigned light children, otherwise its own children

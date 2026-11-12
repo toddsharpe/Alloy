@@ -560,4 +560,21 @@ public class LayoutTests
 		Assert.Equal(1f, list.Items.Find(item => item.Kind == DisplayItemKind.Text && item.Text == "solid").Opacity);
 		Assert.DoesNotContain(list.Items, item => item.Kind == DisplayItemKind.Rect && item.Color.Rgb == 0x0000ff);
 	}
+
+	[Fact]
+	public void PseudoElementsAddGeneratedContent()
+	{
+		LayoutBox root = Lay("<body style=\"margin:0\"><p id=\"p\">text</p><a id=\"a\" href=\"/x\">link</a><div id=\"d\">d</div><span id=\"s\">s</span></body>", "p::before { content: '> ' } a::after { content: ' (' attr(href) ')' } div::before { content: ''; display: block; height: 10px; background: #ff0000 } span::after { content: none } #d::after { content: 'x'; display: none } q::before { content: open-quote }");
+		LayoutBox p = FindId(root, "p");
+		Assert.Equal(BoxKind.Inline, p.Children[0].Kind);
+		Assert.Equal("> ", p.Children[0].Children[0].Text);
+		LayoutBox a = FindId(root, "a");
+		Assert.Equal(" (/x)", a.Children[a.Children.Count - 1].Children[0].Text);
+		LayoutBox d = FindId(root, "d");
+		Assert.Equal(BoxKind.Block, d.Children[0].Kind);
+		Assert.Equal(10, d.Children[0].Height);
+		Assert.Equal("#ff0000", d.Children[0].Style.BackgroundColor.ToString());
+		Assert.Equal(2, d.Children.Count);
+		Assert.Single(FindId(root, "s").Children);
+	}
 }

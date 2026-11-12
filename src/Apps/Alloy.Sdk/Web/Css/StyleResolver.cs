@@ -127,7 +127,10 @@ namespace Alloy.Sdk.Web.Css
 				}
 			}
 
-			public RuleIndex(List<StyleRule> rules)
+			public int Count;
+
+			// Indexes the selectors without a pseudo-element, or with pseudoElement set only those for that ::before or ::after
+			public RuleIndex(List<StyleRule> rules, string pseudoElement = null)
 			{
 				Rules = rules;
 				for (int r = 0; r < rules.Count; r++)
@@ -136,13 +139,14 @@ namespace Alloy.Sdk.Web.Css
 						CollectStateKeys(selector);
 					foreach (Selector selector in rules[r].Selectors)
 					{
-						if (selector.PseudoElement != null || selector.Compounds.Count == 0)
+						if (selector.PseudoElement != pseudoElement || selector.Compounds.Count == 0)
 							continue;
 						IndexedSelector entry = new IndexedSelector { Rule = r, Selector = selector, Specificity = selector.Specificity };
 						SelectorNeeds(selector, out entry.NeedLow, out entry.NeedHigh);
 						_keys.Clear();
 						if (!KeysOf(selector.Compounds[selector.Compounds.Count - 1], _keys))
 							continue;
+						Count++;
 						if (_keys.Count == 0)
 							_universal.Add(entry);
 						foreach (KeyValuePair<char, string> key in _keys)
@@ -285,6 +289,48 @@ namespace Alloy.Sdk.Web.Css
 		{
 			_author.AddRange(sheet.Rules);
 			_authorIndex = null;
+			_beforeIndex = null;
+			_afterIndex = null;
+			_pseudoStyles.Clear();
+		}
+
+		private RuleIndex _beforeIndex;
+		private RuleIndex _afterIndex;
+
+		private sealed class CachedPseudo
+		{
+			public ComputedStyle Style;
+			public ComputedStyle Host;
+		}
+
+		private readonly Dictionary<(Element, bool), CachedPseudo> _pseudoStyles = new Dictionary<(Element, bool), CachedPseudo>();
+
+		// The style of an element's ::before or ::after from the author rules naming it, inheriting from the element's own style; null when no rule applies
+		public ComputedStyle ResolvePseudo(Element element, bool after, ComputedStyle host)
+		{
+			RuleIndex index = after ? (_afterIndex ??= new RuleIndex(_author, "after")) : (_beforeIndex ??= new RuleIndex(_author, "before"));
+			if (index.Count == 0)
+				return null;
+			(Element, bool) key = (element, after);
+			if (_pseudoStyles.TryGetValue(key, out CachedPseudo cached) && ReferenceEquals(cached.Host, host))
+				return cached.Style;
+			_ancestorLow = host.AncestorBitsLow;
+			_ancestorHigh = host.AncestorBitsHigh;
+			_matched.Clear();
+			Collect(element, index, 1);
+			ComputedStyle style = null;
+			if (_matched.Count > 0)
+			{
+				style = ComputedStyle.Inherit(host);
+				style.AncestorBitsLow = host.AncestorBitsLow;
+				style.AncestorBitsHigh = host.AncestorBitsHigh;
+				_matched.Sort(Compare);
+				ApplyMatched(style, host, element);
+			}
+			if (_pseudoStyles.Count > 100000)
+				_pseudoStyles.Clear();
+			_pseudoStyles[key] = new CachedPseudo { Style = style, Host = host };
+			return style;
 		}
 
 		public float RootFontSize { get; private set; } = ComputedStyle.DefaultFontSize;
@@ -383,7 +429,13 @@ namespace Alloy.Sdk.Web.Css
 					_matched.Add(new MatchedDeclaration { Declaration = declaration, Origin = 1, Specificity = 0, Order = order++ });
 			}
 			_matched.Sort(Compare);
+			ApplyMatched(style, parent, element);
+			return style;
+		}
 
+		// The sorted matched declarations applied onto a style that already inherits from its parent
+		private void ApplyMatched(ComputedStyle style, ComputedStyle parent, Element element)
+		{
 			float parentFontSize = parent?.FontSize ?? ComputedStyle.DefaultFontSize;
 			PropertyApplier applier = new PropertyApplier(style, parent, parentFontSize, RootFontSize);
 
@@ -405,7 +457,6 @@ namespace Alloy.Sdk.Web.Css
 					applier.Apply(match.Declaration);
 			}
 			applier.Finish(element);
-			return style;
 		}
 
 		// The candidates for an element in rule order; a rule matched by several of its selectors counts once, at the highest specificity
@@ -669,6 +720,9 @@ namespace Alloy.Sdk.Web.Css
 					break;
 				case "transform":
 					ApplyTransform(tokens);
+					break;
+				case "content":
+					_style.Content = tokens.Count == 1 && (tokens[0].IsIdent("none") || tokens[0].IsIdent("normal")) ? null : tokens;
 					break;
 				case "z-index":
 					_style.ZIndex = tokens[0].Type == CssTokenType.Number ? (int)Math.Clamp(tokens[0].Number, -100000, 100000) : 0;

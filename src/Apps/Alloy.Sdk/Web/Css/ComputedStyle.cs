@@ -202,6 +202,8 @@ namespace Alloy.Sdk.Web.Css
 		public float AspectRatio;
 		// z-index for positioned boxes; auto counts as 0 and keeps document order
 		public int ZIndex;
+		// The content property's tokens for a ::before or ::after, null when none
+		public List<CssToken> Content;
 		// The translation part of transform, applied after layout; percentages are of the box's own size
 		public Length TranslateX = Length.Zero;
 		public Length TranslateY = Length.Zero;

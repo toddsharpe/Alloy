@@ -266,6 +266,16 @@ public class CssTests
 	}
 
 	[Fact]
+	public void ParsesContent()
+	{
+		Assert.Null(Style("<p>x</p>", "p { content: none }", "p").Content);
+		Assert.Null(Style("<p>x</p>", "p { color: red }", "p").Content);
+		List<CssToken> content = Style("<p>x</p>", "p { content: 'a' attr(title) }", "p").Content;
+		Assert.NotNull(content);
+		Assert.Equal(CssTokenType.String, content[0].Type);
+	}
+
+	[Fact]
 	public void ParsesBorderRadius()
 	{
 		ComputedStyle all = Style("<p>x</p>", "p { border-radius: 4px }", "p");
