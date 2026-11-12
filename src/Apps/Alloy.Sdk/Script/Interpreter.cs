@@ -41,8 +41,12 @@ namespace Alloy.Sdk.Script
 		private struct Frame
 		{
 			public string Name;
+			public string Source;
 			public int CallLine;
 		}
+
+		// The URL of the script or module whose top level is running, or null for one evaluated without a name
+		public string CurrentSource;
 
 		public static Interpreter Current;
 		public readonly JsObject Global;
@@ -80,10 +84,12 @@ namespace Alloy.Sdk.Script
 		}
 
 		// Parses and runs a script in the global scope, then the jobs it queued; syntax errors arrive as thrown SyntaxError objects
-		public JsValue Evaluate(string source)
+		public JsValue Evaluate(string source, string name = null)
 		{
 			Interpreter prior = Current;
 			Current = this;
+			string priorSource = CurrentSource;
+			CurrentSource = name;
 			try
 			{
 				Program program;
@@ -100,15 +106,16 @@ namespace Alloy.Sdk.Script
 			finally
 			{
 				Current = prior;
+				CurrentSource = priorSource;
 			}
 		}
 
 		// Runs a script and reports an uncaught error instead of throwing it, as a page's script tag would
-		public bool TryEvaluate(string source)
+		public bool TryEvaluate(string source, string name = null)
 		{
 			try
 			{
-				Evaluate(source);
+				Evaluate(source, name);
 				return true;
 			}
 			catch (JsThrow t)
@@ -1435,7 +1442,7 @@ namespace Alloy.Sdk.Script
 				throw RangeError("Maximum call stack size exceeded");
 			}
 			_depth++;
-			(_frames ??= new List<Frame>()).Add(new Frame { Name = function.Name, CallLine = CurrentLine });
+			(_frames ??= new List<Frame>()).Add(new Frame { Name = function.Name, Source = function.Source, CallLine = CurrentLine });
 			try
 			{
 				FunctionNode node = function.Node;
@@ -1929,11 +1936,28 @@ namespace Alloy.Sdk.Script
 			_frames ??= new List<Frame>();
 			for (int i = _frames.Count - 1; i >= 0 && _frames.Count - i <= 20; i--)
 			{
-				builder.Append("\n    at ").Append(_frames[i].Name.Length == 0 ? "<anonymous>" : _frames[i].Name).Append(" (script:").Append(line).Append(')');
+				builder.Append("\n    at ").Append(_frames[i].Name.Length == 0 ? "<anonymous>" : _frames[i].Name).Append(" (").Append(SourceName(_frames[i].Source)).Append(':').Append(line).Append(')');
 				line = _frames[i].CallLine;
 			}
-			builder.Append("\n    at <script> (script:").Append(line).Append(')');
+			builder.Append("\n    at <script> (").Append(SourceName(CurrentSource)).Append(':').Append(line).Append(')');
 			return builder.ToString();
+		}
+
+		// A script URL as a stack frame shows it: the file name alone, "script" when the source had no name
+		private static string SourceName(string source)
+		{
+			if (string.IsNullOrEmpty(source))
+				return "script";
+			int query = source.IndexOf('?');
+			if (query >= 0)
+				source = source.Substring(0, query);
+			int hash = source.IndexOf('#');
+			string suffix = hash >= 0 ? source.Substring(hash) : "";
+			if (hash >= 0)
+				source = source.Substring(0, hash);
+			int slash = source.TrimEnd('/').LastIndexOf('/');
+			string name = slash >= 0 ? source.Substring(slash + 1) : source;
+			return (name.Length == 0 ? "script" : name) + suffix;
 		}
 
 		public JsThrow TypeError(string message) => new JsThrow(NewError("TypeError", message));

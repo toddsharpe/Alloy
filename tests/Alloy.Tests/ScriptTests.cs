@@ -553,6 +553,19 @@ line2 ${`nested ${1 + 1}`}`
 	}
 
 	[Fact]
+	public void StackFramesNameTheirScript()
+	{
+		List<string> log = new List<string>();
+		Interpreter interpreter = New(log);
+		interpreter.TryEvaluate("function boom() { null.x }\nfunction outer() { boom() }", "https://example.com/js/app.js?v=3");
+		interpreter.TryEvaluate("try { outer() } catch (e) { console.log(e.stack) }");
+		string stack = log[log.Count - 1];
+		Assert.Contains("at boom (app.js:1)", stack);
+		Assert.Contains("at outer (app.js:2)", stack);
+		Assert.Contains("at <script> (script:1)", stack);
+	}
+
+	[Fact]
 	public void TranslatesUnicodePropertyEscapes()
 	{
 		Assert.Equal("true", Eval("/^\\p{Letter}+$/u.test('Grüße')"));

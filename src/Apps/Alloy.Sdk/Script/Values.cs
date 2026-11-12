@@ -593,9 +593,13 @@ namespace Alloy.Sdk.Script
 		public JsValue LexicalNewTarget;
 		public int ExpectedLength;
 
+		// The script or module that was running when the function was made, for stack traces
+		public string Source;
+
 		public JsFunction(JsObject prototype) : base(prototype)
 		{
 			Class = "Function";
+			Source = Interpreter.Current?.CurrentSource;
 		}
 
 		public bool IsConstructor => Target != null ? Target.IsConstructor : Native != null ? NativeNew != null : IsClassConstructor || (!IsArrow && Node != null && !Node.IsMethod && !Node.IsAsync && !Node.IsGenerator);

@@ -290,7 +290,7 @@ namespace Alloy.Sdk.Web.Dom
 				if (kind == "module")
 					Interpreter.TryEvaluateModule(source, target?.ToString() ?? (Url?.ToString() ?? "about:blank") + "#module-" + ++_inlineModules);
 				else
-					Interpreter.TryEvaluate(source);
+					Interpreter.TryEvaluate(source, target?.ToString());
 			}
 			finally
 			{

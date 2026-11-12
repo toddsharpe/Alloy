@@ -284,6 +284,8 @@ namespace Alloy.Sdk.Script
 						Evaluate(Load(source, record.Url));
 				}
 				_running++;
+				string priorSource = CurrentSource;
+				CurrentSource = record.Url;
 				try
 				{
 					foreach (Statement statement in record.Program.Body)
@@ -292,6 +294,7 @@ namespace Alloy.Sdk.Script
 				finally
 				{
 					_running--;
+					CurrentSource = priorSource;
 				}
 				record.State = ModuleState.Evaluated;
 			}
