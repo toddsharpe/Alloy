@@ -731,6 +731,44 @@ float ceilf(float value)
 	return truncated < value ? truncated + 1 : truncated;
 }
 
+// The single-precision transcendentals MathF compiles to in unoptimized builds; the double versions in win32.asm do the work
+double sin(double x);
+double cos(double x);
+double tan(double x);
+double acos(double x);
+double sqrt(double x);
+double fmod(double x, double y);
+#pragma function(sinf, cosf, tanf, acosf, sqrtf, fmodf)
+float sinf(float x)
+{
+	return (float)sin(x);
+}
+
+float cosf(float x)
+{
+	return (float)cos(x);
+}
+
+float tanf(float x)
+{
+	return (float)tan(x);
+}
+
+float acosf(float x)
+{
+	return (float)acos(x);
+}
+
+float sqrtf(float x)
+{
+	return (float)sqrt(x);
+}
+
+float fmodf(float x, float y)
+{
+	return (float)fmod(x, y);
+}
+
 // The rest of the math library: special cases here in C, the transcendental core on the x87 in win32.asm
 double PhxExpCore(double x);
 double PhxPowCore(double x, double y);
