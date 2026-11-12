@@ -176,6 +176,12 @@ namespace Alloy.Sdk.Web.Layout
 			float contentHeight;
 			if (box.IsReplaced && box.Children.Count == 0)
 				contentHeight = 0;
+			else if (box.IsReplaced && box.IntrinsicHeight > 0 && box.Style.Height.IsAuto)
+			{
+				// A text field: its text is laid out inside, but its size is the control's, not the text's
+				LayoutInline(box, floats ?? new FloatContext());
+				contentHeight = box.IntrinsicHeight;
+			}
 			else if (box.Style.IsFlexContainer && box.Kind != BoxKind.Inline)
 				contentHeight = LayoutFlex(box, containingHeight);
 			else if (HasInlineContent(box))
@@ -193,7 +199,7 @@ namespace Alloy.Sdk.Web.Layout
 		{
 			ComputedStyle style = box.Style;
 			float height = contentHeight;
-			if (box.IsReplaced && box.Children.Count == 0)
+			if (box.IsReplaced && (box.Children.Count == 0 || box.IntrinsicHeight > 0))
 				height = ReplacedHeight(box, containingHeight);
 			else if (!style.Height.IsAuto && (!style.Height.IsPercent || containingHeight >= 0))
 				height = Math.Max(0, style.Height.Resolve(containingHeight));
@@ -209,6 +215,8 @@ namespace Alloy.Sdk.Web.Layout
 			ComputedStyle style = box.Style;
 			if (!style.Height.IsAuto && (!style.Height.IsPercent || containingHeight >= 0))
 				return Math.Max(0, style.Height.Resolve(containingHeight));
+			if (box.Children.Count > 0)
+				return Math.Max(0, box.IntrinsicHeight);
 			float intrinsicWidth = Math.Max(0, box.IntrinsicWidth);
 			float intrinsicHeight = Math.Max(0, box.IntrinsicHeight);
 			if (intrinsicWidth > 0 && intrinsicHeight > 0 && box.ContentWidth != intrinsicWidth)
@@ -262,7 +270,7 @@ namespace Alloy.Sdk.Web.Layout
 			float width;
 			if (!style.Width.IsAuto)
 				width = Math.Max(0, style.Width.Resolve(containingWidth));
-			else if (box.IsReplaced && box.Children.Count == 0)
+			else if (box.IsReplaced && (box.Children.Count == 0 || box.IntrinsicWidth > 0))
 				width = ReplacedWidth(box, available);
 			else if (shrinkToFit)
 			{
@@ -611,7 +619,7 @@ namespace Alloy.Sdk.Web.Layout
 				return (box.MinContent, box.MaxContent);
 			float min = 0;
 			float max = 0;
-			if (box.IsReplaced && box.Children.Count == 0)
+			if (box.IsReplaced && (box.Children.Count == 0 || box.IntrinsicWidth > 0))
 			{
 				float width = box.Style.Width.IsAuto || box.Style.Width.IsPercent ? Math.Max(0, box.IntrinsicWidth) : box.Style.Width.Value;
 				min = max = width;

@@ -33,11 +33,15 @@ namespace Alloy.Sdk.Web
 		public string Title => Document?.Title ?? Url?.Host ?? "";
 
 		// Fetches a URL and its stylesheets; a failure is reported through Error and an empty document
-		public static Page Load(string url, ulong timeoutMs = 15000)
+		public static Page Load(string url, ulong timeoutMs = 15000) => Load(new FormSubmission { Url = Uri.TryCreate(url, UriKind.Absolute, out Uri parsed) ? parsed : null, Method = "GET" }, url, timeoutMs);
+
+		public static Page Load(FormSubmission submission, ulong timeoutMs = 15000) => Load(submission, submission.Url?.ToString() ?? "", timeoutMs);
+
+		private static Page Load(FormSubmission submission, string url, ulong timeoutMs)
 		{
 			Page page = new Page();
 			ulong start = Kernel.TickCount;
-			HttpResponse response = Http.Get(url, timeoutMs);
+			HttpResponse response = submission.Url == null ? Http.Get(url, timeoutMs) : Http.Request(submission.Method, submission.Url, submission.Body, submission.ContentType, timeoutMs);
 			page.Status = response.Status;
 			page.Url = response.Url ?? (Uri.TryCreate(url, UriKind.Absolute, out Uri parsed) ? parsed : null);
 			if (response.Status == 0)
@@ -222,6 +226,62 @@ namespace Alloy.Sdk.Web
 			new LayoutEngine(fonts, width, height).Layout(Root);
 			Display = Painter.Paint(Root, width, height);
 			LayoutMs = (long)(Kernel.TickCount - start);
+		}
+
+		// The form control under a document point (text field, button, checkbox, radio or select), if any
+		public Element ControlAt(float x, float y)
+		{
+			if (Root == null)
+				return null;
+			LayoutBox hit = Painter.HitTest(Root, x, y);
+			for (Node node = hit?.Node; node != null; node = node.Parent)
+			{
+				if (node is Element element && (element.TagName == "input" || element.TagName == "textarea" || element.TagName == "button" || element.TagName == "select"))
+					return element;
+				if (node is Element label && label.TagName == "label")
+				{
+					string target = label.GetAttribute("for");
+					if (target != null)
+					{
+						foreach (Element candidate in Document.DescendantElements())
+						{
+							if (candidate.Id == target)
+								return candidate;
+						}
+					}
+					foreach (Element inner in label.DescendantElements())
+					{
+						if (inner.TagName == "input" || inner.TagName == "select" || inner.TagName == "textarea")
+							return inner;
+					}
+				}
+			}
+			return null;
+		}
+
+		// The box laid out for an element, for drawing focus around it
+		public LayoutBox BoxFor(Element element) => Root == null ? null : Find(Root, element);
+
+		private static LayoutBox Find(LayoutBox box, Element element)
+		{
+			if (box.Node == element && box.Kind != BoxKind.Text)
+				return box;
+			foreach (LayoutBox child in box.Children)
+			{
+				LayoutBox found = Find(child, element);
+				if (found != null)
+					return found;
+			}
+			if (box.Positioned != null)
+			{
+				foreach (LayoutBox child in box.Positioned)
+				{
+					LayoutBox found = Find(child, element);
+					if (found != null)
+						return found;
+				}
+			}
+			return null;
 		}
 
 		// The link under a document point, if any

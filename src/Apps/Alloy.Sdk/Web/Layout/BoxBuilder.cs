@@ -108,9 +108,17 @@ namespace Alloy.Sdk.Web.Layout
 						int size = int.TryParse(element.GetAttribute("size"), out int s) && s > 0 ? s : 20;
 						input.IntrinsicWidth = size * style.FontSize * 0.55f;
 						input.IntrinsicHeight = style.FontSize * 1.3f;
+						style.WhiteSpace = WhiteSpace.NoWrap;
+						style.Overflow = Overflow.Hidden;
 						string value = element.GetAttribute("value");
-						if (!string.IsNullOrEmpty(value) && type != "password")
-							input.Add(new LayoutBox(BoxKind.Text, element, style) { Text = value });
+						if (!string.IsNullOrEmpty(value))
+							input.Add(new LayoutBox(BoxKind.Text, element, style) { Text = type == "password" ? new string('\u2022', value.Length) : value });
+						else if (!string.IsNullOrEmpty(element.GetAttribute("placeholder")))
+						{
+							ComputedStyle hint = style.Clone();
+							hint.Color = Color.FromRgb(0x75, 0x75, 0x75);
+							input.Add(new LayoutBox(BoxKind.Text, element, hint) { Text = element.GetAttribute("placeholder") });
+						}
 					}
 					return input;
 				}
@@ -135,6 +143,11 @@ namespace Alloy.Sdk.Web.Layout
 					int rows = int.TryParse(element.GetAttribute("rows"), out int r) && r > 0 ? r : 2;
 					area.IntrinsicWidth = cols * style.FontSize * 0.55f;
 					area.IntrinsicHeight = rows * style.ResolvedLineHeight;
+					style.WhiteSpace = WhiteSpace.PreWrap;
+					style.Overflow = Overflow.Hidden;
+					string text = element.GetAttribute("value") ?? element.TextContent;
+					if (!string.IsNullOrEmpty(text))
+						area.Add(new LayoutBox(BoxKind.Text, element, style) { Text = text });
 					return area;
 				}
 				case "iframe":
