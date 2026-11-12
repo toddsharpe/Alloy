@@ -150,6 +150,33 @@ namespace Alloy.Sdk.Web.Layout
 			if (bottom > root.Y + root.Height)
 				root.Height = bottom - root.Y;
 			LayoutPositioned(root, root, root.Width, Math.Max(root.Height, _viewportHeight));
+			// The document scrolls as far as anything reaches, even when html itself is only as tall as the viewport
+			float reach = ScrollableBottom(root);
+			if (reach > root.Y + root.Height)
+				root.Height = reach - root.Y;
+		}
+
+		// The lowest border-box bottom among the descendants that are not clipped away by an overflow or pinned by position fixed
+		private static float ScrollableBottom(LayoutBox box)
+		{
+			float bottom = box.Y + box.Height;
+			if (box.Style != null && box.Style.Overflow != Overflow.Visible && box.Kind != BoxKind.Inline)
+				return bottom;
+			foreach (LayoutBox child in box.Children)
+			{
+				if (child.Kind == BoxKind.Text || child.Kind == BoxKind.LineBreak || (child.Style != null && child.Style.Position == Position.Fixed))
+					continue;
+				bottom = Math.Max(bottom, ScrollableBottom(child));
+			}
+			if (box.Positioned != null)
+			{
+				foreach (LayoutBox child in box.Positioned)
+				{
+					if (child.Style == null || child.Style.Position != Position.Fixed)
+						bottom = Math.Max(bottom, ScrollableBottom(child));
+				}
+			}
+			return bottom;
 		}
 
 		// Lays out a block-level box with its margin box's top-left at (x, y) inside a containing block of the given content width; the box's own margins are resolved here and left for the caller to place around

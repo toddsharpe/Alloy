@@ -398,4 +398,13 @@ public class LayoutTests
 		Assert.Equal(slot.Width, button.Width, 0.5f);
 		Assert.True(slot.Width > 50, "slot width " + slot.Width);
 	}
+
+	[Fact]
+	public void TheDocumentReachesAsFarAsItsContent()
+	{
+		LayoutBox root = Lay("<body><div style=\"height:3000px\">tall</div><div style=\"position:fixed;top:0;height:9000px\">pinned</div></body>", "html { height: 100% } body { height: 100% }");
+		Assert.Equal(3000, root.Height, 0.5f);
+		LayoutBox clipped = Lay("<body><div style=\"height:100px;overflow:hidden\"><div style=\"height:5000px\">hidden</div></div></body>", "html { height: 100% }");
+		Assert.Equal(600, clipped.Height, 0.5f);
+	}
 }
