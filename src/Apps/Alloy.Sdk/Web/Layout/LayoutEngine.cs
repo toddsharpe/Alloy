@@ -233,6 +233,13 @@ namespace Alloy.Sdk.Web.Layout
 				height = ReplacedHeight(box, containingHeight);
 			else if (!style.Height.IsAuto && (!style.Height.IsPercent || containingHeight >= 0))
 				height = Math.Max(0, box.ContentHeightOf(style.Height.Resolve(containingHeight)));
+			else if (style.AspectRatio > 0)
+			{
+				// An aspect ratio gives a box with auto height the height its width implies, unless its content needs more
+				float border = style.BorderBox ? box.HorizontalEdges : 0;
+				float implied = (box.ContentWidth + border) / style.AspectRatio - (style.BorderBox ? box.VerticalEdges : 0);
+				height = Math.Max(contentHeight, implied);
+			}
 			if (!style.MaxHeight.IsAuto && (!style.MaxHeight.IsPercent || containingHeight >= 0))
 				height = Math.Min(height, box.ContentHeightOf(style.MaxHeight.Resolve(containingHeight)));
 			if (!style.MinHeight.IsPercent || containingHeight >= 0)

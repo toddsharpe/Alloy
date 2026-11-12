@@ -670,6 +670,19 @@ namespace Alloy.Sdk.Web.Css
 				case "transform":
 					ApplyTransform(tokens);
 					break;
+				case "aspect-ratio":
+				{
+					_style.AspectRatio = 0;
+					int at = tokens[0].IsIdent("auto") ? 1 : 0;
+					if (at < tokens.Count && tokens[at].Type == CssTokenType.Number && tokens[at].Number > 0)
+					{
+						double ratio = tokens[at].Number;
+						if (at + 2 < tokens.Count && tokens[at + 1].IsDelim('/') && tokens[at + 2].Type == CssTokenType.Number && tokens[at + 2].Number > 0)
+							ratio /= tokens[at + 2].Number;
+						_style.AspectRatio = (float)ratio;
+					}
+					break;
+				}
 				case "translate":
 					_style.TranslateX = Length.Zero;
 					_style.TranslateY = Length.Zero;

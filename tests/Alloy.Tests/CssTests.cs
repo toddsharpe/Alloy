@@ -234,6 +234,15 @@ public class CssTests
 	}
 
 	[Fact]
+	public void ParsesAspectRatio()
+	{
+		Assert.Equal(16f / 9f, Style("<p>x</p>", "p { aspect-ratio: 16 / 9 }", "p").AspectRatio, 0.001f);
+		Assert.Equal(2f, Style("<p>x</p>", "p { aspect-ratio: 2 }", "p").AspectRatio, 0.001f);
+		Assert.Equal(0f, Style("<p>x</p>", "p { aspect-ratio: auto }", "p").AspectRatio);
+		Assert.Equal(1.5f, Style("<p>x</p>", "p { aspect-ratio: auto 3 / 2 }", "p").AspectRatio, 0.001f);
+	}
+
+	[Fact]
 	public void ParsesTransformTranslations()
 	{
 		ComputedStyle both = Style("<p>x</p>", "p { transform: translate(10px, -50%) }", "p");

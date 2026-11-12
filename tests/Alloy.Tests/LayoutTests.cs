@@ -445,4 +445,13 @@ public class LayoutTests
 		Assert.Equal(60, b.Y, 0.5f);
 		Assert.Equal(100, c.Y, 0.5f);
 	}
+
+	[Fact]
+	public void AspectRatioSizesAnEmptyBoxFromItsWidth()
+	{
+		LayoutBox root = Lay("<body style=\"margin:0\"><div id=\"a\" style=\"width:400px;aspect-ratio:2 / 1\"></div><div id=\"b\" style=\"width:100px;aspect-ratio:1;height:30px\"></div><div id=\"c\" style=\"width:100px;aspect-ratio:4;line-height:20px\">one<br>two<br>three</div></body>");
+		Assert.Equal(200, FindId(root, "a").Height, 0.5f);
+		Assert.Equal(30, FindId(root, "b").Height, 0.5f);
+		Assert.Equal(60, FindId(root, "c").Height, 0.5f);
+	}
 }
