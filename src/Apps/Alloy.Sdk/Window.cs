@@ -23,6 +23,10 @@ namespace Alloy.Sdk
 		// Waitable alongside other handles: signaled while events are queued for this app
 		public static long EventPort => s_reply;
 
+		internal static long ServerPort => s_server;
+
+		internal static ulong ClientId => s_client;
+
 		private unsafe Window(ulong id, WindowHeader* header)
 		{
 			Id = id;

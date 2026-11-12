@@ -1,6 +1,8 @@
 param(
 	[ValidateSet('Debug', 'Release')]
 	[string]$Configuration = 'Debug',
+	[ValidateSet('Debug', 'Release')]
+	[string]$AppsConfiguration = 'Release',
 	[string]$VmName = 'Alloy',
 	[string]$KernelArgs = ''
 )
@@ -17,8 +19,8 @@ $vhd = Join-Path $build 'Alloy.vhdx'
 dotnet build (Join-Path $root 'Alloy.sln') -c $Configuration -nologo -v:minimal
 if ($LASTEXITCODE -ne 0) { throw 'build: dotnet build failed' }
 
-# The .NET apps (src\Apps) only become native images on publish; each one lands in build\bin
-dotnet publish (Join-Path $root 'src\Apps\Apps.slnf') -c $Configuration -nologo -v:minimal
+# The .NET apps (src\Apps) only become native images on publish; each one lands in build\bin, Release by default since the browser's interpreter runs several times slower unoptimized
+dotnet publish (Join-Path $root 'src\Apps\Apps.slnf') -c $AppsConfiguration -nologo -v:minimal
 if ($LASTEXITCODE -ne 0) { throw 'build: dotnet publish of the apps failed' }
 
 # The EFI system partition holds what the loader loads: \EFI\BOOT\BOOTX64.EFI and \EFI\ALLOY\{kernel.exe, kernel.sym, cmdline.txt}

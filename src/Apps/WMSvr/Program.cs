@@ -356,6 +356,14 @@ namespace Alloy.Apps.WMSvr
 				case WmProtocol.Present:
 					return true;
 
+				case WmProtocol.SetClipboard:
+					SetClipboard(transferred, (int)Math.Min(message.Data[1], (ulong)WmProtocol.MaxClipboardBytes));
+					return false;
+
+				case WmProtocol.GetClipboard:
+					SendClipboard(transferred);
+					return false;
+
 				default:
 					if (transferred > 0)
 						Kernel.Close(transferred);
@@ -364,6 +372,48 @@ namespace Alloy.Apps.WMSvr
 		}
 
 		private static Connection Owner(in IpcMessage message) => message.Data[6] < MaxConnections ? s_connections[(int)message.Data[6]] : null;
+
+		// The clipboard: one text for the whole system, as UTF-8 bytes
+		private static byte[] s_clipboard = Array.Empty<byte>();
+
+		private static void SetClipboard(long section, int length)
+		{
+			if (section <= 0)
+				return;
+			if (length == 0)
+				s_clipboard = Array.Empty<byte>();
+			else
+			{
+				Memory<byte> mapped = SharedMemory.Map(section, length);
+				if (mapped.Length == length)
+					s_clipboard = mapped.ToArray();
+			}
+			Kernel.Close(section);
+		}
+
+		// Answers on the port the request carried, with the text in a fresh section the asker closes
+		private static void SendClipboard(long port)
+		{
+			if (port <= 0)
+				return;
+			IpcMessage answer = default;
+			answer.Type = WmProtocol.ClipboardText;
+			answer.Data[1] = (ulong)s_clipboard.Length;
+			long section = 0;
+			if (s_clipboard.Length > 0)
+			{
+				section = SharedMemory.Create((ulong)s_clipboard.Length);
+				Memory<byte> mapped = section > 0 ? SharedMemory.Map(section, s_clipboard.Length) : Memory<byte>.Empty;
+				if (mapped.Length == s_clipboard.Length)
+					new ReadOnlySpan<byte>(s_clipboard).CopyTo(mapped.Span);
+				else
+					answer.Data[1] = 0;
+			}
+			Port.Send(port, answer, section > 0 ? section : 0);
+			if (section > 0)
+				Kernel.Close(section);
+			Kernel.Close(port);
+		}
 
 		// The app's reply port arrives with Connect, and its process id lets dead apps be noticed
 		private static void Accept(in IpcMessage message, long reply)

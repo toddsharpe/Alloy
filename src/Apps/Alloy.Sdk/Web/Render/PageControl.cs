@@ -19,6 +19,16 @@ namespace Alloy.Sdk.Web.Render
 		private int _laidOutWidth;
 		private int _laidOutHeight;
 		private int _pressX = -1;
+		// The text selection as two document points, the start where the drag began; a start of -1 means none
+		private float _selectStartX = -1;
+		private float _selectStartY;
+		private float _selectEndX;
+		private float _selectEndY;
+		private static readonly Alloy.Sdk.Web.Css.Color SelectionColor = Alloy.Sdk.Web.Css.Color.FromRgb(0x33, 0x90, 0xFF, 90);
+
+		public bool HasSelection => _selectStartX >= 0 && (_selectStartX != _selectEndX || _selectStartY != _selectEndY);
+
+		public void ClearSelection() => _selectStartX = -1;
 		private int _pressY = -1;
 		private Element _hovered;
 		private Element _hoverElement;
@@ -65,6 +75,7 @@ namespace Alloy.Sdk.Web.Render
 
 		public void Show(Page page)
 		{
+			_selectStartX = -1;
 			Page = page;
 			ScrollY = 0;
 			_laidOutWidth = 0;
@@ -198,9 +209,115 @@ namespace Alloy.Sdk.Web.Render
 			if (Page?.Display == null)
 				return;
 			SurfaceRenderer.Draw(in surface, Page.Display, 0, ScrollY, Bounds);
+			DrawSelection(in surface);
 			DrawFocus(in surface);
 			DrawScrollbar(in surface);
 			DrawSelect(in surface);
+		}
+
+		// The selected characters of each text item highlighted, in document order
+		private void DrawSelection(in Surface surface)
+		{
+			if (!HasSelection)
+				return;
+			OrderedSelection(out float sx, out float sy, out float ex, out float ey);
+			foreach (DisplayItem item in Page.Display.Items)
+			{
+				if (item.Kind != DisplayItemKind.Text || !SelectedRange(in item, sx, sy, ex, ey, out int from, out int to))
+					continue;
+				float left = item.X + TextWidth(in item, from);
+				float right = item.X + TextWidth(in item, to);
+				int x0 = Bounds.X + (int)MathF.Round(left);
+				int y0 = Bounds.Y + (int)MathF.Round(item.Y - item.Font.Ascent) - ScrollY;
+				int height = (int)MathF.Round(item.Font.Ascent + item.Font.Descent);
+				Rectangle rect = new Rectangle(x0, y0, (int)MathF.Round(right - left), height);
+				int cx0 = Math.Max(rect.X, Bounds.X);
+				int cy0 = Math.Max(rect.Y, Bounds.Y);
+				int cx1 = Math.Min(rect.X + rect.Width, Bounds.X + Bounds.Width);
+				int cy1 = Math.Min(rect.Y + rect.Height, Bounds.Y + Bounds.Height);
+				if (cx1 > cx0 && cy1 > cy0)
+					SurfaceRenderer.FillBlend(in surface, new Rectangle(cx0, cy0, cx1 - cx0, cy1 - cy0), SelectionColor);
+			}
+		}
+
+		// Start before end in reading order, whichever way the drag went
+		private void OrderedSelection(out float sx, out float sy, out float ex, out float ey)
+		{
+			bool forward = MathF.Abs(_selectStartY - _selectEndY) < 4 ? _selectStartX <= _selectEndX : _selectStartY < _selectEndY;
+			sx = forward ? _selectStartX : _selectEndX;
+			sy = forward ? _selectStartY : _selectEndY;
+			ex = forward ? _selectEndX : _selectStartX;
+			ey = forward ? _selectEndY : _selectStartY;
+		}
+
+		// The characters of a text item between the two points: everything when the item lies between their lines, a prefix or suffix on the lines themselves
+		private static bool SelectedRange(in DisplayItem item, float sx, float sy, float ex, float ey, out int from, out int to)
+		{
+			from = 0;
+			to = 0;
+			if (item.Font == null || item.Text.Length == 0)
+				return false;
+			float top = item.Y - item.Font.Ascent;
+			float bottom = item.Y + item.Font.Descent;
+			float width = TextWidth(in item, item.Text.Length);
+			bool startBefore = sy < top || (sy <= bottom && sx < item.X + width);
+			bool endAfter = ey > bottom || (ey >= top && ex > item.X);
+			if (!startBefore || !endAfter)
+				return false;
+			from = sy >= top && sy <= bottom ? CharAt(in item, sx) : 0;
+			to = ey >= top && ey <= bottom ? CharAt(in item, ex) : item.Text.Length;
+			return to > from;
+		}
+
+		private static float TextWidth(in DisplayItem item, int count) => count <= 0 ? 0 : item.Font.Measure(item.Text.AsSpan(0, count)) + item.Spacing * count;
+
+		// The index of the first character whose far edge lies past a document x
+		private static int CharAt(in DisplayItem item, float x)
+		{
+			float offset = x - item.X;
+			if (offset <= 0)
+				return 0;
+			float pen = 0;
+			for (int i = 0; i < item.Text.Length; i++)
+			{
+				float advance = item.Font.Measure(item.Text.AsSpan(i, 1)) + item.Spacing;
+				if (pen + advance / 2 > offset)
+					return i;
+				pen += advance;
+			}
+			return item.Text.Length;
+		}
+
+		// The selected text, lines joined by newlines and runs on one line by spaces where the layout left a gap, onto the system clipboard
+		public bool CopySelection()
+		{
+			if (!HasSelection || Page?.Display == null)
+				return false;
+			OrderedSelection(out float sx, out float sy, out float ex, out float ey);
+			System.Text.StringBuilder text = new System.Text.StringBuilder();
+			float lastY = float.NaN;
+			float lastRight = 0;
+			foreach (DisplayItem item in Page.Display.Items)
+			{
+				if (item.Kind != DisplayItemKind.Text || !SelectedRange(in item, sx, sy, ex, ey, out int from, out int to))
+					continue;
+				string piece = item.Text.Substring(from, to - from);
+				float left = item.X + TextWidth(in item, from);
+				if (!float.IsNaN(lastY))
+				{
+					if (MathF.Abs(item.Y - lastY) > 1)
+						text.Append('\n');
+					else if (left - lastRight > 1.5f && text.Length > 0 && text[text.Length - 1] != ' ' && !piece.StartsWith(' '))
+						text.Append(' ');
+				}
+				text.Append(piece);
+				lastY = item.Y;
+				lastRight = item.X + TextWidth(in item, to);
+			}
+			if (text.Length == 0)
+				return false;
+			Alloy.Sdk.Clipboard.SetText(text.ToString());
+			return true;
 		}
 
 		// The open select's options as a list under the control, the highlighted one inverted
@@ -616,7 +733,22 @@ namespace Alloy.Sdk.Web.Render
 				{
 					_pressX = x;
 					_pressY = y;
+					_selectStartX = _selectEndX = x - Bounds.X;
+					_selectStartY = _selectEndY = y - Bounds.Y + ScrollY;
 					DispatchMouseAt("mousedown", x, y);
+					return false;
+				}
+				// Dragging extends the selection to the pointer
+				if (_pressX >= 0 && _selectStartX >= 0)
+				{
+					float endX = Math.Clamp(x, Bounds.X, Bounds.X + Bounds.Width) - Bounds.X;
+					float endY = y - Bounds.Y + ScrollY;
+					if (endX != _selectEndX || endY != _selectEndY)
+					{
+						_selectEndX = endX;
+						_selectEndY = endY;
+						return true;
+					}
 				}
 				return false;
 			}
@@ -624,10 +756,12 @@ namespace Alloy.Sdk.Web.Render
 			int pressY = _pressY;
 			_pressX = _pressY = -1;
 			if (!Bounds.Contains(x, y))
-				return false;
+				return HasSelection;
 			bool allowed = DispatchMouseAt("mouseup", x, y);
 			if (Math.Abs(pressX - x) > 3 || Math.Abs(pressY - y) > 3)
-				return !allowed || _laidOutWidth == 0;
+				return true;
+			// A click without a drag selects nothing
+			_selectStartX = -1;
 			return Click(x - Bounds.X, y - Bounds.Y + ScrollY) || _laidOutWidth == 0;
 		}
 

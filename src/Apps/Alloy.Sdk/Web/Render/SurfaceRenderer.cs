@@ -323,6 +323,9 @@ namespace Alloy.Sdk.Web.Render
 			return new Rectangle(x0, y0, Math.Max(0, x1 - x0), Math.Max(0, y1 - y0));
 		}
 
+		// A translucent rectangle over what is drawn, for selections and other overlays
+		public static void FillBlend(in Surface surface, Rectangle rect, Color color) => FillRect(in surface, rect, color);
+
 		private static void FillRect(in Surface surface, Rectangle rect, Color color)
 		{
 			if (rect.Width <= 0 || rect.Height <= 0 || color.A == 0)

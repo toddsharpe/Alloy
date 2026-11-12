@@ -406,6 +406,20 @@ namespace Alloy.Apps.Terminal
 				ClearScreen();
 				return;
 			}
+			if (s_ctrl && key == 'V')
+			{
+				// The clipboard's first line joins the command, up to its limit
+				foreach (char c in Clipboard.GetText())
+				{
+					if (c == '\n' || c == '\r')
+						break;
+					if (c < ' ' || c > '~' || s_commandLength >= CommandLimit)
+						continue;
+					s_command[s_commandLength++] = c;
+					s_console.Text.Write(c);
+				}
+				return;
+			}
 			switch (key)
 			{
 				case VirtualKey.Return:

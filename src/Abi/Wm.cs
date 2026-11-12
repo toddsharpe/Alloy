@@ -12,6 +12,10 @@ namespace Alloy.Abi
 		public const ulong Present = 3;
 		public const ulong DestroyWindow = 4;
 		public const ulong ResizeWindow = 5;
+		// The system clipboard lives in the server: SetClipboard carries UTF-8 text in a section with its byte length in Data[1]; GetClipboard carries a port to answer on
+		public const ulong SetClipboard = 6;
+		public const ulong GetClipboard = 7;
+		public const int MaxClipboardBytes = 1 << 20;
 
 		// Messages back on the client's reply port; Data[0] is the window they are for
 		public const ulong Connected = 100;
@@ -22,6 +26,8 @@ namespace Alloy.Abi
 		public const ulong Mouse = 104;
 		public const ulong Close = 105;
 		public const ulong Resize = 106;
+		// The answer to GetClipboard on the port it carried: the text in a section, its byte length in Data[1], zero when the clipboard is empty
+		public const ulong ClipboardText = 107;
 
 		// How the server frames a window, as MetalOS's WindowStyle flags
 		public const ulong StyleFramed = 0;

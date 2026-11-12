@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Alloy.Abi;
 using Alloy.Graphics;
+using Alloy.Sdk;
 using Alloy.Sdk.UI;
 using Alloy.Sdk.Web;
 using Alloy.Sdk.Web.Render;
@@ -33,9 +34,22 @@ namespace Alloy.Apps.Browser
 				surface.FillRectangle(end + 1, y, 2, Theme.Glyph, Theme.Ember);
 		}
 
-		// Typed characters, backspace and Enter; true when the key changed something
+		// Typed characters, backspace, Enter, and Ctrl+C or Ctrl+V against the system clipboard; true when the key changed something
 		public bool OnKey(ushort key, bool shift, bool ctrl)
 		{
+			if (ctrl && key == 'C')
+			{
+				Clipboard.SetText(Text);
+				return true;
+			}
+			if (ctrl && key == 'V')
+			{
+				string pasted = Clipboard.GetText().Trim();
+				if (Text.Length + pasted.Length > MaxLength)
+					pasted = pasted.Substring(0, Math.Max(0, MaxLength - Text.Length));
+				Text += pasted;
+				return pasted.Length > 0;
+			}
 			switch (key)
 			{
 				case VirtualKey.Return:
@@ -65,6 +79,8 @@ namespace Alloy.Apps.Browser
 		public Page Page;
 		public int ScrollY;
 		public string Title = "New tab";
+		// The status line for the finished load, kept while the title changes under scripts
+		public string Summary;
 		public int LoadSequence;
 		public FormSubmission Loading;
 		public Page Loaded;
@@ -360,7 +376,7 @@ namespace Alloy.Apps.Browser
 				scripts.TitleChanged = false;
 				s_tab.Title = s_page.Title;
 				if (s_tab.Loading == null)
-					Status(s_page.Title);
+					Status(s_tab.Summary ?? s_page.Title);
 				changed = true;
 			}
 			foreach (Tab tab in s_tabs)
@@ -388,12 +404,13 @@ namespace Alloy.Apps.Browser
 					tab.History.Add(request.Method == "POST" ? request : Get(page.Url ?? request.Url));
 					tab.HistoryIndex = tab.History.Count - 1;
 				}
+				tab.Summary = page.Error != null ? page.Error : $"{page.Title}  ({page.Status}, {page.StylesheetUrls.Count} stylesheets, {page.Scripts?.ScriptsRun ?? 0} scripts{(page.Scripts?.ScriptsSkipped > 0 ? $" ({page.Scripts.ScriptsSkipped} skipped)" : "")}, fetched in {page.FetchMs} ms)";
 				if (tab == s_tab)
 				{
 					s_page.Show(page);
 					if (!s_address.Focused)
 						s_address.Text = Address.Display(page.Url);
-					Status(page.Error != null ? page.Error : $"{page.Title}  ({page.Status}, {page.StylesheetUrls.Count} stylesheets, {page.Scripts?.ScriptsRun ?? 0} scripts{(page.Scripts?.ScriptsSkipped > 0 ? $" ({page.Scripts.ScriptsSkipped} skipped)" : "")}, fetched in {page.FetchMs} ms)");
+					Status(tab.Summary);
 				}
 				if (tab.Pending != null)
 				{
@@ -547,6 +564,8 @@ namespace Alloy.Apps.Browser
 				Reload();
 				return true;
 			}
+			if (s_ctrl && key == 'C' && !s_address.Focused && s_page.FocusedField == null)
+				return s_page.CopySelection();
 			if (s_alt && key == VirtualKey.Left)
 			{
 				Back();
