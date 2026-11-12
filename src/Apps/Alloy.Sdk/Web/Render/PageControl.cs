@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Alloy.Abi;
 using Alloy.Graphics;
 using Alloy.Sdk.UI;
@@ -21,6 +22,12 @@ namespace Alloy.Sdk.Web.Render
 		private int _pressY = -1;
 		private Element _hovered;
 		private Element _hoverElement;
+		// The select whose option list is open, drawn over the page below the control
+		private Element _openSelect;
+		private List<Element> _openOptions;
+		private int _openHighlight;
+		private const int OptionHeight = 22;
+		private const int MaxVisibleOptions = 12;
 
 		public Page Page { get; private set; }
 		public int ScrollY;
@@ -51,6 +58,7 @@ namespace Alloy.Sdk.Web.Render
 			_laidOutWidth = 0;
 			_hovered = null;
 			_hoverElement = null;
+			_openSelect = null;
 			FocusedField = null;
 			Attach(page.Scripts);
 		}
@@ -170,6 +178,139 @@ namespace Alloy.Sdk.Web.Render
 			SurfaceRenderer.Draw(in surface, Page.Display, 0, ScrollY, Bounds);
 			DrawFocus(in surface);
 			DrawScrollbar(in surface);
+			DrawSelect(in surface);
+		}
+
+		// The open select's options as a list under the control, the highlighted one inverted
+		private void DrawSelect(in Surface surface)
+		{
+			if (!SelectListBounds(out Rectangle list))
+				return;
+			surface.FillRectangle(list.X, list.Y, list.Width, list.Height, 0xFFFFFF);
+			surface.DrawOutline(list.X, list.Y, list.Width, list.Height, 0x767676);
+			int first = FirstVisibleOption();
+			for (int i = 0; i < Math.Min(MaxVisibleOptions, _openOptions.Count - first); i++)
+			{
+				int index = first + i;
+				int y = list.Y + 1 + i * OptionHeight;
+				bool highlighted = index == _openHighlight;
+				if (highlighted)
+					surface.FillRectangle(list.X + 1, y, list.Width - 2, OptionHeight, 0x1A73E8);
+				string text = _openOptions[index].TextContent.Trim();
+				int maxChars = Math.Max(1, (list.Width - 12) / 8);
+				if (text.Length > maxChars)
+					text = text.Substring(0, maxChars);
+				surface.DrawText(list.X + 6, y + (OptionHeight - 8) / 2, text, highlighted ? 0xFFFFFFu : 0x000000u, 1);
+			}
+		}
+
+		private int FirstVisibleOption()
+		{
+			if (_openOptions.Count <= MaxVisibleOptions)
+				return 0;
+			return Math.Clamp(_openHighlight - MaxVisibleOptions / 2, 0, _openOptions.Count - MaxVisibleOptions);
+		}
+
+		// Where the open list sits on screen: under the select, or above it when there is no room below
+		private bool SelectListBounds(out Rectangle list)
+		{
+			list = default;
+			if (_openSelect == null || _openOptions == null || _openOptions.Count == 0 || Page == null)
+				return false;
+			LayoutBox box = Page.BoxFor(_openSelect);
+			if (box == null)
+				return false;
+			int x = Bounds.X + (int)MathF.Round(box.X);
+			int top = Bounds.Y + (int)MathF.Round(box.Y) - ScrollY;
+			int width = Math.Max((int)MathF.Round(box.Width), 120);
+			int height = Math.Min(MaxVisibleOptions, _openOptions.Count) * OptionHeight + 2;
+			int y = top + (int)MathF.Round(box.Height);
+			if (y + height > Bounds.Y + Bounds.Height && top - height >= Bounds.Y)
+				y = top - height;
+			if (x + width > Bounds.X + Bounds.Width)
+				x = Math.Max(Bounds.X, Bounds.X + Bounds.Width - width);
+			list = new Rectangle(x, y, width, height);
+			return true;
+		}
+
+		private void OpenSelect(Element select)
+		{
+			_openSelect = select;
+			_openOptions = Forms.OptionsOf(select);
+			_openHighlight = Math.Max(0, Forms.SelectedIndex(select));
+			Page.Scripts?.SetActiveElement(select);
+			Invalidate();
+		}
+
+		private void CloseSelect()
+		{
+			if (_openSelect == null)
+				return;
+			_openSelect = null;
+			_openOptions = null;
+			Invalidate();
+		}
+
+		// Picks the highlighted option, tells the page's scripts, and closes the list
+		private void ChooseOption(int index)
+		{
+			Element select = _openSelect;
+			bool changed = Forms.Choose(select, index);
+			CloseSelect();
+			if (changed && Page.Scripts != null)
+			{
+				Page.Scripts.DispatchInput(select, null);
+				Page.Scripts.DispatchSimple("change", select, true, false);
+				Touch();
+			}
+		}
+
+		// Mouse and keys while a select list is open; true when consumed
+		private bool SelectListMouse(int x, int y, bool release)
+		{
+			if (!SelectListBounds(out Rectangle list))
+				return false;
+			if (!list.Contains(x, y))
+			{
+				if (release)
+					CloseSelect();
+				return release;
+			}
+			int index = FirstVisibleOption() + (y - list.Y - 1) / OptionHeight;
+			if (index >= 0 && index < _openOptions.Count && index != _openHighlight)
+			{
+				_openHighlight = index;
+				Invalidate();
+			}
+			if (release && index >= 0 && index < _openOptions.Count)
+				ChooseOption(index);
+			return true;
+		}
+
+		private bool SelectListKey(ushort key)
+		{
+			if (_openSelect == null)
+				return false;
+			switch (key)
+			{
+				case VirtualKey.Down:
+					_openHighlight = Math.Min(_openOptions.Count - 1, _openHighlight + 1);
+					Invalidate();
+					return true;
+				case VirtualKey.Up:
+					_openHighlight = Math.Max(0, _openHighlight - 1);
+					Invalidate();
+					return true;
+				case VirtualKey.Return:
+				case VirtualKey.Space:
+					ChooseOption(_openHighlight);
+					return true;
+				case VirtualKey.Escape:
+					CloseSelect();
+					return true;
+				default:
+					return false;
+			}
 		}
 
 		// A thin blue ring around the focused field and a caret after its text
@@ -233,6 +374,8 @@ namespace Alloy.Sdk.Web.Render
 		{
 			if (Page?.Display == null)
 				return false;
+			if (SelectListKey(key))
+				return true;
 			int page = Math.Max(LineStep, Bounds.Height - LineStep);
 			switch (key)
 			{
@@ -417,12 +560,29 @@ namespace Alloy.Sdk.Web.Render
 				return false;
 			if (wheel != 0 && Page.Display != null)
 			{
+				CloseSelect();
 				ScrollY -= wheel * LineStep * 3 / 2;
 				ClampScroll();
 				Scrolled();
 				return true;
 			}
 			bool down = (buttons & InputEvent.LeftButton) != 0;
+			if (_openSelect != null)
+			{
+				if (!down && _pressX < 0)
+					return SelectListMouse(x, y, false);
+				if (down)
+				{
+					if (_pressX < 0)
+					{
+						_pressX = x;
+						_pressY = y;
+					}
+					return false;
+				}
+				_pressX = _pressY = -1;
+				return SelectListMouse(x, y, true) || true;
+			}
 			if (!down && _pressX < 0)
 			{
 				UpdateHover(x, y);
@@ -511,10 +671,7 @@ namespace Alloy.Sdk.Web.Render
 				}
 				if (control.TagName == "select")
 				{
-					Forms.Advance(control);
-					Invalidate();
-					scripts?.DispatchInput(control, null);
-					scripts?.DispatchSimple("change", control, true, false);
+					OpenSelect(control);
 					return true;
 				}
 				if (Forms.IsSubmitButton(control))

@@ -126,16 +126,34 @@ namespace Alloy.Sdk.Web
 			element.SetAttribute("checked", "");
 		}
 
-		// Clicking a select moves to the next option, round and round; there is no dropdown to open
-		public static void Advance(Element select)
+		// The options of a select in order, and the one currently chosen, the first when none is marked
+		public static List<Element> OptionsOf(Element select) => new List<Element>(select.ElementsByTagName("option"));
+
+		public static int SelectedIndex(Element select)
 		{
-			List<Element> options = new List<Element>(select.ElementsByTagName("option"));
-			if (options.Count == 0)
-				return;
-			int selected = Math.Max(0, options.FindIndex(o => o.HasAttribute("selected")));
+			List<Element> options = OptionsOf(select);
+			return options.Count == 0 ? -1 : Math.Max(0, options.FindIndex(o => o.HasAttribute("selected")));
+		}
+
+		// Makes one option the selection; true when it was not the selection before
+		public static bool Choose(Element select, int index)
+		{
+			List<Element> options = OptionsOf(select);
+			if (index < 0 || index >= options.Count)
+				return false;
+			bool changed = SelectedIndex(select) != index;
 			foreach (Element option in options)
 				option.RemoveAttribute("selected");
-			options[(selected + 1) % options.Count].SetAttribute("selected", "");
+			options[index].SetAttribute("selected", "");
+			return changed;
+		}
+
+		// Moves to the next option, round and round, for keyboard use
+		public static void Advance(Element select)
+		{
+			int count = OptionsOf(select).Count;
+			if (count > 0)
+				Choose(select, (SelectedIndex(select) + 1) % count);
 		}
 
 		// The successful controls of a form in tree order, plus the submitter's own name and value
