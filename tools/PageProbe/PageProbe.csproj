@@ -22,6 +22,7 @@
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Cookies.cs" Link="Sdk\Web\Cookies.cs" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Script\*.cs" Link="Sdk\Script\%(Filename)%(Extension)" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Text\Font.cs" Link="Sdk\Text\Font.cs" />
+		<Compile Include="..\..\src\Apps\Alloy.Sdk\Text\Rasterizer.cs" Link="Sdk\Text\Rasterizer.cs" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Text\TrueType.cs" Link="Sdk\Text\TrueType.cs" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\UI\Rectangle.cs" Link="Sdk\UI\Rectangle.cs" />
 		<Compile Include="..\..\src\Apps\Alloy.Sdk\Web\Render\SurfaceRenderer.cs" Link="Sdk\Web\Render\SurfaceRenderer.cs" />

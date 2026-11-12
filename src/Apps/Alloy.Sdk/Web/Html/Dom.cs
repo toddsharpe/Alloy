@@ -205,6 +205,8 @@ namespace Alloy.Sdk.Web.Html
 		public bool Hovered;
 		public bool Focused;
 		public bool FocusWithin;
+		// Whatever a renderer keeps for this element between paints, such as an svg's bitmap
+		public object RenderCache;
 		// A shadow tree a script attached: its Parent is this element, it is not among Children, and layout renders it in place of them
 		public Element ShadowRoot;
 

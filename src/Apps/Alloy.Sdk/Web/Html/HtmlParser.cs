@@ -476,8 +476,19 @@ namespace Alloy.Sdk.Web.Html
 			}
 
 			InsertElement(token);
-			if (token.SelfClosing && HtmlTags.IsVoid(name))
+			if (token.SelfClosing && (HtmlTags.IsVoid(name) || InForeignContent()))
 				PopCurrent();
+		}
+
+		// Inside an svg or math element a self-closing tag really is empty, so the shapes that follow are siblings, not children
+		private bool InForeignContent()
+		{
+			for (int i = _open.Count - 1; i >= 0; i--)
+			{
+				if (_open[i].TagName == "svg" || _open[i].TagName == "math")
+					return true;
+			}
+			return false;
 		}
 
 		private void EndTagInBody(HtmlToken token)
