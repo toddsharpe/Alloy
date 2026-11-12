@@ -196,7 +196,7 @@ namespace Alloy.Sdk.Web.Layout
 						if (option.HasAttribute("selected"))
 							break;
 					}
-					select.Add(new LayoutBox(BoxKind.Text, element, style) { Text = (first ?? "") + " ▾" });
+					select.Add(new LayoutBox(BoxKind.Text, element, style) { Text = (first ?? "") + "  v" });
 					return select;
 				}
 				case "textarea":

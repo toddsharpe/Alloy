@@ -2128,6 +2128,7 @@ abbr[title], acronym[title] { text-decoration: underline; }
 textarea, input, button, select { font-family: sans-serif; font-size: 13.3333px; }
 button, input[type=button], input[type=submit], input[type=reset] { display: inline-block; padding: 1px 6px; border: 2px outset buttonface; background-color: #efefef; color: black; text-align: center; }
 input:not([type]), input[type=text], input[type=search], input[type=email], input[type=url], input[type=password], input[type=number], input[type=tel], textarea { border: 1px inset #767676; padding: 1px 2px; background-color: white; color: black; }
+select { display: inline-block; border: 1px solid #767676; border-radius: 2px; padding: 2px 4px; background-color: white; color: black; }
 input[type=hidden] { display: none; }
 input[type=checkbox], input[type=radio] { border: 1px solid #767676; background-color: white; margin: 3px 3px 3px 4px; vertical-align: middle; }
 input[type=checkbox][checked], input[type=radio][checked] { background-color: #1a73e8; border-color: #1a73e8; }
