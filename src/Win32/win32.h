@@ -258,6 +258,10 @@ typedef struct __declspec(align(16)) { SLIST_ENTRY* Next; ULONGLONG Depth; } SLI
 
 typedef struct { DWORD dwLowDateTime; DWORD dwHighDateTime; } FILETIME;
 typedef struct { WORD wYear, wMonth, wDayOfWeek, wDay, wHour, wMinute, wSecond, wMilliseconds; } SYSTEMTIME;
+typedef struct { PVOID Ptr; } CONDITION_VARIABLE;
+typedef PVOID PTP_WORK;
+typedef PVOID PTP_CALLBACK_ENVIRON;
+typedef void (*PTP_WORK_CALLBACK)(PVOID instance, PVOID context, PTP_WORK work);
 
 typedef struct
 {
@@ -358,7 +362,8 @@ typedef struct { _PVFV* _first; _PVFV* _last; _PVFV* _end; } _onexit_table_t;
 	X(SetEvent) X(SetLastError) X(SetThreadAffinityMask) X(SetThreadContext) X(SetThreadGroupAffinity) X(SetThreadIdealProcessorEx) X(SetThreadPriority) X(SetUnhandledExceptionFilter) \
 	X(SetThreadErrorMode) X(SetXStateFeaturesMask) X(Sleep) X(SleepEx) X(SuspendThread) X(SwitchToThread) X(SystemTimeToFileTime) X(TerminateProcess) X(TlsAlloc) X(TlsFree) X(TlsGetValue) X(TlsSetValue) X(TryEnterCriticalSection) X(TzSpecificLocalTimeToSystemTime) \
 	X(UnhandledExceptionFilter) X(VerSetConditionMask) X(VerifyVersionInfoW) X(VirtualAlloc) X(VirtualAllocExNuma) X(VirtualFree) X(VirtualProtect) X(VirtualQuery) X(VirtualUnlock) \
-	X(WaitForMultipleObjectsEx) X(WaitForSingleObject) X(WaitForSingleObjectEx) X(WideCharToMultiByte) X(WriteConsoleW) X(WriteFile)
+	X(WaitForMultipleObjectsEx) X(WaitForSingleObject) X(WaitForSingleObjectEx) X(WideCharToMultiByte) X(WriteConsoleW) X(WriteFile) \
+	X(CloseThreadpoolWork) X(CreateThreadpoolWork) X(FileTimeToSystemTime) X(GetSystemTime) X(InitializeConditionVariable) X(LocalAlloc) X(SleepConditionVariableCS) X(SubmitThreadpoolWork) X(WakeConditionVariable)
 
 // The prototypes, in the order of the list above
 PVOID AddVectoredExceptionHandler(ULONG first, PVECTORED_EXCEPTION_HANDLER handler);
@@ -436,6 +441,7 @@ BOOL K32GetProcessMemoryInfo(HANDLE process, PROCESS_MEMORY_COUNTERS* counters, 
 void LeaveCriticalSection(CRITICAL_SECTION* section);
 HMODULE LoadLibraryExW(const wchar_t* name, HANDLE file, DWORD flags);
 HANDLE LocalFree(HANDLE memory);
+HANDLE LocalAlloc(DWORD flags, SIZE_T size);
 PVOID LocateXStateFeature(CONTEXT* context, DWORD feature, DWORD* length);
 BOOL LookupPrivilegeValueW(const wchar_t* system, const wchar_t* name, LUID* luid);
 int MultiByteToWideChar(DWORD codePage, DWORD flags, const char* bytes, int byteCount, wchar_t* chars, int charCount);
@@ -468,6 +474,14 @@ PTOP_LEVEL_EXCEPTION_FILTER SetUnhandledExceptionFilter(PTOP_LEVEL_EXCEPTION_FIL
 BOOL SetXStateFeaturesMask(CONTEXT* context, DWORD64 mask);
 BOOL SetThreadErrorMode(DWORD newMode, DWORD* oldMode);
 BOOL SystemTimeToFileTime(const SYSTEMTIME* systemTime, FILETIME* fileTime);
+void CloseThreadpoolWork(PTP_WORK work);
+PTP_WORK CreateThreadpoolWork(PTP_WORK_CALLBACK callback, PVOID context, PTP_CALLBACK_ENVIRON environment);
+BOOL FileTimeToSystemTime(const FILETIME* fileTime, SYSTEMTIME* systemTime);
+void GetSystemTime(SYSTEMTIME* systemTime);
+void InitializeConditionVariable(CONDITION_VARIABLE* variable);
+BOOL SleepConditionVariableCS(CONDITION_VARIABLE* variable, CRITICAL_SECTION* section, DWORD milliseconds);
+void SubmitThreadpoolWork(PTP_WORK work);
+void WakeConditionVariable(CONDITION_VARIABLE* variable);
 BOOL TzSpecificLocalTimeToSystemTime(PVOID timeZone, const SYSTEMTIME* localTime, SYSTEMTIME* universalTime);
 void Sleep(DWORD milliseconds);
 DWORD SleepEx(DWORD milliseconds, BOOL alertable);

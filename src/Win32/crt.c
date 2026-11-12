@@ -730,3 +730,179 @@ float ceilf(float value)
 	float truncated = (float)(__int64)value;
 	return truncated < value ? truncated + 1 : truncated;
 }
+
+// The rest of the math library: special cases here in C, the transcendental core on the x87 in win32.asm
+double PhxExpCore(double x);
+double PhxPowCore(double x, double y);
+double exp(double x);
+double log(double x);
+double sqrt(double x);
+double floor(double x);
+double ceil(double x);
+double fmod(double x, double y);
+
+static const union { unsigned __int64 bits; double value; } PhxInfinityBits = { 0x7FF0000000000000ULL };
+static const union { unsigned __int64 bits; double value; } PhxNanBits = { 0x7FF8000000000000ULL };
+#define PhxInfinity (PhxInfinityBits.value)
+#define PhxNan (PhxNanBits.value)
+
+static int PhxIsNan(double x)
+{
+	return x != x;
+}
+
+static int PhxIsInfinite(double x)
+{
+	return x == PhxInfinity || x == -PhxInfinity;
+}
+
+#pragma function(exp, pow, sinh, cosh, tanh)
+double exp(double x)
+{
+	if (PhxIsNan(x))
+		return x;
+	if (x > 709.782712893384)
+		return PhxInfinity;
+	if (x < -745.1332191019412)
+		return 0;
+	return PhxExpCore(x);
+}
+
+double pow(double x, double y)
+{
+	if (y == 0)
+		return 1;
+	if (PhxIsNan(x) || PhxIsNan(y))
+		return PhxNan;
+	if (PhxIsInfinite(y))
+	{
+		double ax = x < 0 ? -x : x;
+		if (ax == 1)
+			return 1;
+		return (ax > 1) == (y > 0) ? PhxInfinity : 0;
+	}
+	int integral = y == floor(y);
+	int odd = integral && fmod(y, 2) != 0;
+	if (x == 0)
+	{
+		if (y > 0)
+			return odd ? x : 0;
+		return odd ? 1 / x : PhxInfinity;
+	}
+	if (PhxIsInfinite(x))
+	{
+		if (x > 0)
+			return y > 0 ? PhxInfinity : 0;
+		if (y > 0)
+			return odd ? -PhxInfinity : PhxInfinity;
+		return odd ? -0.0 : 0.0;
+	}
+	if (x < 0)
+	{
+		if (!integral)
+			return PhxNan;
+		double magnitude = PhxPowCore(-x, y);
+		return odd ? -magnitude : magnitude;
+	}
+	return PhxPowCore(x, y);
+}
+
+double sinh(double x)
+{
+	if (PhxIsNan(x) || PhxIsInfinite(x))
+		return x;
+	double ax = x < 0 ? -x : x;
+	if (ax < 1e-4)
+		return x * (1 + x * x / 6);
+	if (ax > 710)
+		return x > 0 ? PhxInfinity : -PhxInfinity;
+	double e = exp(ax);
+	double result = (e - 1 / e) / 2;
+	return x < 0 ? -result : result;
+}
+
+double cosh(double x)
+{
+	if (PhxIsNan(x))
+		return x;
+	double ax = x < 0 ? -x : x;
+	if (ax > 710)
+		return PhxInfinity;
+	double e = exp(ax);
+	return (e + 1 / e) / 2;
+}
+
+double tanh(double x)
+{
+	if (PhxIsNan(x))
+		return x;
+	double ax = x < 0 ? -x : x;
+	if (ax < 1e-4)
+		return x * (1 - x * x / 3);
+	if (ax > 20)
+		return x > 0 ? 1 : -1;
+	double e = exp(2 * ax);
+	double result = (e - 1) / (e + 1);
+	return x < 0 ? -result : result;
+}
+
+double asinh(double x)
+{
+	if (PhxIsNan(x) || PhxIsInfinite(x))
+		return x;
+	double ax = x < 0 ? -x : x;
+	if (ax < 1e-4)
+		return x * (1 - x * x / 6);
+	double result = log(ax + sqrt(ax * ax + 1));
+	return x < 0 ? -result : result;
+}
+
+double acosh(double x)
+{
+	if (PhxIsNan(x) || x < 1)
+		return PhxNan;
+	if (PhxIsInfinite(x))
+		return x;
+	return log(x + sqrt(x * x - 1));
+}
+
+double atanh(double x)
+{
+	if (PhxIsNan(x))
+		return x;
+	double ax = x < 0 ? -x : x;
+	if (ax > 1)
+		return PhxNan;
+	if (ax == 1)
+		return x > 0 ? PhxInfinity : -PhxInfinity;
+	if (ax < 1e-4)
+		return x * (1 + x * x / 3);
+	return 0.5 * log((1 + x) / (1 - x));
+}
+
+// The cube root from pow, then one Newton step so perfect cubes come out exact
+double cbrt(double x)
+{
+	if (x == 0 || PhxIsNan(x) || PhxIsInfinite(x))
+		return x;
+	double ax = x < 0 ? -x : x;
+	double r = PhxPowCore(ax, 1.0 / 3);
+	r = r - (r * r * r - ax) / (3 * r * r);
+	return x < 0 ? -r : r;
+}
+
+double modf(double x, double* integral)
+{
+	if (PhxIsNan(x))
+	{
+		*integral = x;
+		return x;
+	}
+	if (PhxIsInfinite(x))
+	{
+		*integral = x;
+		return x > 0 ? 0.0 : -0.0;
+	}
+	*integral = x < 0 ? ceil(x) : floor(x);
+	return x - *integral;
+}
