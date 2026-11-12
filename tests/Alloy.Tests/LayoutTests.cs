@@ -407,4 +407,12 @@ public class LayoutTests
 		LayoutBox clipped = Lay("<body><div style=\"height:100px;overflow:hidden\"><div style=\"height:5000px\">hidden</div></div></body>", "html { height: 100% }");
 		Assert.Equal(600, clipped.Height, 0.5f);
 	}
+
+	[Fact]
+	public void PaintsAnInlineBackgroundThatOpensWithAnAtomic()
+	{
+		LayoutBox root = Lay("<body><p><span style=\"background:red;padding:2px\"><img width=\"10\" height=\"10\"> after</span><span style=\"border:1px solid blue\"><input></span></p></body>");
+		DisplayList list = Painter.Paint(root, Width, Height);
+		Assert.Contains(list.Items, item => item.Kind == DisplayItemKind.Rect && item.Color.ToString() == "#ff0000");
+	}
 }

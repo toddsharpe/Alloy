@@ -258,7 +258,7 @@ namespace Alloy.Sdk.Web.Layout
 			{
 				if (other == fragment)
 					return true;
-				if (other.Inline == fragment.Inline && other.Text.Length > 0)
+				if (other.Inline == fragment.Inline && !other.IsAtomic && other.Text != null && other.Text.Length > 0)
 					return false;
 			}
 			return true;
