@@ -99,15 +99,36 @@ namespace Alloy.Sdk.Script
 
 		public JsFunction DefineMethod(JsObject target, string name, int length, NativeFunction body)
 		{
-			JsFunction function = NewNative(name.StartsWith("@@", StringComparison.Ordinal) ? "[" + name.Substring(2) + "]" : name, length, body);
+			string shown = name.StartsWith("@@", StringComparison.Ordinal) ? "[" + name.Substring(2) + "]" : name;
+			JsFunction function = NewNative(shown, length, Guarded(shown, body));
 			target.Put(name, function, false);
 			return function;
 		}
 
+		// A receiver of the wrong kind reports which method or accessor complained, since minified pages give no other clue
+		private static NativeFunction Guarded(string shown, NativeFunction body) => (i, t, a) =>
+		{
+			try
+			{
+				return body(i, t, a);
+			}
+			catch (JsThrow x) when (x.Value.IsObject && x.Value.Object.Get("message", i).ToJsString() == "Illegal invocation")
+			{
+				string message = "Illegal invocation: " + shown + " on " + Describe(t);
+				x.Value.Object.Put("message", message, false);
+				string stack = x.Value.Object.Get("stack", i).ToJsString();
+				int newline = stack.IndexOf('\n');
+				x.Value.Object.Put("stack", "TypeError: " + message + (newline < 0 ? "" : stack.Substring(newline)), false);
+				throw;
+			}
+		};
+
+		private static string Describe(JsValue value) => value.IsObject ? (value.Object is JsFunction f ? "function " + f.Name : value.Object.Class) : value.TypeOf;
+
 		public void DefineGetter(JsObject target, string name, NativeFunction getter, NativeFunction setter = null)
 		{
-			JsFunction get = getter == null ? null : NewNative("get " + name, 0, getter);
-			JsFunction set = setter == null ? null : NewNative("set " + name, 1, setter);
+			JsFunction get = getter == null ? null : NewNative("get " + name, 0, Guarded("get " + name, getter));
+			JsFunction set = setter == null ? null : NewNative("set " + name, 1, Guarded("set " + name, setter));
 			target.DefineAccessor(name, get, set);
 		}
 

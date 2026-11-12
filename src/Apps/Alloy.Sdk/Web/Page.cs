@@ -146,7 +146,7 @@ namespace Alloy.Sdk.Web
 		// Fetches the linked stylesheets not fetched yet, then rebuilds the list layout reads
 		private void CollectStylesheets(ulong timeoutMs)
 		{
-			foreach (Element element in new List<Element>(Document.DescendantElements()))
+			foreach (Element element in new List<Element>(Document.DescendantElementsWithShadow()))
 			{
 				if (element.TagName != "link" || _linkSheets.ContainsKey(element) || StylesheetUrls.Count >= 12)
 					continue;
@@ -171,7 +171,7 @@ namespace Alloy.Sdk.Web
 		private void RefreshStylesheets()
 		{
 			StylesheetText.Clear();
-			foreach (Element element in Document.DescendantElements())
+			foreach (Element element in Document.DescendantElementsWithShadow())
 			{
 				if (element.TagName == "style")
 				{

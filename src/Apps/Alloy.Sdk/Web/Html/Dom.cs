@@ -75,6 +75,22 @@ namespace Alloy.Sdk.Web.Html
 			}
 		}
 
+		// Every element below, following shadow roots as well, for the stylesheets and scripts inside them
+		public IEnumerable<Element> DescendantElementsWithShadow()
+		{
+			foreach (Node node in Descendants())
+			{
+				if (node is not Element element)
+					continue;
+				yield return element;
+				if (element.ShadowRoot == null)
+					continue;
+				yield return element.ShadowRoot;
+				foreach (Element inner in element.ShadowRoot.DescendantElementsWithShadow())
+					yield return inner;
+			}
+		}
+
 		// The text of every text node below, in order, with nothing between them
 		public string TextContent
 		{
@@ -163,8 +179,12 @@ namespace Alloy.Sdk.Web.Html
 
 	public sealed class Element : Node
 	{
+		public const string ShadowRootTag = "#shadow-root";
+
 		public readonly string TagName;
 		public readonly List<KeyValuePair<string, string>> Attributes = new List<KeyValuePair<string, string>>();
+		// A shadow tree a script attached: its Parent is this element, it is not among Children, and layout renders it in place of them
+		public Element ShadowRoot;
 
 		public Element(string tagName)
 		{
@@ -200,6 +220,39 @@ namespace Alloy.Sdk.Web.Html
 		}
 
 		public string Id => GetAttribute("id");
+
+		public Element AttachShadow()
+		{
+			ShadowRoot = new Element(ShadowRootTag) { Parent = this };
+			return ShadowRoot;
+		}
+
+		// The host whose shadow tree contains this element, or null in the light tree
+		public Element ShadowHost
+		{
+			get
+			{
+				for (Node node = Parent; node != null; node = node.Parent)
+				{
+					if (node is Element element && element.TagName == ShadowRootTag)
+						return element.Parent as Element;
+				}
+				return null;
+			}
+		}
+
+		// The light children a slot of this host shows: those naming the slot, or the unnamed ones for the default slot
+		public List<Node> AssignedTo(string slotName)
+		{
+			List<Node> assigned = new List<Node>();
+			foreach (Node child in Children)
+			{
+				string wanted = child is Element element ? element.GetAttribute("slot") ?? "" : "";
+				if (wanted == (slotName ?? ""))
+					assigned.Add(child);
+			}
+			return assigned;
+		}
 
 		public string ClassName => GetAttribute("class") ?? "";
 

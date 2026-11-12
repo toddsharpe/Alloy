@@ -33,6 +33,7 @@ namespace Alloy.Sdk.Web.Dom
 		internal JsObject HtmlElementPrototype;
 		internal JsObject DocumentPrototype;
 		internal JsObject FragmentPrototype;
+		internal JsObject ShadowRootPrototype;
 		internal JsObject TextPrototype;
 		internal JsObject CommentPrototype;
 		internal JsObject EventPrototype;
@@ -78,6 +79,9 @@ namespace Alloy.Sdk.Web.Dom
 					break;
 				case Element element when element.TagName == FragmentTag:
 					wrapper = new JsNode(FragmentPrototype, node, "DocumentFragment");
+					break;
+				case Element element when element.TagName == Element.ShadowRootTag:
+					wrapper = new JsNode(ShadowRootPrototype, node, "ShadowRoot");
 					break;
 				case Element element:
 				{
@@ -354,12 +358,15 @@ namespace Alloy.Sdk.Web.Dom
 			SetupStyleBindings();
 		}
 
+		// The event target a listener call names; a bare addEventListener(...) in strict code has no this and means the window
 		private object TargetKey(JsValue thisValue)
 		{
 			if (thisValue.IsObject && thisValue.Object is JsNode wrapper)
 				return wrapper.Node;
 			if (thisValue.IsObject)
 				return thisValue.Object;
+			if (thisValue.IsNullish)
+				return Interpreter.Global;
 			throw Interpreter.TypeError("Illegal invocation");
 		}
 
@@ -605,8 +612,9 @@ namespace Alloy.Sdk.Web.Dom
 			Interpreter.DefineMethod(NodePrototype, "normalize", 0, (i, t, a) => JsValue.Undefined);
 			Interpreter.DefineMethod(NodePrototype, "getRootNode", 0, (i, t, a) =>
 			{
+				bool composed = Interpreter.Arg(a, 0).IsObject && Interpreter.GetMember(a[0], "composed").Truthy;
 				Node n = ThisNode(t);
-				while (n.Parent != null)
+				while (n.Parent != null && (composed || !(n is Element { TagName: Element.ShadowRootTag })))
 					n = n.Parent;
 				return Wrap(n);
 			});
@@ -657,7 +665,7 @@ namespace Alloy.Sdk.Web.Dom
 		private static int NodeTypeOf(Node node) => node switch
 		{
 			Html.Document => 9,
-			Element { TagName: FragmentTag } => 11,
+			Element { TagName: FragmentTag or Element.ShadowRootTag } => 11,
 			Element => 1,
 			TextNode => 3,
 			_ => 8,
@@ -666,7 +674,7 @@ namespace Alloy.Sdk.Web.Dom
 		private static string NodeNameOf(Node node) => node switch
 		{
 			Html.Document => "#document",
-			Element { TagName: FragmentTag } => "#document-fragment",
+			Element { TagName: FragmentTag or Element.ShadowRootTag } => "#document-fragment",
 			Element element => element.TagName.ToUpperInvariant(),
 			TextNode => "#text",
 			_ => "#comment",
@@ -676,7 +684,10 @@ namespace Alloy.Sdk.Web.Dom
 		{
 			if (node.Parent == null)
 				return null;
-			int index = node.Parent.Children.IndexOf(node) + step;
+			int position = node.Parent.Children.IndexOf(node);
+			if (position < 0)
+				return null;
+			int index = position + step;
 			return index >= 0 && index < node.Parent.Children.Count ? node.Parent.Children[index] : null;
 		}
 
@@ -1063,8 +1074,44 @@ namespace Alloy.Sdk.Web.Dom
 			Interpreter.DefineMethod(proto, "scrollTo", 0, (i, t, a) => JsValue.Undefined);
 			Interpreter.DefineMethod(proto, "scroll", 0, (i, t, a) => JsValue.Undefined);
 			Interpreter.DefineMethod(proto, "scrollBy", 0, (i, t, a) => JsValue.Undefined);
-			Interpreter.DefineMethod(proto, "attachShadow", 1, (i, t, a) => throw DomException("NotSupportedError", "Shadow roots are not supported"));
-			ElementGetter(proto, "shadowRoot", e => JsValue.Null);
+			Interpreter.DefineMethod(proto, "attachShadow", 1, (i, t, a) =>
+			{
+				Element host = ThisElement(t);
+				if (host.ShadowRoot != null)
+					throw DomException("NotSupportedError", "Shadow root cannot be created on a host which already hosts a shadow tree.");
+				JsValue mode = Interpreter.Arg(a, 0).IsObject ? Interpreter.GetMember(a[0], "mode") : JsValue.Undefined;
+				Element shadow = host.AttachShadow();
+				JsValue wrapper = Wrap(shadow);
+				wrapper.Object.Put("mode", mode.IsUndefined ? "open" : mode.ToJsString(), false);
+				Mutated(host, "childList");
+				return wrapper;
+			});
+			ElementGetter(proto, "shadowRoot", e => Wrap(e.ShadowRoot));
+			ElementGetter(proto, "assignedSlot", e =>
+			{
+				Element host = e.Parent as Element;
+				if (host?.ShadowRoot == null)
+					return JsValue.Null;
+				string name = e.GetAttribute("slot") ?? "";
+				foreach (Element slot in host.ShadowRoot.DescendantElements())
+				{
+					if (slot.TagName == "slot" && (slot.GetAttribute("name") ?? "") == name)
+						return Wrap(slot);
+				}
+				return JsValue.Null;
+			});
+			Interpreter.DefineMethod(proto, "assignedNodes", 0, (i, t, a) =>
+			{
+				Element slot = ThisElement(t);
+				Element host = slot.ShadowHost;
+				return host == null ? Interpreter.NewArray() : WrapList(host.AssignedTo(slot.GetAttribute("name")));
+			});
+			Interpreter.DefineMethod(proto, "assignedElements", 0, (i, t, a) =>
+			{
+				Element slot = ThisElement(t);
+				Element host = slot.ShadowHost;
+				return host == null ? Interpreter.NewArray() : ElementList(host.AssignedTo(slot.GetAttribute("name")));
+			});
 			Interpreter.DefineMethod(proto, "animate", 2, (i, t, a) =>
 			{
 				JsObject animation = Interpreter.NewObject();
@@ -1082,7 +1129,6 @@ namespace Alloy.Sdk.Web.Dom
 			Interpreter.DefineMethod(proto, "setPointerCapture", 1, (i, t, a) => JsValue.Undefined);
 			Interpreter.DefineMethod(proto, "releasePointerCapture", 1, (i, t, a) => JsValue.Undefined);
 			Interpreter.DefineMethod(proto, "hasPointerCapture", 1, (i, t, a) => false);
-			ElementGetter(proto, "assignedSlot", e => JsValue.Null);
 			ElementGetter(proto, "part", e => TokenList(e, "part"));
 			SetupHtmlElement();
 		}
@@ -1232,8 +1278,9 @@ namespace Alloy.Sdk.Web.Dom
 			if (container == null)
 				return fragment;
 			List<Node> nodes = new List<Node>(container.Children);
-			if (tag != "head" && path.Length == 0 && parsed.Head != null && parsed.Head.Children.Count > 0 && container.Children.Count == 0)
-				nodes = new List<Node>(parsed.Head.Children);
+			// Leading style, script, link and meta tags are parsed into the head; in a fragment they belong where they were written
+			if (tag != "head" && path.Length == 0 && parsed.Head != null && parsed.Head.Children.Count > 0)
+				nodes.InsertRange(0, parsed.Head.Children);
 			foreach (Node node in nodes)
 				fragment.AppendChild(node);
 			return fragment;
@@ -1961,7 +2008,12 @@ namespace Alloy.Sdk.Web.Dom
 		{
 			DocumentPrototype = NewPrototype(NodePrototype, "Document");
 			JsObject htmlDocument = NewPrototype(DocumentPrototype, "HTMLDocument");
-			FragmentPrototype = NewPrototype(NodePrototype, "DocumentFragment");
+			FragmentPrototype = NewPrototype(ElementPrototype, "DocumentFragment");
+			ShadowRootPrototype = NewPrototype(FragmentPrototype, "ShadowRoot");
+			Getter(ShadowRootPrototype, "host", n => Wrap(n.Parent));
+			Getter(ShadowRootPrototype, "delegatesFocus", n => false);
+			Getter(ShadowRootPrototype, "adoptedStyleSheets", n => Interpreter.NewArray(), (n, v) => { });
+			Getter(ShadowRootPrototype, "activeElement", n => Wrap((Node)ActiveElement ?? null));
 			Interpreter.Global.Get("DocumentFragment", Interpreter).Function.NativeNew = (i, a, target) => Wrap(new Element(FragmentTag)).Object;
 			Interpreter.Global.Get("Document", Interpreter).Function.NativeNew = (i, a, target) => Wrap(new Document()).Object;
 			JsObject proto = DocumentPrototype;

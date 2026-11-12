@@ -185,7 +185,7 @@ namespace Alloy.Tools.PageProbe
 		private static void CollectStylesheets(Document document, Uri url, List<string> sheets, ref int linked)
 		{
 			int index = 0;
-			foreach (Element element in document.DescendantElements())
+			foreach (Element element in document.DescendantElementsWithShadow())
 			{
 				if (element.TagName == "style")
 				{

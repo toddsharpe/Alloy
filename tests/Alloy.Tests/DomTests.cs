@@ -39,7 +39,7 @@ public class DomTests
 			MediaEnvironment media = new MediaEnvironment(800, 600);
 			StyleResolver resolver = new StyleResolver(media);
 			StringBuilder css = new StringBuilder("body { margin: 0 } ");
-			foreach (Element style in document.DescendantElements())
+			foreach (Element style in document.DescendantElementsWithShadow())
 			{
 				if (style.TagName == "style")
 					css.Append(style.TextContent);
@@ -361,6 +361,28 @@ public class DomTests
 		Assert.Equal("classic|classic2|module:hi local:dflt", Eval(h, "order.join('|')"));
 		Assert.Equal("hi local", h.Host.Document.Title);
 		Assert.Equal("undefined", Eval(h, "typeof window.legacy"));
+	}
+
+	[Fact]
+	public void RendersShadowTreesWithSlots()
+	{
+		Harness h = Open(@"<x-card id=card><span slot=title>T</span>light</x-card><script>
+			class Card extends HTMLElement {
+				constructor() { super(); const r = this.attachShadow({ mode: 'open' }); r.innerHTML = '<style>b { color: red }</style><b id=inner>[</b><slot name=title></slot><i id=close>]</i><slot></slot>' }
+			}
+			customElements.define('x-card', Card);
+			const card = document.getElementById('card');
+			window.out = [card.shadowRoot.querySelector('#inner').textContent, card.shadowRoot.host === card, document.getElementById('inner'), card.shadowRoot.getRootNode() === card.shadowRoot, card.shadowRoot.querySelector('#inner').getRootNode() === card.shadowRoot, card.querySelector('span').assignedSlot.name, card.shadowRoot.querySelector('slot[name=title]').assignedNodes().length, card.shadowRoot.querySelector('slot:not([name])').assignedNodes().length, card.childNodes.length, card.shadowRoot.nodeType, card.shadowRoot instanceof ShadowRoot];
+		</script>");
+		Assert.Empty(h.Log);
+		Assert.Equal("[|true||true|true|title|1|1|2|11|true", Eval(h, "out.join('|')"));
+		h.Host.EnsureLayout();
+		Element card = h.Host.ElementById("card");
+		Assert.NotNull(Find(h.Root, card.ShadowRoot.FirstElement("i")));
+		Assert.NotNull(Find(h.Root, card.FirstElement("span")));
+		LayoutBox inner = Find(h.Root, card.ShadowRoot.FirstElement("b"));
+		Assert.NotNull(inner);
+		Assert.Equal("rgb(255, 0, 0)", h.Host.ComputedValue(card.ShadowRoot.FirstElement("b"), "color"));
 	}
 
 	[Fact]

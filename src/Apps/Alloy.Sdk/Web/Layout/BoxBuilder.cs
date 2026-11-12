@@ -34,7 +34,7 @@ namespace Alloy.Sdk.Web.Layout
 		private void BuildChildren(LayoutBox parent, Element element, ComputedStyle parentStyle)
 		{
 			bool preserveWhitespace = parentStyle.WhiteSpace == WhiteSpace.Pre || parentStyle.WhiteSpace == WhiteSpace.PreWrap || parentStyle.WhiteSpace == WhiteSpace.PreLine;
-			foreach (Node node in element.Children)
+			foreach (Node node in RenderedChildren(element))
 			{
 				if (node is TextNode text)
 				{
@@ -61,6 +61,24 @@ namespace Alloy.Sdk.Web.Layout
 					BuildChildren(box, child, style);
 			}
 			Normalize(parent);
+		}
+
+		// What an element shows: its shadow tree when it has one, a slot's assigned light children, otherwise its own children
+		private static IEnumerable<Node> RenderedChildren(Element element)
+		{
+			if (element.ShadowRoot != null)
+				return element.ShadowRoot.Children;
+			if (element.TagName == "slot")
+			{
+				Element host = element.ShadowHost;
+				if (host != null)
+				{
+					List<Node> assigned = host.AssignedTo(element.GetAttribute("name"));
+					if (assigned.Count > 0)
+						return assigned;
+				}
+			}
+			return element.Children;
 		}
 
 		// Elements whose DOM children never become boxes: replaced elements and the form controls drawn as widgets
