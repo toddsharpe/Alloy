@@ -553,6 +553,14 @@ line2 ${`nested ${1 + 1}`}`
 	}
 
 	[Fact]
+	public void KeepsWeakRefsStrongAndFinalizationRegistriesQuiet()
+	{
+		Assert.Equal("1", Eval("const o = {a: 1}; const r = new WeakRef(o); r.deref().a"));
+		Assert.Equal("true", Eval("const f = new FinalizationRegistry(() => {}); f.register({}, 'token'); f.unregister('token') === false"));
+		Assert.Contains("TypeError", Log("try { new WeakRef(1) } catch (e) { console.log(e.name) }"));
+	}
+
+	[Fact]
 	public void ApproximatesBigIntWithNumbers()
 	{
 		Assert.Equal("function", Eval("typeof BigInt"));

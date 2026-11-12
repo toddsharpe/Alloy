@@ -49,6 +49,32 @@ namespace Alloy.Sdk.Script
 			});
 		}
 
+		// WeakRef and FinalizationRegistry on an engine without a collector pages can observe: the ref stays strong and nothing is ever finalized
+		private void SetupWeakRefs()
+		{
+			JsObject weakRefPrototype = NewObject();
+			NewConstructor("WeakRef", 1, weakRefPrototype, null, (i, a, target) =>
+			{
+				if (!Arg(a, 0).IsObject)
+					throw TypeError("WeakRef: target must be an object");
+				JsObject reference = new JsObject(PrototypeFromConstructor(target, weakRefPrototype));
+				reference.Put("@@target", Arg(a, 0), false);
+				return reference;
+			});
+			DefineMethod(weakRefPrototype, "deref", 0, (i, t, a) => t.IsObject ? t.Object.Get("@@target", i) : JsValue.Undefined);
+			weakRefPrototype.Put("@@toStringTag", "WeakRef", false);
+			JsObject registryPrototype = NewObject();
+			NewConstructor("FinalizationRegistry", 1, registryPrototype, null, (i, a, target) =>
+			{
+				if (!Arg(a, 0).IsCallable)
+					throw TypeError("FinalizationRegistry: cleanup must be callable");
+				return new JsObject(PrototypeFromConstructor(target, registryPrototype));
+			});
+			DefineMethod(registryPrototype, "register", 2, (i, t, a) => JsValue.Undefined);
+			DefineMethod(registryPrototype, "unregister", 1, (i, t, a) => false);
+			registryPrototype.Put("@@toStringTag", "FinalizationRegistry", false);
+		}
+
 		private void SetupNumber()
 		{
 			JsFunction constructor = NewConstructor("Number", 1, NumberPrototype,
@@ -69,6 +95,7 @@ namespace Alloy.Sdk.Script
 			constructor.Put("parseFloat", Global.Get("parseFloat", this), false);
 			constructor.Put("parseInt", Global.Get("parseInt", this), false);
 			SetupBigInt();
+			SetupWeakRefs();
 			DefineMethod(NumberPrototype, "valueOf", 0, (i, t, a) => ThisNumber(t, "valueOf"));
 			DefineMethod(NumberPrototype, "toString", 1, (i, t, a) =>
 			{
