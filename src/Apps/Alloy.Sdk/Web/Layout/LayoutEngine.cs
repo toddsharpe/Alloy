@@ -170,7 +170,7 @@ namespace Alloy.Sdk.Web.Layout
 		// The children of a block whose position and width are settled; sets its height
 		private void LayoutContents(LayoutBox box, float containingHeight, FloatContext floats, bool formattingRoot)
 		{
-			bool ownContext = formattingRoot || box.IsFloat || box.IsAbsolute || box.Kind == BoxKind.InlineBlock || box.Kind == BoxKind.TableCell || box.Style.Overflow != Overflow.Visible || box.Style.IsFlexContainer;
+			bool ownContext = formattingRoot || box.IsFloat || box.IsAbsolute || box.Kind == BoxKind.InlineBlock || box.Kind == BoxKind.TableCell || box.Style.Overflow != Overflow.Visible || box.Style.IsFlexContainer || box.Style.IsGridContainer;
 			if (ownContext)
 				floats = new FloatContext();
 			float contentHeight;
@@ -184,6 +184,8 @@ namespace Alloy.Sdk.Web.Layout
 			}
 			else if (box.Style.IsFlexContainer && box.Kind != BoxKind.Inline)
 				contentHeight = LayoutFlex(box, containingHeight);
+			else if (box.Style.IsGridContainer && box.Kind != BoxKind.Inline)
+				contentHeight = LayoutGrid(box, containingHeight);
 			else if (HasInlineContent(box))
 				contentHeight = LayoutInline(box, floats);
 			else
@@ -631,6 +633,8 @@ namespace Alloy.Sdk.Web.Layout
 			}
 			else if (box.Style.IsFlexContainer && box.Kind != BoxKind.Inline)
 				(min, max) = FlexIntrinsicWidths(box);
+			else if (box.Style.IsGridContainer && box.Kind != BoxKind.Inline)
+				(min, max) = GridIntrinsicWidths(box);
 			else if (HasInlineContent(box))
 			{
 				List<InlineItem> items = new List<InlineItem>();

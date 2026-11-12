@@ -86,7 +86,7 @@ namespace Alloy.Sdk.Web.Layout
 						return text;
 					}
 					LayoutBox image = new LayoutBox(BoxKind.InlineBlock, element, style) { Alt = alt, Image = bitmap, IntrinsicWidth = bitmap?.Width ?? 0, IntrinsicHeight = bitmap?.Height ?? 0 };
-					if (style.Display == Display.Block || style.Display == Display.ListItem || style.Display == Display.Flex)
+					if (style.Display == Display.Block || style.Display == Display.ListItem || style.Display == Display.Flex || style.Display == Display.Grid)
 						image.Kind = BoxKind.Block;
 					return image;
 				}
@@ -168,6 +168,7 @@ namespace Alloy.Sdk.Web.Layout
 					return new LayoutBox(BoxKind.Inline, element, style);
 				case Display.InlineBlock:
 				case Display.InlineFlex:
+				case Display.InlineGrid:
 					return new LayoutBox(BoxKind.InlineBlock, element, style);
 				case Display.Table:
 					return new LayoutBox(BoxKind.Table, element, style);
@@ -211,7 +212,7 @@ namespace Alloy.Sdk.Web.Layout
 				WrapLooseCells(box);
 				return;
 			}
-			if (box.Style.IsFlexContainer && box.Kind != BoxKind.Inline)
+			if ((box.Style.IsFlexContainer || box.Style.IsGridContainer) && box.Kind != BoxKind.Inline)
 			{
 				BlockifyFlexItems(box);
 				return;
@@ -305,6 +306,8 @@ namespace Alloy.Sdk.Web.Layout
 						child.Style.Display = Display.Block;
 					else if (child.Style.Display == Display.InlineFlex)
 						child.Style.Display = Display.Flex;
+					else if (child.Style.Display == Display.InlineGrid)
+						child.Style.Display = Display.Grid;
 				}
 				else if (child.Kind == BoxKind.InlineBlock)
 					child.Kind = BoxKind.Block;

@@ -21,6 +21,8 @@ namespace Alloy.Sdk.Web.Css
 		TableColumnGroup,
 		Flex,
 		InlineFlex,
+		Grid,
+		InlineGrid,
 	}
 
 	public enum FlexDirection
@@ -240,6 +242,20 @@ namespace Alloy.Sdk.Web.Css
 		public Length ColumnGap = Length.Zero;
 		public int Order;
 
+		// Grid containers and items
+		public GridTemplate GridColumns;
+		public GridTemplate GridRows;
+		public GridTrack GridAutoRows = new GridTrack(GridSize.AutoSize);
+		public GridTrack GridAutoColumns = new GridTrack(GridSize.AutoSize);
+		public string[][] GridAreas;
+		public GridAutoFlow GridAutoFlow = GridAutoFlow.Row;
+		public GridLine GridColumnStart;
+		public GridLine GridColumnEnd;
+		public GridLine GridRowStart;
+		public GridLine GridRowEnd;
+		public AlignItems JustifyItems = AlignItems.Stretch;
+		public AlignItems JustifySelf = AlignItems.Auto;
+
 		// Custom properties (--name) in scope, shared with the parent until the element declares its own
 		public Dictionary<string, List<CssToken>> Custom;
 
@@ -248,9 +264,11 @@ namespace Alloy.Sdk.Web.Css
 		// Line height in pixels for this font size: "normal" is a fraction of the size, as browsers do
 		public float ResolvedLineHeight => LineHeight < 0 ? MathF.Round(FontSize * 1.2f) : LineHeight;
 
-		public bool IsBlockLevel => Display == Display.Block || Display == Display.ListItem || Display == Display.Table || Display == Display.TableCaption || Display == Display.Flex;
+		public bool IsBlockLevel => Display == Display.Block || Display == Display.ListItem || Display == Display.Table || Display == Display.TableCaption || Display == Display.Flex || Display == Display.Grid;
 
 		public bool IsFlexContainer => Display == Display.Flex || Display == Display.InlineFlex;
+
+		public bool IsGridContainer => Display == Display.Grid || Display == Display.InlineGrid;
 
 		public bool IsInlineLevel => Display == Display.Inline || Display == Display.InlineBlock;
 
