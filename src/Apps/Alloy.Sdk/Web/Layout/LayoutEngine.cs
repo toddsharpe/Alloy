@@ -204,11 +204,11 @@ namespace Alloy.Sdk.Web.Layout
 			if (box.IsReplaced && (box.Children.Count == 0 || box.IntrinsicHeight > 0))
 				height = ReplacedHeight(box, containingHeight);
 			else if (!style.Height.IsAuto && (!style.Height.IsPercent || containingHeight >= 0))
-				height = Math.Max(0, style.Height.Resolve(containingHeight));
+				height = Math.Max(0, box.ContentHeightOf(style.Height.Resolve(containingHeight)));
 			if (!style.MaxHeight.IsAuto && (!style.MaxHeight.IsPercent || containingHeight >= 0))
-				height = Math.Min(height, style.MaxHeight.Resolve(containingHeight));
+				height = Math.Min(height, box.ContentHeightOf(style.MaxHeight.Resolve(containingHeight)));
 			if (!style.MinHeight.IsPercent || containingHeight >= 0)
-				height = Math.Max(height, style.MinHeight.Resolve(containingHeight));
+				height = Math.Max(height, box.ContentHeightOf(style.MinHeight.Resolve(containingHeight)));
 			box.Height = height + box.VerticalEdges;
 		}
 
@@ -216,7 +216,7 @@ namespace Alloy.Sdk.Web.Layout
 		{
 			ComputedStyle style = box.Style;
 			if (!style.Height.IsAuto && (!style.Height.IsPercent || containingHeight >= 0))
-				return Math.Max(0, style.Height.Resolve(containingHeight));
+				return Math.Max(0, box.ContentHeightOf(style.Height.Resolve(containingHeight)));
 			if (box.Children.Count > 0)
 				return Math.Max(0, box.IntrinsicHeight);
 			float intrinsicWidth = Math.Max(0, box.IntrinsicWidth);
@@ -271,7 +271,7 @@ namespace Alloy.Sdk.Web.Layout
 			float available = containingWidth - box.MarginLeft - box.MarginRight - edges;
 			float width;
 			if (!style.Width.IsAuto)
-				width = Math.Max(0, style.Width.Resolve(containingWidth));
+				width = Math.Max(0, box.ContentWidthOf(style.Width.Resolve(containingWidth)));
 			else if (box.IsReplaced && (box.Children.Count == 0 || box.IntrinsicWidth > 0))
 				width = ReplacedWidth(box, available);
 			else if (shrinkToFit)
@@ -303,8 +303,8 @@ namespace Alloy.Sdk.Web.Layout
 		{
 			ComputedStyle style = box.Style;
 			if (!style.MaxWidth.IsAuto)
-				width = Math.Min(width, Math.Max(0, style.MaxWidth.Resolve(containingWidth)));
-			width = Math.Max(width, style.MinWidth.Resolve(containingWidth));
+				width = Math.Min(width, Math.Max(0, box.ContentWidthOf(style.MaxWidth.Resolve(containingWidth))));
+			width = Math.Max(width, box.ContentWidthOf(style.MinWidth.Resolve(containingWidth)));
 			return width;
 		}
 
@@ -314,7 +314,7 @@ namespace Alloy.Sdk.Web.Layout
 			float intrinsicWidth = Math.Max(0, box.IntrinsicWidth);
 			float intrinsicHeight = Math.Max(0, box.IntrinsicHeight);
 			if (!style.Height.IsAuto && !style.Height.IsPercent && intrinsicWidth > 0 && intrinsicHeight > 0)
-				return style.Height.Value * intrinsicWidth / intrinsicHeight;
+				return box.ContentHeightOf(style.Height.Value) * intrinsicWidth / intrinsicHeight;
 			return intrinsicWidth;
 		}
 
@@ -330,7 +330,7 @@ namespace Alloy.Sdk.Web.Layout
 			bool first = true;
 			float height = -1;
 			if (!box.Style.Height.IsAuto && !box.Style.Height.IsPercent)
-				height = box.Style.Height.Value;
+				height = box.ContentHeightOf(box.Style.Height.Value);
 			foreach (LayoutBox child in box.Children)
 			{
 				if (child.IsAbsolute)
@@ -623,7 +623,7 @@ namespace Alloy.Sdk.Web.Layout
 			float max = 0;
 			if (box.IsReplaced && (box.Children.Count == 0 || box.IntrinsicWidth > 0))
 			{
-				float width = box.Style.Width.IsAuto || box.Style.Width.IsPercent ? Math.Max(0, box.IntrinsicWidth) : box.Style.Width.Value;
+				float width = box.Style.Width.IsAuto || box.Style.Width.IsPercent ? Math.Max(0, box.IntrinsicWidth) : box.ContentWidthOf(box.Style.Width.Value);
 				min = max = width;
 			}
 			else if (box.Kind == BoxKind.Table)
@@ -693,12 +693,12 @@ namespace Alloy.Sdk.Web.Layout
 			}
 			if (!box.Style.MaxWidth.IsAuto && !box.Style.MaxWidth.IsPercent)
 			{
-				max = Math.Min(max, box.Style.MaxWidth.Value);
+				max = Math.Min(max, box.ContentWidthOf(box.Style.MaxWidth.Value));
 				min = Math.Min(min, max);
 			}
 			if (!box.Style.MinWidth.IsPercent && box.Style.MinWidth.Value > 0)
 			{
-				min = Math.Max(min, box.Style.MinWidth.Value);
+				min = Math.Max(min, box.ContentWidthOf(box.Style.MinWidth.Value));
 				max = Math.Max(max, min);
 			}
 			box.MinContent = min;
@@ -713,7 +713,7 @@ namespace Alloy.Sdk.Web.Layout
 			float edges = box.HorizontalEdges + Math.Max(0, box.MarginLeft) + Math.Max(0, box.MarginRight);
 			if (!box.Style.Width.IsAuto && !box.Style.Width.IsPercent)
 			{
-				float width = ClampWidth(box, box.Style.Width.Value, 0) + edges;
+				float width = ClampWidth(box, box.ContentWidthOf(box.Style.Width.Value), 0) + edges;
 				return (width, width);
 			}
 			(float min, float max) = IntrinsicWidths(box);

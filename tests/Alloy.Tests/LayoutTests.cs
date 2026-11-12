@@ -11,7 +11,7 @@ public class LayoutTests
 	private const int Width = 800;
 	private const int Height = 600;
 
-	private static LayoutBox Lay(string html, string css = "")
+	internal static LayoutBox Lay(string html, string css = "")
 	{
 		Document document = HtmlParser.Parse(html);
 		MediaEnvironment media = new MediaEnvironment(Width, Height);
@@ -44,7 +44,7 @@ public class LayoutTests
 		return null;
 	}
 
-	private static LayoutBox FindId(LayoutBox box, string id)
+	internal static LayoutBox FindId(LayoutBox box, string id)
 	{
 		if (box.Element?.Id == id && box.Kind != BoxKind.Text)
 			return box;
@@ -378,5 +378,24 @@ public class LayoutTests
 		Assert.Equal(800, h.Width, 0.5f);
 		Assert.Equal(0, FindId(root, "empty").Height, 0.5f);
 		Assert.Equal(21, FindId(root, "after").Y, 0.5f);
+	}
+
+	[Fact]
+	public void BorderBoxSizingIncludesPaddingAndBorders()
+	{
+		LayoutBox root = Lay("<body style=\"margin:0\"><div id=\"a\" style=\"width:100px;height:50px;padding:10px;border:5px solid black;box-sizing:border-box\">a</div><div id=\"c\" style=\"width:100px;padding:10px;border:5px solid black\">c</div><div style=\"display:flex;width:600px\"><div id=\"f\" style=\"flex-basis:200px;padding:20px;box-sizing:border-box\">f</div><div id=\"g\" style=\"width:50%;max-width:150px;padding:20px;box-sizing:border-box\">g</div></div><div style=\"display:flex;width:600px\"><div id=\"slot\"><button id=\"b\" style=\"display:grid;grid-template-columns:minmax(0,1fr);width:100%;padding:1px 12px;border:1px solid black;margin:0\"><span style=\"display:flex;gap:8px;width:100%\"><span>Search</span><svg width=\"16\" height=\"16\"></svg></span></button></div><div>auth</div></div></body>");
+		LayoutBox a = FindId(root, "a");
+		Assert.Equal(100, a.Width, 0.5f);
+		Assert.Equal(70, a.ContentWidth, 0.5f);
+		Assert.Equal(50, a.Height, 0.5f);
+		LayoutBox c = FindId(root, "c");
+		Assert.Equal(130, c.Width, 0.5f);
+		Assert.Equal(200, FindId(root, "f").Width, 0.5f);
+		Assert.Equal(150, FindId(root, "g").Width, 0.5f);
+		// A button is border-box by default, so a grid button at 100% fits the flex slot sized from its content
+		LayoutBox slot = FindId(root, "slot");
+		LayoutBox button = FindId(root, "b");
+		Assert.Equal(slot.Width, button.Width, 0.5f);
+		Assert.True(slot.Width > 50, "slot width " + slot.Width);
 	}
 }

@@ -564,6 +564,7 @@ line2 ${`nested ${1 + 1}`}`
 		Assert.Equal("true", Eval("/\\p{Emoji}/u.test('hi \\u{1F600}')"));
 		Assert.Equal("2", Eval("'ab'.match(/\\p{RI}\\p{RI}|\\p{Emoji}(\\p{EMod}|\\u{FE0F}\\u{20E3}?)?|./gu).length"));
 		Assert.Equal("true", Eval("/^\\p{White_Space}$/u.test(' ')"));
+		Assert.Equal("object", Eval("typeof /\\p{RI}\\p{RI}|\\p{Emoji}(\\p{EMod}|\\u{FE0F}\\u{20E3}?|[\\u{E0020}-\\u{E007E}]+\\u{E007F})?(\\u{200D}\\p{Emoji}(\\p{EMod}|\\u{FE0F}\\u{20E3}?|[\\u{E0020}-\\u{E007E}]+\\u{E007F})?)*|./gu"));
 	}
 
 	[Fact]

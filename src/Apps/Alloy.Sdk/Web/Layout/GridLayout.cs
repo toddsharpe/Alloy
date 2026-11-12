@@ -38,7 +38,7 @@ namespace Alloy.Sdk.Web.Layout
 		{
 			ComputedStyle style = box.Style;
 			float contentWidth = box.ContentWidth;
-			float definiteHeight = !style.Height.IsAuto && (!style.Height.IsPercent || containingHeight >= 0) ? Math.Max(0, style.Height.Resolve(containingHeight)) : -1;
+			float definiteHeight = !style.Height.IsAuto && (!style.Height.IsPercent || containingHeight >= 0) ? Math.Max(0, box.ContentHeightOf(style.Height.Resolve(containingHeight))) : -1;
 			float columnGap = style.ColumnGap.Resolve(contentWidth);
 			float rowGap = style.RowGap.Resolve(contentWidth);
 			GridPlan plan = PlanGrid(box, contentWidth, columnGap);

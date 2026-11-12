@@ -112,6 +112,10 @@ namespace Alloy.Sdk.Web.Layout
 
 		public float VerticalEdges => BorderTop + PaddingTop + BorderBottom + PaddingBottom;
 
+		// The content size a specified width or height leaves: with box-sizing border-box the padding and borders come out of it
+		public float ContentWidthOf(float specified) => Style != null && Style.BorderBox ? Math.Max(0, specified - HorizontalEdges) : specified;
+		public float ContentHeightOf(float specified) => Style != null && Style.BorderBox ? Math.Max(0, specified - VerticalEdges) : specified;
+
 		public bool IsBlockLevel => Kind == BoxKind.Block || Kind == BoxKind.AnonymousBlock || Kind == BoxKind.Table;
 
 		public bool IsInlineLevel => Kind == BoxKind.Inline || Kind == BoxKind.InlineBlock || Kind == BoxKind.Text || Kind == BoxKind.LineBreak;

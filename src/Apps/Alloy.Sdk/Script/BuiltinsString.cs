@@ -587,7 +587,8 @@ namespace Alloy.Sdk.Script
 								throw new ArgumentException("bad \\u{} escape");
 							int code = int.Parse(pattern.AsSpan(i + 2, close - i - 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
 							string text = char.ConvertFromUtf32(code);
-							foreach (char ch in text)
+							// .NET matches UTF-16 units, so inside a class an astral code point is stood in for by its low surrogate, keeping ranges in order
+							foreach (char ch in inClass && text.Length == 2 ? text.Substring(1) : text)
 								builder.Append("\\u").Append(((int)ch).ToString("X4", CultureInfo.InvariantCulture));
 							i = close;
 							break;

@@ -196,6 +196,8 @@ namespace Alloy.Sdk.Web.Css
 		public ClearSide Clear = ClearSide.None;
 		public Overflow Overflow = Overflow.Visible;
 		public bool Visible = true;
+		// box-sizing: border-box, where width and height include the padding and borders
+		public bool BorderBox;
 
 		public Edges Margin = new Edges(Length.Zero);
 		public Edges Padding = new Edges(Length.Zero);

@@ -583,6 +583,9 @@ namespace Alloy.Sdk.Web.Css
 				case "visibility":
 					_style.Visible = !tokens[0].IsIdent("hidden") && !tokens[0].IsIdent("collapse");
 					break;
+				case "box-sizing":
+					_style.BorderBox = tokens[0].IsIdent("border-box");
+					break;
 				case "clip":
 				case "clip-path":
 					if (StyleResolver.ClipHidesEverything(tokens))
@@ -1939,6 +1942,7 @@ article, aside, footer, header, hgroup, main, nav, section, figure, figcaption, 
 head, script, style, title, meta, link, base, template, noframes, param, area, datalist, [hidden] { display: none; }
 li { display: list-item; }
 table { display: table; border-spacing: 2px; box-sizing: border-box; text-indent: 0; }
+button, select { box-sizing: border-box; }
 caption { display: table-caption; text-align: center; }
 thead { display: table-header-group; }
 tbody { display: table-row-group; }

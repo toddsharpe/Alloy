@@ -37,7 +37,7 @@ namespace Alloy.Sdk.Web.Layout
 			bool row = style.FlexDirection == FlexDirection.Row || style.FlexDirection == FlexDirection.RowReverse;
 			bool reverse = style.FlexDirection == FlexDirection.RowReverse || style.FlexDirection == FlexDirection.ColumnReverse;
 			float contentWidth = box.ContentWidth;
-			float definiteHeight = !style.Height.IsAuto && (!style.Height.IsPercent || containingHeight >= 0) ? Math.Max(0, style.Height.Resolve(containingHeight)) : -1;
+			float definiteHeight = !style.Height.IsAuto && (!style.Height.IsPercent || containingHeight >= 0) ? Math.Max(0, box.ContentHeightOf(style.Height.Resolve(containingHeight))) : -1;
 			float mainSize = row ? contentWidth : definiteHeight;
 			float mainGap = (row ? style.ColumnGap : style.RowGap).Resolve(contentWidth);
 			float crossGap = (row ? style.RowGap : style.ColumnGap).Resolve(contentWidth);
@@ -148,24 +148,24 @@ namespace Alloy.Sdk.Web.Layout
 			Length size = row ? style.Width : style.Height;
 			float containing = row ? contentWidth : definiteHeight;
 			if (!basis.IsAuto && (!basis.IsPercent || containing >= 0))
-				item.Basis = Math.Max(0, basis.Resolve(containing)) + edges;
+				item.Basis = Math.Max(0, row ? child.ContentWidthOf(basis.Resolve(containing)) : child.ContentHeightOf(basis.Resolve(containing))) + edges;
 			else if (!size.IsAuto && (!size.IsPercent || containing >= 0))
-				item.Basis = Math.Max(0, size.Resolve(containing)) + edges;
+				item.Basis = Math.Max(0, row ? child.ContentWidthOf(size.Resolve(containing)) : child.ContentHeightOf(size.Resolve(containing))) + edges;
 			else if (row)
 				item.Basis = Math.Min(maxContent, Math.Max(0, contentWidth - item.MarginMainStart - item.MarginMainEnd - edges)) + edges;
 			else
 				item.Basis = ContentHeightAtWidth(child, contentWidth, definiteHeight);
 			if (row)
 			{
-				item.MinMain = Math.Max(style.MinWidth.Resolve(contentWidth), style.Overflow == Overflow.Visible ? Math.Min(minContent, item.Basis - edges) : 0) + edges;
+				item.MinMain = Math.Max(child.ContentWidthOf(style.MinWidth.Resolve(contentWidth)), style.Overflow == Overflow.Visible ? Math.Min(minContent, item.Basis - edges) : 0) + edges;
 				if (!style.MaxWidth.IsAuto)
-					item.MaxMain = Math.Max(0, style.MaxWidth.Resolve(contentWidth)) + edges;
+					item.MaxMain = Math.Max(0, child.ContentWidthOf(style.MaxWidth.Resolve(contentWidth))) + edges;
 			}
 			else
 			{
-				item.MinMain = (style.MinHeight.IsPercent && definiteHeight < 0 ? 0 : style.MinHeight.Resolve(definiteHeight)) + edges;
+				item.MinMain = (style.MinHeight.IsPercent && definiteHeight < 0 ? 0 : child.ContentHeightOf(style.MinHeight.Resolve(definiteHeight))) + edges;
 				if (!style.MaxHeight.IsAuto && (!style.MaxHeight.IsPercent || definiteHeight >= 0))
-					item.MaxMain = Math.Max(0, style.MaxHeight.Resolve(definiteHeight)) + edges;
+					item.MaxMain = Math.Max(0, child.ContentHeightOf(style.MaxHeight.Resolve(definiteHeight))) + edges;
 			}
 			item.MaxMain = Math.Max(item.MaxMain, item.MinMain);
 			return item;
@@ -358,7 +358,7 @@ namespace Alloy.Sdk.Web.Layout
 			if (row)
 			{
 				if (!child.Style.MaxHeight.IsAuto && !child.Style.MaxHeight.IsPercent)
-					target = Math.Min(target, child.Style.MaxHeight.Value + child.VerticalEdges);
+					target = Math.Min(target, child.ContentHeightOf(child.Style.MaxHeight.Value) + child.VerticalEdges);
 				child.Height = Math.Max(child.Height, target);
 				item.Cross = child.Height;
 				return;
@@ -392,7 +392,7 @@ namespace Alloy.Sdk.Web.Layout
 					continue;
 				(float childMin, float childMax) = OuterIntrinsicWidths(child);
 				if (!child.Style.FlexBasis.IsAuto && !child.Style.FlexBasis.IsPercent)
-					childMax = Math.Max(childMin, child.Style.FlexBasis.Value + child.HorizontalEdges + Math.Max(0, child.MarginLeft) + Math.Max(0, child.MarginRight));
+					childMax = Math.Max(childMin, child.ContentWidthOf(child.Style.FlexBasis.Value) + child.HorizontalEdges + Math.Max(0, child.MarginLeft) + Math.Max(0, child.MarginRight));
 				min = Math.Max(min, childMin);
 				sumMin += childMin;
 				if (row)
