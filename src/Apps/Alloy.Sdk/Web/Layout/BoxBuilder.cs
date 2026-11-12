@@ -82,6 +82,51 @@ namespace Alloy.Sdk.Web.Layout
 		}
 
 		// Elements whose DOM children never become boxes: replaced elements and the form controls drawn as widgets
+		// An inline svg is as big as its width and height attributes say, else as its viewBox, else the 300 by 150 of any replaced element
+		private static void SvgSize(Element element, out float width, out float height)
+		{
+			width = AttributePixels(element.GetAttribute("width"));
+			height = AttributePixels(element.GetAttribute("height"));
+			float ratio = 0;
+			string viewBox = element.GetAttribute("viewbox") ?? element.GetAttribute("viewBox");
+			if (viewBox != null)
+			{
+				string[] parts = viewBox.Split(s_viewBoxSeparators, StringSplitOptions.RemoveEmptyEntries);
+				if (parts.Length == 4 && float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float boxWidth) && float.TryParse(parts[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float boxHeight) && boxWidth > 0 && boxHeight > 0)
+				{
+					ratio = boxWidth / boxHeight;
+					if (width <= 0 && height <= 0)
+					{
+						width = boxWidth;
+						height = boxHeight;
+					}
+				}
+			}
+			if (width <= 0 && height > 0)
+				width = ratio > 0 ? height * ratio : height;
+			if (height <= 0 && width > 0)
+				height = ratio > 0 ? width / ratio : width;
+			if (width <= 0)
+			{
+				width = 300;
+				height = 150;
+			}
+		}
+
+		private static readonly char[] s_viewBoxSeparators = { ' ', ',' };
+
+		private static float AttributePixels(string text)
+		{
+			if (text == null)
+				return 0;
+			text = text.Trim();
+			if (text.EndsWith("%", StringComparison.Ordinal))
+				return 0;
+			if (text.EndsWith("px", StringComparison.OrdinalIgnoreCase))
+				text = text.Substring(0, text.Length - 2);
+			return float.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float value) && value > 0 ? value : 0;
+		}
+
 		private static bool IsLeaf(string tag) => tag is "br" or "img" or "input" or "select" or "textarea" or "iframe" or "video" or "canvas" or "embed" or "object" or "svg" or "audio";
 
 		private static LayoutBox CreateBox(Element element, ComputedStyle style, LayoutBox parent, Func<Element, Alloy.Sdk.Web.Images.Bitmap> images)
@@ -168,12 +213,16 @@ namespace Alloy.Sdk.Web.Layout
 						area.Add(new LayoutBox(BoxKind.Text, element, style) { Text = text });
 					return area;
 				}
+				case "svg":
+				{
+					SvgSize(element, out float width, out float height);
+					return new LayoutBox(BoxKind.InlineBlock, element, style) { IntrinsicWidth = width, IntrinsicHeight = height };
+				}
 				case "iframe":
 				case "video":
 				case "canvas":
 				case "embed":
 				case "object":
-				case "svg":
 				case "audio":
 				{
 					LayoutBox frame = new LayoutBox(BoxKind.InlineBlock, element, style) { IntrinsicWidth = tag == "audio" ? 0 : 300, IntrinsicHeight = tag == "audio" ? 0 : 150 };

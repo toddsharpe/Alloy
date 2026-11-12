@@ -344,4 +344,21 @@ public class LayoutTests
 		Assert.Equal(48, ul.Children[0].X);
 		Assert.True(root.Height > ul.Y + ul.Height - 1);
 	}
+
+	[Fact]
+	public void SizesInlineSvgFromItsAttributesOrViewBox()
+	{
+		LayoutBox sized = Find(Lay("<p><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"></svg></p>"), "svg");
+		Assert.Equal(16, sized.Width, 0.5f);
+		Assert.Equal(16, sized.Height, 0.5f);
+		LayoutBox boxed = Find(Lay("<p><svg viewBox=\"0 0 24 12\"></svg></p>"), "svg");
+		Assert.Equal(24, boxed.Width, 0.5f);
+		Assert.Equal(12, boxed.Height, 0.5f);
+		LayoutBox styled = Find(Lay("<p><svg viewBox=\"0 0 24 12\" class=\"i\"></svg></p>", ".i { width: 48px }"), "svg");
+		Assert.Equal(48, styled.Width, 0.5f);
+		Assert.Equal(24, styled.Height, 0.5f);
+		LayoutBox bare = Find(Lay("<p><svg></svg></p>"), "svg");
+		Assert.Equal(300, bare.Width, 0.5f);
+		Assert.Equal(150, bare.Height, 0.5f);
+	}
 }

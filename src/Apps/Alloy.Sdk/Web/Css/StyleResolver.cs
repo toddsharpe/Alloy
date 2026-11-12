@@ -383,10 +383,10 @@ namespace Alloy.Sdk.Web.Css
 			void Add(string declaration) => (css ??= new StringBuilder()).Append(declaration).Append(';');
 			string tag = element.TagName;
 			string width = element.GetAttribute("width");
-			if (width != null && (tag == "img" || tag == "table" || tag == "td" || tag == "th" || tag == "iframe" || tag == "hr" || tag == "col"))
+			if (width != null && (tag == "img" || tag == "table" || tag == "td" || tag == "th" || tag == "iframe" || tag == "hr" || tag == "col" || tag == "svg"))
 				Add("width: " + ParseHintLength(width));
 			string height = element.GetAttribute("height");
-			if (height != null && (tag == "img" || tag == "table" || tag == "td" || tag == "th" || tag == "iframe" || tag == "tr"))
+			if (height != null && (tag == "img" || tag == "table" || tag == "td" || tag == "th" || tag == "iframe" || tag == "tr" || tag == "svg"))
 				Add("height: " + ParseHintLength(height));
 			string align = element.GetAttribute("align");
 			if (align != null)
@@ -448,6 +448,43 @@ namespace Alloy.Sdk.Web.Css
 					Add("border: 1px inset gray");
 			}
 			return css?.ToString();
+		}
+
+		// clip: rect(0,0,0,0) and clip-path: inset(50%) are how pages keep text for screen readers only; an empty clip region paints nothing
+		internal static bool ClipHidesEverything(List<CssToken> tokens)
+		{
+			if (tokens.Count == 0 || tokens[0].Type != CssTokenType.Function)
+				return false;
+			List<double> numbers = new List<double>();
+			bool percent = false;
+			for (int i = 1; i < tokens.Count && tokens[i].Type != CssTokenType.CloseParen; i++)
+			{
+				CssToken token = tokens[i];
+				if (token.Type == CssTokenType.Number || token.Type == CssTokenType.Dimension || token.Type == CssTokenType.Percentage)
+				{
+					numbers.Add(token.Number);
+					percent |= token.Type == CssTokenType.Percentage;
+				}
+				else if (token.Type == CssTokenType.Ident || token.Type == CssTokenType.Function)
+					return false;
+			}
+			if (numbers.Count == 0)
+				return false;
+			switch (tokens[0].Value.ToLowerInvariant())
+			{
+				case "rect":
+					// top right bottom left: nothing shows when the bottom is not below the top or the right edge not past the left
+					return numbers.Count == 4 && (numbers[2] <= numbers[0] || numbers[1] <= numbers[3]);
+				case "inset":
+				{
+					double top = numbers[0];
+					double right = numbers.Count > 1 ? numbers[1] : top;
+					double bottom = numbers.Count > 2 ? numbers[2] : top;
+					double left = numbers.Count > 3 ? numbers[3] : right;
+					return percent && (top + bottom >= 100 || left + right >= 100);
+				}
+			}
+			return false;
 		}
 
 		private static Length ParseHintLength(string text)
@@ -545,6 +582,11 @@ namespace Alloy.Sdk.Web.Css
 					break;
 				case "visibility":
 					_style.Visible = !tokens[0].IsIdent("hidden") && !tokens[0].IsIdent("collapse");
+					break;
+				case "clip":
+				case "clip-path":
+					if (StyleResolver.ClipHidesEverything(tokens))
+						_style.Visible = false;
 					break;
 				case "margin":
 					ApplyEdges(tokens, ref _style.Margin, true, true);

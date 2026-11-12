@@ -244,4 +244,15 @@ public class CssTests
 		Assert.Equal("ok", sheet.Rules[2].Selectors[0].Compounds[0].Parts[0].Name);
 		Assert.Equal("before", sheet.Rules[0].Selectors[0].PseudoElement);
 	}
+
+	[Fact]
+	public void EmptyClipRegionsHideTheElement()
+	{
+		Assert.False(Style("<h2>Menu</h2>", "h2 { position: absolute; clip-path: inset(50%) }", "h2").Visible);
+		Assert.False(Style("<h2>Menu</h2>", "h2 { position: absolute; clip: rect(0, 0, 0, 0) }", "h2").Visible);
+		Assert.False(Style("<h2>Menu</h2>", "h2 { position: absolute; clip-path: rect(0 0 0 0) }", "h2").Visible);
+		Assert.True(Style("<h2>Menu</h2>", "h2 { position: absolute; clip-path: inset(10%) }", "h2").Visible);
+		Assert.True(Style("<h2>Menu</h2>", "h2 { position: absolute; clip: rect(0, 10px, 10px, 0) }", "h2").Visible);
+		Assert.True(Style("<h2>Menu</h2>", "h2 { clip-path: circle(50%) }", "h2").Visible);
+	}
 }
