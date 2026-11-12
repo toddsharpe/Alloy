@@ -887,7 +887,22 @@ namespace Alloy.Sdk.Script
 						broken = true;
 						return JsValue.Undefined;
 					}
-					string key = MemberKey(member, scope);
+					if (!member.Computed)
+					{
+						if (target.IsNullish)
+							throw TypeError($"Cannot read properties of {target.ToJsString()} (reading '{member.Name}')");
+						return GetMember(target, member.Name);
+					}
+					JsValue property = Evaluate(member.Property, scope);
+					// a[i] with an integer i on an array or typed array skips the number-to-string round trip
+					if (target.IsObject && TryIndexOf(property, out int index))
+					{
+						if (target.Object is JsArray array)
+							return index < array.Elements.Count ? array.Elements[index] : JsValue.Undefined;
+						if (target.Object is JsTypedArray typed)
+							return index < typed.Length ? typed[index] : JsValue.Undefined;
+					}
+					string key = ToPropertyKey(property);
 					if (target.IsNullish)
 						throw TypeError($"Cannot read properties of {target.ToJsString()} (reading '{key}')");
 					return GetMember(target, key);
@@ -945,6 +960,22 @@ namespace Alloy.Sdk.Script
 
 		private string MemberKey(MemberExpression member, Scope scope) => member.Computed ? ToPropertyKey(Evaluate(member.Property, scope)) : member.Name;
 
+		// True for a number that is a whole, non-negative index
+		private static bool TryIndexOf(JsValue key, out int index)
+		{
+			if (key.IsNumber)
+			{
+				double number = key.Number;
+				if (number >= 0 && number < int.MaxValue && number == (int)number)
+				{
+					index = (int)number;
+					return true;
+				}
+			}
+			index = -1;
+			return false;
+		}
+
 		private static string Describe(Expression expression)
 		{
 			switch (expression)
@@ -1000,6 +1031,31 @@ namespace Alloy.Sdk.Script
 					{
 						bool viaSuper = member.Object is SuperExpression;
 						JsValue target = viaSuper ? JsValue.Undefined : Evaluate(member.Object, scope);
+						if (!viaSuper && member.Computed)
+						{
+							JsValue property = Evaluate(member.Property, scope);
+							JsValue stored = EvaluateNamed(assignment.Value, scope, null);
+							// a[i] = v with an integer i on an array or typed array writes the element directly
+							if (target.IsObject && TryIndexOf(property, out int index))
+							{
+								if (target.Object is JsArray array && !array.Frozen && index <= array.Elements.Count)
+								{
+									if (index == array.Elements.Count)
+										array.Elements.Add(stored);
+									else
+										array.Elements[index] = stored;
+									return stored;
+								}
+								if (target.Object is JsTypedArray typed)
+								{
+									if (index < typed.Length)
+										typed[index] = stored.ToNumber();
+									return stored;
+								}
+							}
+							SetMember(target, ToPropertyKey(property), stored);
+							return stored;
+						}
 						string key = MemberKey(member, scope);
 						JsValue assigned = EvaluateNamed(assignment.Value, scope, null);
 						if (viaSuper)
