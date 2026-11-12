@@ -10,17 +10,29 @@ namespace Alloy.Sdk.Web.Css
 		Pixels,
 		Percent,
 		Auto,
+		// The smaller or larger of a pixel value and a percentage, as min(100%, 80rem) is until the containing size is known
+		Min,
+		Max,
 	}
 
 	// A length as layout needs it: pixels resolved against the font at compute time, a percentage left for the containing block, or auto
 	public readonly struct Length
 	{
 		public readonly float Value;
+		public readonly float Percent;
 		public readonly LengthUnit Unit;
 
 		public Length(float value, LengthUnit unit)
 		{
 			Value = value;
+			Percent = 0;
+			Unit = unit;
+		}
+
+		public Length(float pixels, float percent, LengthUnit unit)
+		{
+			Value = pixels;
+			Percent = percent;
 			Unit = unit;
 		}
 
@@ -31,13 +43,16 @@ namespace Alloy.Sdk.Web.Css
 
 		public bool IsAuto => Unit == LengthUnit.Auto;
 
-		public bool IsPercent => Unit == LengthUnit.Percent;
+		// True when the containing size decides the value
+		public bool IsPercent => Unit == LengthUnit.Percent || Unit == LengthUnit.Min || Unit == LengthUnit.Max;
 
 		// The length in pixels against a containing size; auto counts as the fallback
 		public float Resolve(float containing, float auto = 0) => Unit switch
 		{
 			LengthUnit.Pixels => Value,
 			LengthUnit.Percent => containing * Value / 100,
+			LengthUnit.Min => Math.Min(Value, containing * Percent / 100),
+			LengthUnit.Max => Math.Max(Value, containing * Percent / 100),
 			_ => auto,
 		};
 
@@ -45,6 +60,8 @@ namespace Alloy.Sdk.Web.Css
 		{
 			LengthUnit.Pixels => Value.ToString("0.##", CultureInfo.InvariantCulture) + "px",
 			LengthUnit.Percent => Value.ToString("0.##", CultureInfo.InvariantCulture) + "%",
+			LengthUnit.Min => "min(" + Percent.ToString("0.##", CultureInfo.InvariantCulture) + "%, " + Value.ToString("0.##", CultureInfo.InvariantCulture) + "px)",
+			LengthUnit.Max => "max(" + Percent.ToString("0.##", CultureInfo.InvariantCulture) + "%, " + Value.ToString("0.##", CultureInfo.InvariantCulture) + "px)",
 			_ => "auto",
 		};
 	}
@@ -193,6 +210,14 @@ namespace Alloy.Sdk.Web.Css
 		{
 			length = Length.Zero;
 			double pixels;
+			if (token.Type == CssTokenType.Dimension && (token.Unit == "min" || token.Unit == "max"))
+			{
+				// A folded min() or max() of a pixel length and a percentage, which CssMath left for the containing size to settle
+				if (!allowPercent || !float.TryParse(token.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out float percent))
+					return false;
+				length = new Length((float)token.Number, percent, token.Unit == "min" ? LengthUnit.Min : LengthUnit.Max);
+				return true;
+			}
 			if (token.Type == CssTokenType.Dimension)
 				pixels = ToPixels(token.Number, token.Unit, fontSize, rootFontSize);
 			else if (token.Type == CssTokenType.Number && (token.Number == 0 || true))

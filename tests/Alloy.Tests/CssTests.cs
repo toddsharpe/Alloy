@@ -234,6 +234,21 @@ public class CssTests
 	}
 
 	[Fact]
+	public void MixedMinAndMaxWaitForTheContainingSize()
+	{
+		Length width = Style("<p>x</p>", "p { width: min(100%, 80rem) }", "p").Width;
+		Assert.True(width.IsPercent);
+		Assert.Equal(1200, width.Resolve(1200));
+		Assert.Equal(1280, width.Resolve(2000));
+		Length max = Style("<p>x</p>", "p { width: max(50%, 300px) }", "p").Width;
+		Assert.Equal(300, max.Resolve(400));
+		Assert.Equal(500, max.Resolve(1000));
+		Assert.Equal(200, Style("<p>x</p>", "p { width: min(200px, 300px, 50%) }", "p").Width.Resolve(1000));
+		Assert.True(Style("<p>x</p>", "p { width: calc(min(100%, 500px) + 10px) }", "p").Width.IsAuto);
+		Assert.Equal(20, Style("<p>x</p>", "p { padding-left: clamp(10px, 5%, 20px) }", "p").Padding.Left.Resolve(1000));
+	}
+
+	[Fact]
 	public void ParsesOffsetsAndInsets()
 	{
 		Assert.Equal(-1, Style("<p>x</p>", "p { position: absolute; top: -1px }", "p").Top.Value);

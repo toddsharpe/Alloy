@@ -501,4 +501,13 @@ public class LayoutTests
 		Assert.Equal(300, FindId(root, "a").X);
 		Assert.Equal(0, FindId(root, "a").Y);
 	}
+
+	[Fact]
+	public void AutoMarginsNeverPullAWideBoxLeft()
+	{
+		LayoutBox root = Lay("<body style=\"margin:0;width:400px\"><div id=\"wide\" style=\"width:500px;margin:0 auto;height:10px\"></div><div id=\"fits\" style=\"width:200px;margin:0 auto;height:10px\"></div><div id=\"capped\" style=\"width:min(100%, 300px);height:10px\"></div></body>");
+		Assert.Equal(0, FindId(root, "wide").X);
+		Assert.Equal(100, FindId(root, "fits").X);
+		Assert.Equal(300, FindId(root, "capped").Width);
+	}
 }

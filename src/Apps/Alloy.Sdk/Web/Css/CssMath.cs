@@ -27,6 +27,8 @@ namespace Alloy.Sdk.Web.Css
 			public bool HasPx;
 			public bool HasPercent;
 			public bool HasNumber;
+			// 1 or 2 when Px and Percent compete as a min() or max() instead of adding up; such a value cannot be combined further
+			public int Mix;
 
 			public bool IsNumber => HasNumber && !HasPx && !HasPercent;
 
@@ -67,6 +69,8 @@ namespace Alloy.Sdk.Web.Css
 
 		private static CssToken ToToken(Value value)
 		{
+			if (value.Mix != 0)
+				return new CssToken(CssTokenType.Dimension, value.Percent.ToString("R", System.Globalization.CultureInfo.InvariantCulture), value.Px, value.Mix == 1 ? "min" : "max");
 			if (value.HasPercent && !value.HasPx)
 				return new CssToken(CssTokenType.Percentage, number: value.Percent);
 			if (value.HasPx && value.HasPercent)
@@ -120,14 +124,14 @@ namespace Alloy.Sdk.Web.Css
 					value = arguments[0];
 					return arguments.Count == 1;
 				case "min":
-					value = Pick(arguments, true);
-					return true;
+					return TryPick(arguments, true, out value);
 				case "max":
-					value = Pick(arguments, false);
-					return true;
+					return TryPick(arguments, false, out value);
 				case "clamp":
 					if (arguments.Count != 3)
 						return false;
+					if (TryPick(new List<Value> { arguments[1], arguments[2] }, true, out Value upper) && upper.Mix == 0 && TryPick(new List<Value> { arguments[0], upper }, false, out value) && value.Mix == 0)
+						return true;
 					value = Pick(new List<Value> { arguments[0], Pick(new List<Value> { arguments[1], arguments[2] }, true) }, false);
 					return true;
 			}
@@ -147,7 +151,44 @@ namespace Alloy.Sdk.Web.Css
 			return depth;
 		}
 
-		// The smallest or largest argument; when pixels and percentages are mixed only the pixel ones compete, since the percentage's basis is unknown here
+		// The smallest or largest argument; pixel lengths and percentages compete among their own kind, and when one of each is left the containing size decides at layout
+		private static bool TryPick(List<Value> arguments, bool smallest, out Value value)
+		{
+			value = default;
+			Value px = default;
+			Value percent = default;
+			bool anyPx = false;
+			bool anyPercent = false;
+			foreach (Value argument in arguments)
+			{
+				if (argument.Mix != 0)
+					return false;
+				if (argument.HasPx && !argument.HasPercent)
+				{
+					if (!anyPx || (smallest ? argument.Px < px.Px : argument.Px > px.Px))
+						px = argument;
+					anyPx = true;
+				}
+				else if (argument.HasPercent)
+				{
+					if (!anyPercent || (smallest ? argument.Percent < percent.Percent : argument.Percent > percent.Percent))
+						percent = argument;
+					anyPercent = true;
+				}
+				else
+				{
+					value = Pick(arguments, smallest);
+					return true;
+				}
+			}
+			if (anyPx && anyPercent)
+				value = new Value { Px = px.Px, Percent = percent.Percent, HasPx = true, HasPercent = true, Mix = smallest ? 1 : 2 };
+			else
+				value = anyPx ? px : percent;
+			return true;
+		}
+
+		// The smallest or largest argument by magnitude; when pixels and percentages are mixed only the pixel ones compete, since the percentage's basis is unknown here
 		private static Value Pick(List<Value> arguments, bool smallest)
 		{
 			bool anyPx = false;
@@ -212,7 +253,7 @@ namespace Alloy.Sdk.Web.Css
 						return true;
 					bool minus = _tokens[_at].IsDelim('-');
 					_at++;
-					if (!Product(out Value right))
+					if (!Product(out Value right) || value.Mix != 0 || right.Mix != 0)
 						return false;
 					value = minus ? value - right : value + right;
 				}
@@ -229,7 +270,7 @@ namespace Alloy.Sdk.Web.Css
 						return true;
 					bool divide = _tokens[_at].IsDelim('/');
 					_at++;
-					if (!Factor(out Value right))
+					if (!Factor(out Value right) || value.Mix != 0 || right.Mix != 0)
 						return false;
 					if (divide)
 					{

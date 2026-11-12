@@ -326,12 +326,13 @@ namespace Alloy.Sdk.Web.Layout
 			if (shrinkToFit || box.IsFloat || box.IsAbsolute || box.Kind == BoxKind.InlineBlock)
 				return;
 			float slack = containingWidth - box.MarginBoxWidth;
+			// An auto margin never pulls a box that is already too wide back to the left; it overflows to the right instead
 			if (autoLeft && autoRight)
-				box.MarginLeft = box.MarginRight = slack / 2;
+				box.MarginLeft = box.MarginRight = Math.Max(0, slack / 2);
 			else if (autoLeft)
-				box.MarginLeft = slack;
+				box.MarginLeft = Math.Max(0, slack);
 			else if (autoRight)
-				box.MarginRight = slack;
+				box.MarginRight = Math.Max(0, slack);
 			else if (slack < 0 && style.Width.IsAuto)
 				box.Width = Math.Max(edges, box.Width + slack);
 		}
