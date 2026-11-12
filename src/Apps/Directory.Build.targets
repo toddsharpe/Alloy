@@ -35,6 +35,7 @@
 			<LinkerArg Include="&quot;$(AlloyWin32Lib)&quot;" />
 			<LinkerArg Include="&quot;$(AlloyMsvcLib)libcmt.lib&quot;" />
 			<LinkerArg Include="&quot;$(AlloyMsvcLib)libvcruntime.lib&quot;" />
+			<LinkerArg Include="/MAP:&quot;$(NativeOutputPath)$(AssemblyName).map&quot;" />
 		</ItemGroup>
 		<PropertyGroup>
 			<CppLinker>$(AlloyMsvcBin)link.exe</CppLinker>

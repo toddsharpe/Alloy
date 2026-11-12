@@ -67,17 +67,40 @@ static int PhxSlots(BYTE op, BYTE opInfo)
 	}
 }
 
-static BOOL PhxIsNonvolatile(int reg)
+// The start of the entry that begins a function's unwind chain, so fragments of one function can be told apart from other functions
+static DWORD PhxPrimary(DWORD64 imageBase, const RUNTIME_FUNCTION* function)
 {
-	return reg == 3 || reg == 5 || reg == 6 || reg == 7 || reg >= 12;
+	for (int depth = 0; depth < 32; depth++)
+	{
+		PhxUnwindInfo info;
+		PhxParseInfo(imageBase, function, &info);
+		if ((info.Flags & UNW_FLAG_CHAININFO) == 0)
+			break;
+		function = (const RUNTIME_FUNCTION*)PhxAfterCodes(&info);
+	}
+	return function->BeginAddress;
 }
 
-// If the instruction at rip begins an epilog (stack release, pops of nonvolatile registers, then a return or tail jump), runs the rest of it on the context
-static BOOL PhxTryEpilog(CONTEXT* context, DWORD64 begin, DWORD64 end, int frameRegister)
+// A jump out of the function's own entry is a tail call unless it lands in another fragment of the same function
+static BOOL PhxLeavesFunction(DWORD64 imageBase, const RUNTIME_FUNCTION* function, DWORD64 target)
+{
+	if (target >= imageBase + function->BeginAddress && target < imageBase + function->EndAddress)
+		return FALSE;
+	DWORD64 targetBase;
+	RUNTIME_FUNCTION* other = RtlLookupFunctionEntry(target, &targetBase, NULL);
+	if (other == NULL || targetBase != imageBase)
+		return TRUE;
+	return PhxPrimary(imageBase, other) != PhxPrimary(imageBase, function);
+}
+
+// If the instruction at rip begins an epilog (stack release, pops, then a return or tail jump), runs the rest of it on the context; Windows accepts pops of any register
+// The stack walker learns where each popped register lives from the context pointers, so it can update a reference held there; Windows records every pop here
+static BOOL PhxTryEpilog(CONTEXT* context, DWORD64 imageBase, const RUNTIME_FUNCTION* function, int frameRegister, KNONVOLATILE_CONTEXT_POINTERS* pointers)
 {
 	const BYTE* p = (const BYTE*)context->Rip;
 	DWORD64 rsp = context->Rsp;
 	DWORD64 registers[16];
+	DWORD64* slots[16] = { 0 };
 	memcpy(registers, &context->Rax, sizeof(registers));
 
 	if (p[0] == 0x48 && p[1] == 0x83 && p[2] == 0xC4)
@@ -121,9 +144,8 @@ static BOOL PhxTryEpilog(CONTEXT* context, DWORD64 begin, DWORD64 end, int frame
 		{
 			break;
 		}
-		if (!PhxIsNonvolatile(reg))
-			return FALSE;
 		registers[reg] = *(const DWORD64*)rsp;
+		slots[reg] = (DWORD64*)rsp;
 		rsp += 8;
 	}
 
@@ -137,28 +159,35 @@ static BOOL PhxTryEpilog(CONTEXT* context, DWORD64 begin, DWORD64 end, int frame
 	}
 	else if (p[0] == 0xE9)
 	{
-		DWORD64 target = (DWORD64)(p + 5) + (DWORD64)(LONG64)*(const int*)(p + 1);
-		if (target >= begin && target < end)
+		if (!PhxLeavesFunction(imageBase, function, (DWORD64)(p + 5) + (DWORD64)(LONG64)*(const int*)(p + 1)))
 			return FALSE;
 	}
 	else if (p[0] == 0xEB)
 	{
-		DWORD64 target = (DWORD64)(p + 2) + (DWORD64)(LONG64)(signed char)p[1];
-		if (target >= begin && target < end)
+		if (!PhxLeavesFunction(imageBase, function, (DWORD64)(p + 2) + (DWORD64)(LONG64)(signed char)p[1]))
 			return FALSE;
 	}
-	else if ((p[0] == 0xFF && (p[1] & 0xF8) == 0xE0) || (p[0] == 0x41 && p[1] == 0xFF && (p[2] & 0xF8) == 0xE0))
+	else if (p[0] == 0xFF && (p[1] & 0x38) == 0x20 && (p[1] >> 6) != 3)
 	{
 	}
-	else if ((p[0] == 0xFF && p[1] == 0x25) || (p[0] == 0x48 && p[1] == 0xFF && p[2] == 0x25))
+	else if ((p[0] & 0xF0) == 0x40 && p[1] == 0xFF && (p[2] & 0x38) == 0x20 && ((p[2] >> 6) != 3 || (p[0] & 0x08) != 0))
 	{
 	}
 	else
 	{
+		// A plain jump through a register is a switch inside the function; compilers mark a tail call through a register with a REX.W prefix
 		return FALSE;
 	}
 
 	memcpy(&context->Rax, registers, sizeof(registers));
+	if (pointers != NULL)
+	{
+		for (int reg = 0; reg < 16; reg++)
+		{
+			if (slots[reg] != NULL)
+				pointers->IntegerContext[reg] = slots[reg];
+		}
+	}
 	context->Rip = *(const DWORD64*)rsp;
 	context->Rsp = rsp + returnAdjust;
 	return TRUE;
@@ -189,7 +218,8 @@ PEXCEPTION_ROUTINE RtlVirtualUnwind(DWORD handlerType, DWORD64 imageBase, DWORD6
 	DWORD64 frame = info.FrameRegister != 0 && established ? *PhxRegister(context, info.FrameRegister) - (DWORD64)info.FrameOffset * 16 : context->Rsp;
 	*establisherFrame = frame;
 
-	if (inBody && PhxTryEpilog(context, functionStart, imageBase + function->EndAddress, info.FrameRegister))
+	// Epilogs are looked for anywhere in the function: a compiler may place an early return inside what the unwind info calls the prolog
+	if (PhxTryEpilog(context, imageBase, function, info.FrameRegister, pointers))
 		return NULL;
 
 	BOOL machineFrame = FALSE;

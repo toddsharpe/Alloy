@@ -100,11 +100,30 @@ void RaiseException(DWORD code, DWORD flags, DWORD count, const ULONG_PTR* argum
 	PhxDispatch(&record, &context);
 }
 
+// The registers and the top of the stack at a fatal exception, for symbolizing against the image's map and PDB
+static void PhxDumpContext(const CONTEXT* context)
+{
+	if (context == NULL)
+		return;
+	PhxLogFormat("  rip=%016llX rsp=%016llX rbp=%016llX flags=%08X", context->Rip, context->Rsp, context->Rbp, context->EFlags);
+	PhxLogFormat("  rax=%016llX rbx=%016llX rcx=%016llX rdx=%016llX", context->Rax, context->Rbx, context->Rcx, context->Rdx);
+	PhxLogFormat("  rsi=%016llX rdi=%016llX r8=%016llX r9=%016llX", context->Rsi, context->Rdi, context->R8, context->R9);
+	PhxLogFormat("  r10=%016llX r11=%016llX r12=%016llX r13=%016llX", context->R10, context->R11, context->R12, context->R13);
+	PhxLogFormat("  r14=%016llX r15=%016llX", context->R14, context->R15);
+	const ULONG64* stack = (const ULONG64*)context->Rsp;
+	for (int i = 0; i < 32; i += 4)
+		PhxLogFormat("  [rsp+%03X] %016llX %016llX %016llX %016llX", i * 8, stack[i], stack[i + 1], stack[i + 2], stack[i + 3]);
+}
+
 void RaiseFailFastException(EXCEPTION_RECORD* record, CONTEXT* context, DWORD flags)
 {
 	(void)flags;
 	DWORD code = record != NULL ? record->ExceptionCode : STATUS_FAIL_FAST_EXCEPTION;
 	PVOID address = record != NULL ? record->ExceptionAddress : context != NULL ? (PVOID)context->Rip : NULL;
+	PhxLogFormat("FailFast: exception 0x%08X at %p", code, address);
+	if (record != NULL && record->NumberParameters >= 2)
+		PhxLogFormat("  access %s at %016llX", record->ExceptionInformation[0] == 8 ? "execute" : record->ExceptionInformation[0] ? "write" : "read", (ULONG64)record->ExceptionInformation[1]);
+	PhxDumpContext(context);
 	PhxFatal(code, "FailFast: exception 0x%08X at %p", code, address);
 }
 
