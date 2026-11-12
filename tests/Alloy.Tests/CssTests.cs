@@ -51,6 +51,9 @@ public class CssTests
 	[InlineData("div p.a:first-child", 2 + (2 << 10))]
 	[InlineData("a[href]", 1 + (1 << 10))]
 	[InlineData("p:not(.a)", 1 + (1 << 10))]
+	[InlineData(":is(#x, .y) b", 1 + (1 << 20))]
+	[InlineData(":where(#x, .y) b", 1)]
+	[InlineData("a:not(.x, #y)", 1 + (1 << 20))]
 	public void ComputesSpecificity(string selector, int expected)
 	{
 		Stylesheet sheet = Sheet(selector + " { color: red }");
@@ -93,6 +96,10 @@ public class CssTests
 		Expect(true, "li:last-child", items[2]);
 		Expect(true, "p:not(.z)", p1);
 		Expect(false, "p:not(.z)", p2);
+		Expect(true, "p:is(.z, .nothing)", p2);
+		Expect(false, "p:is(.q, .nothing)", p2);
+		Expect(true, ":where(div) p", p1);
+		Expect(false, "p:not(.z, .a)", p2);
 		Expect(true, "p:lang(en)", p2);
 		Expect(true, "div.x.y", p1.ParentElement!);
 		Expect(false, "div.x.w", p1.ParentElement!);

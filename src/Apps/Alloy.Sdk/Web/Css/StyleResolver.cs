@@ -33,6 +33,8 @@ namespace Alloy.Sdk.Web.Css
 			private readonly Dictionary<string, List<IndexedSelector>> _byAttribute = new Dictionary<string, List<IndexedSelector>>(StringComparer.Ordinal);
 			private readonly List<IndexedSelector> _universal = new List<IndexedSelector>();
 
+			public List<IndexedSelector> Universal => _universal;
+
 			public RuleIndex(List<StyleRule> rules)
 			{
 				Rules = rules;
@@ -43,44 +45,87 @@ namespace Alloy.Sdk.Web.Css
 						if (selector.PseudoElement != null || selector.Compounds.Count == 0)
 							continue;
 						IndexedSelector entry = new IndexedSelector { Rule = r, Selector = selector, Specificity = selector.Specificity };
-						string id = null;
-						string cls = null;
-						string tag = null;
-						string attribute = null;
-						bool impossible = false;
-						foreach (SimpleSelector part in selector.Compounds[selector.Compounds.Count - 1].Parts)
-						{
-							if (part.Type == SimpleSelector.Kind.PseudoClass && part.Negated == null)
-							{
-								if (part.Name == "root")
-									tag ??= "html";
-								else if (!Selector.SupportsPseudoClass(part.Name))
-									impossible = true;
-							}
-							if (part.Type == SimpleSelector.Kind.Id && id == null)
-								id = part.Name;
-							else if (part.Type == SimpleSelector.Kind.Class && cls == null)
-								cls = part.Name;
-							else if (part.Type == SimpleSelector.Kind.Type && tag == null)
-								tag = part.Name;
-							else if (part.Type == SimpleSelector.Kind.Attribute && attribute == null)
-								attribute = part.Name;
-						}
-						// A selector that needs a state this engine never has (hover, focus, visited) can never match; it is not worth testing
-						if (impossible)
+						_keys.Clear();
+						if (!KeysOf(selector.Compounds[selector.Compounds.Count - 1], _keys))
 							continue;
-						if (id != null)
-							Add(_byId, id, entry);
-						else if (cls != null)
-							Add(_byClass, cls, entry);
-						else if (tag != null)
-							Add(_byTag, tag, entry);
-						else if (attribute != null)
-							Add(_byAttribute, attribute, entry);
-						else
+						if (_keys.Count == 0)
 							_universal.Add(entry);
+						foreach (KeyValuePair<char, string> key in _keys)
+						{
+							switch (key.Key)
+							{
+								case 'i':
+									Add(_byId, key.Value, entry);
+									break;
+								case 'c':
+									Add(_byClass, key.Value, entry);
+									break;
+								case 't':
+									Add(_byTag, key.Value, entry);
+									break;
+								case 'a':
+									Add(_byAttribute, key.Value, entry);
+									break;
+								default:
+									_universal.Add(entry);
+									break;
+							}
+						}
 					}
 				}
+			}
+
+			private readonly List<KeyValuePair<char, string>> _keys = new List<KeyValuePair<char, string>>();
+
+			// The bucket keys a compound can match under; several when it is :is() or :where() of alternatives, none when only the universal bucket will do; false when it can never match
+			private static bool KeysOf(CompoundSelector compound, List<KeyValuePair<char, string>> keys)
+			{
+				string id = null;
+				string cls = null;
+				string tag = null;
+				string attribute = null;
+				List<Selector> alternatives = null;
+				foreach (SimpleSelector part in compound.Parts)
+				{
+					if (part.Type == SimpleSelector.Kind.PseudoClass && part.Inner == null)
+					{
+						if (part.Name == "root")
+							tag ??= "html";
+						else if (!Selector.SupportsPseudoClass(part.Name))
+							return false;
+					}
+					if (part.Type == SimpleSelector.Kind.PseudoClass && part.Inner != null && part.Name != "not" && alternatives == null)
+						alternatives = part.Inner;
+					if (part.Type == SimpleSelector.Kind.Id && id == null)
+						id = part.Name;
+					else if (part.Type == SimpleSelector.Kind.Class && cls == null)
+						cls = part.Name;
+					else if (part.Type == SimpleSelector.Kind.Type && tag == null)
+						tag = part.Name;
+					else if (part.Type == SimpleSelector.Kind.Attribute && attribute == null)
+						attribute = part.Name;
+				}
+				if (id != null)
+					keys.Add(new KeyValuePair<char, string>('i', id));
+				else if (cls != null)
+					keys.Add(new KeyValuePair<char, string>('c', cls));
+				else if (tag != null)
+					keys.Add(new KeyValuePair<char, string>('t', tag));
+				else if (attribute != null)
+					keys.Add(new KeyValuePair<char, string>('a', attribute));
+				else if (alternatives != null)
+				{
+					// :is(a, b) matches when any alternative does, so it lives in every alternative's bucket
+					foreach (Selector alternative in alternatives)
+					{
+						int before = keys.Count;
+						if (alternative.Compounds.Count == 0 || !KeysOf(alternative.Compounds[alternative.Compounds.Count - 1], keys))
+							continue;
+						if (keys.Count == before)
+							keys.Add(new KeyValuePair<char, string>('*', ""));
+					}
+				}
+				return true;
 			}
 
 			private static void Add(Dictionary<string, List<IndexedSelector>> buckets, string key, IndexedSelector entry)
@@ -137,6 +182,28 @@ namespace Alloy.Sdk.Web.Css
 		}
 
 		public float RootFontSize { get; private set; } = ComputedStyle.DefaultFontSize;
+
+		// What sits in the catch-all bucket of the author index, for tuning: the selectors every element must test
+		public string DescribeUniversal()
+		{
+			RuleIndex index = _authorIndex ??= new RuleIndex(_author);
+			Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
+			foreach (IndexedSelector entry in index.Universal)
+			{
+				System.Text.StringBuilder text = new System.Text.StringBuilder();
+				foreach (SimpleSelector part in entry.Selector.Compounds[entry.Selector.Compounds.Count - 1].Parts)
+					text.Append(part.Type).Append(':').Append(part.Name).Append(part.Inner != null ? "(" + part.Inner.Count + ")" : "").Append(' ');
+				string key = text.ToString();
+				counts[key] = counts.TryGetValue(key, out int count) ? count + 1 : 1;
+			}
+			List<KeyValuePair<string, int>> sorted = new List<KeyValuePair<string, int>>(counts);
+			sorted.Sort((a, b) => b.Value.CompareTo(a.Value));
+			System.Text.StringBuilder result = new System.Text.StringBuilder();
+			result.Append("universal: ").Append(index.Universal.Count).Append('\n');
+			for (int i = 0; i < sorted.Count && i < 20; i++)
+				result.Append("  x").Append(sorted[i].Value).Append(' ').Append(sorted[i].Key).Append('\n');
+			return result.ToString();
+		}
 
 		// The style of an element, computing its ancestors' first since most properties inherit
 		public ComputedStyle Resolve(Element element)

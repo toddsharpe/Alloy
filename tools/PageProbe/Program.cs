@@ -95,6 +95,7 @@ namespace Alloy.Tools.PageProbe
 						resolved++;
 					}
 					Console.WriteLine($"  cascade: {resolved} elements resolved in {resolve.ElapsedMilliseconds} ms");
+					Console.Write(resolver.DescribeUniversal());
 				}
 				root = new BoxBuilder(resolver).Build(document);
 				long built = sw.ElapsedMilliseconds;

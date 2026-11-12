@@ -45,6 +45,8 @@ namespace Alloy.Sdk.Web.Css
 		public int NthA;
 		public int NthB;
 		public Selector Negated;
+		// The selector list inside :not(), :is() or :where()
+		public List<Selector> Inner;
 	}
 
 	// A compound selector (several simple ones on one element) joined to the one before it by a combinator
@@ -82,9 +84,15 @@ namespace Alloy.Sdk.Web.Css
 								classes++;
 								break;
 							case SimpleSelector.Kind.PseudoClass:
-								if (part.Negated != null)
+								if (part.Inner != null)
 								{
-									int inner = part.Negated.Specificity;
+									// :not and :is count as their most specific argument; :where counts for nothing
+									int inner = 0;
+									if (part.Name != "where")
+									{
+										foreach (Selector candidate in part.Inner)
+											inner = Math.Max(inner, candidate.Specificity);
+									}
 									ids += inner >> 20;
 									classes += (inner >> 10) & 0x3FF;
 									types += inner & 0x3FF;
@@ -211,7 +219,24 @@ namespace Alloy.Sdk.Web.Css
 			switch (part.Name)
 			{
 				case "not":
-					return part.Negated != null && !part.Negated.Matches(element);
+					if (part.Inner == null)
+						return false;
+					foreach (Selector inner in part.Inner)
+					{
+						if (inner.Matches(element))
+							return false;
+					}
+					return true;
+				case "is":
+				case "where":
+					if (part.Inner == null)
+						return false;
+					foreach (Selector inner in part.Inner)
+					{
+						if (inner.Matches(element))
+							return true;
+					}
+					return false;
 				case "root":
 					return element.ParentElement == null && element.TagName == "html";
 				case "link":
@@ -567,11 +592,16 @@ namespace Alloy.Sdk.Web.Css
 			switch (function)
 			{
 				case "not":
+				case "is":
+				case "where":
+				case "matches":
+				case "-webkit-any":
 				{
-					List<Selector> negated = ParseList(arguments);
-					if (negated == null || negated.Count != 1)
+					List<Selector> inner = ParseList(arguments);
+					if (inner == null || inner.Count == 0)
 						return null;
-					return new SimpleSelector { Type = SimpleSelector.Kind.PseudoClass, Name = "not", Negated = negated[0] };
+					string name = function == "not" ? "not" : function == "where" ? "where" : "is";
+					return new SimpleSelector { Type = SimpleSelector.Kind.PseudoClass, Name = name, Inner = inner, Negated = name == "not" && inner.Count == 1 ? inner[0] : null };
 				}
 				case "nth-child":
 				case "nth-last-child":
