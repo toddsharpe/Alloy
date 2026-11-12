@@ -47,6 +47,8 @@ namespace Alloy.Sdk.Script
 		private int _nextTimerId = 1;
 		public PumpHandler HostPump;
 		public ClockHandler Clock = () => Environment.TickCount64;
+		// The longest a single await may wait for a promise when no deadline is set, so a host that forgot one cannot be held forever
+		public double AwaitBudgetMs = 10000;
 
 		private void SetupPromise()
 		{
@@ -431,12 +433,13 @@ namespace Alloy.Sdk.Script
 			promise.Handled = true;
 			_unhandled.Remove(promise);
 			RunJobs();
+			double limit = Math.Min(Deadline, Clock() + AwaitBudgetMs);
 			while (promise.State == PromiseState.Pending)
 			{
 				if (RunJobs())
 					continue;
 				// A promise nothing will ever settle, kept company by an interval, would otherwise hold the thread forever
-				if (Clock() > Deadline)
+				if (Clock() > limit)
 					throw RangeError("Script ran too long");
 				if (!(HostPump ?? DefaultPump)())
 					break;
@@ -450,7 +453,7 @@ namespace Alloy.Sdk.Script
 		{
 			if (_timers.Count == 0)
 				return false;
-			double wait = Math.Min(NextTimerDue, Deadline) - Clock();
+			double wait = NextTimerDue - Clock();
 			if (wait > 0)
 				Thread.Sleep((int)Math.Min(wait, 250));
 			RunTimers();

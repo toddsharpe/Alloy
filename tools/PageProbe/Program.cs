@@ -30,6 +30,7 @@ namespace Alloy.Tools.PageProbe
 			}
 			string url = args[0].Contains("://") ? args[0] : "https://" + args[0];
 			List<string> clicks = new List<string>();
+			List<string> styles = new List<string>();
 			bool text = false;
 			int width = 1200;
 			int repeat = 1;
@@ -44,6 +45,8 @@ namespace Alloy.Tools.PageProbe
 					s_verbose = true;
 				else if (args[i] == "-click" && i + 1 < args.Length)
 					clicks.Add(args[++i]);
+				else if (args[i] == "-style" && i + 1 < args.Length)
+					styles.Add(args[++i]);
 				else if (args[i] == "-text")
 					text = true;
 				else if (args[i] == "-width" && i + 1 < args.Length)
@@ -168,9 +171,39 @@ namespace Alloy.Tools.PageProbe
 			for (int extra = 1; extra < repeat; extra++)
 				Layout();
 			Console.WriteLine($"layout: {layouts} runs, {layoutMs} ms total, page height {root.Height:0}, {CountBoxes(root)} boxes, total {total.ElapsedMilliseconds} ms");
+			foreach (string selector in styles)
+			{
+				Element target = host.QueryFirst(document, selector);
+				if (target == null)
+				{
+					Console.WriteLine($"style {selector}: no match");
+					continue;
+				}
+				LayoutBox box = Find(root, target);
+				Console.WriteLine($"style {selector}:");
+				Console.WriteLine("  " + Describe(target, box));
+				if (box != null)
+				{
+					foreach (LayoutBox child in box.Children)
+					{
+						if (child.Element != null)
+							Console.WriteLine("    " + Describe(child.Element, child));
+					}
+				}
+			}
 			if (text)
 				Console.WriteLine(RenderText(root));
 			return host.ScriptErrors > 0 ? 2 : 0;
+		}
+
+		// One line of the computed style and geometry that decide how an element lays out
+		private static string Describe(Element element, LayoutBox box)
+		{
+			string name = element.TagName + (element.Id != null ? "#" + element.Id : "") + (element.GetAttribute("class") != null ? "." + Trim(element.GetAttribute("class").Replace(' ', '.'), 60) : "");
+			if (box == null)
+				return name + " (no box)";
+			ComputedStyle style = box.Style;
+			return $"{name} {box.Kind} at {box.X:0},{box.Y:0} {box.Width:0}x{box.Height:0} display={style.Display} position={style.Position} float={style.Float} width={style.Width} height={style.Height} font={style.FontSize:0.#}px line={style.LineHeight:0.#} flex={style.FlexDirection}{(style.FlexWrap ? " wrap" : "")} grow={style.FlexGrow} visible={style.Visible} overflow={style.Overflow}";
 		}
 
 		private static ResourceResponse Fetch(string method, Uri url, byte[] body, string contentType)

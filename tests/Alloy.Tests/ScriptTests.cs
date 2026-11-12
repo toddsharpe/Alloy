@@ -542,6 +542,14 @@ line2 ${`nested ${1 + 1}`}`
 		watch.Stop();
 		Assert.Contains("caught RangeError", log);
 		Assert.True(watch.ElapsedMilliseconds < 5000, "await returned after " + watch.ElapsedMilliseconds + " ms");
+		log.Clear();
+		interpreter = New(log);
+		interpreter.AwaitBudgetMs = 300;
+		watch.Restart();
+		interpreter.TryEvaluate("setInterval(() => {}, 10); (async () => { try { await new Promise(() => {}); } catch (e) { console.log('caught ' + e.name) } })()");
+		watch.Stop();
+		Assert.Contains("caught RangeError", log);
+		Assert.True(watch.ElapsedMilliseconds < 5000, "await without a deadline returned after " + watch.ElapsedMilliseconds + " ms");
 	}
 
 	[Fact]

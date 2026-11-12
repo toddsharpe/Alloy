@@ -550,7 +550,19 @@ namespace Alloy.Sdk.Web.Dom
 				Interpreter.Deadline = savedDeadline;
 			}
 			if (!Interpreter.InScript)
-				Interpreter.RunJobs();
+			{
+				// The jobs the handlers queued run under the same budget; a handler awaiting what never comes must not hold the dispatch
+				if (double.IsPositiveInfinity(savedDeadline))
+					Interpreter.Deadline = Now + EventBudgetMs;
+				try
+				{
+					Interpreter.RunJobs();
+				}
+				finally
+				{
+					Interpreter.Deadline = savedDeadline;
+				}
+			}
 			return !ev.DefaultPrevented;
 		}
 
