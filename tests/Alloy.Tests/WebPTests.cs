@@ -59,12 +59,26 @@ public class WebPTests
 		Near((244, 235, 0), Rgb(bitmap[63, 47]), 4);
 	}
 
+	private const string Lossless24 = "UklGRnYAAABXRUJQVlA4TGkAAAAvF8ACEE0sQ0T/I1gIBJL8KUcYJwQCSf50I4zS/2g4kKiJJElZES/sRb80BgEH0WRkAhbzLonSGgphpm0bAyz/Mck7AkkbH/3JNwHCzEy9ZFZlB8zMCpjZbQobKh/QNqazIa3/XjHs/AsA";
+	private const string Palette30 = "UklGRlAAAABXRUJQVlA4TEQAAAAvHQACEB8gEEjaH3qN+RcQFPk/2vwH8KWATWTbTn7OofrWooRvLYAEkIQAukeFgoj+/wDh6hhkBn8/Ss8EofvMoPhbGw==";
+
 	[Fact]
-	public void DeclinesAnExtendedFileWhoseAlphaIsCompressed()
+	public void DecodesAnExtendedFileWhoseAlphaIsLosslesslyCompressed()
 	{
-		// The duck's alpha plane is stored losslessly, which waits for the VP8L decoder; a raw alpha plane applies as is
-		Assert.False(ImageDecoder.TryDecode(Convert.FromBase64String(Duck), out _, out string error));
-		Assert.Contains("alpha", error);
+		Bitmap bitmap = Decode(Duck);
+		Assert.Equal(100, bitmap.Width);
+		Assert.Equal(96, bitmap.Height);
+		Assert.Equal(0u, bitmap[0, 0] >> 24);
+		Assert.Equal(0u, bitmap[99, 95] >> 24);
+		Assert.Equal(255u, bitmap[50, 48] >> 24);
+		Near((254, 190, 0), Rgb(bitmap[50, 48]), 6);
+		Near((225, 171, 2), Rgb(bitmap[20, 30]), 6);
+		Assert.False(bitmap.IsOpaque);
+	}
+
+	[Fact]
+	public void AppliesARawAlphaPlane()
+	{
 		byte[] red = Convert.FromBase64String(Red16);
 		byte[] vp8 = red.AsSpan(12).ToArray();
 		byte[] alph = new byte[1 + 16 * 16];
@@ -76,6 +90,25 @@ public class WebPTests
 		Assert.Equal(0u, bitmap[15, 15] >> 24);
 		Near((200, 29, 30), Rgb(bitmap[0, 0]), 1);
 		Assert.False(bitmap.IsOpaque);
+	}
+
+	[Fact]
+	public void DecodesLosslessImagesWithTransformsAndAPalette()
+	{
+		Bitmap gradient = Decode(Lossless24);
+		Assert.Equal(24, gradient.Width);
+		Assert.Equal(12, gradient.Height);
+		Assert.Equal(0x00000000u, gradient[0, 0]);
+		Assert.Equal(0xFF3264CDu, gradient[5, 5]);
+		Assert.Equal(0x80E6DC19u, gradient[23, 11]);
+		Assert.Equal(0xFF64009Bu, gradient[10, 0]);
+		Bitmap palette = Decode(Palette30);
+		Assert.Equal(30, palette.Width);
+		Assert.Equal(9, palette.Height);
+		Assert.Equal(0xFFFF0000u, palette[0, 0]);
+		Assert.Equal(0xFF00FF00u, palette[3, 0]);
+		Assert.Equal(0x00000000u, palette[9, 0]);
+		Assert.Equal(0xFF00FF00u, palette[29, 8]);
 	}
 
 	// A VP8X container around an ALPH chunk and an existing VP8 chunk, for a width and height
@@ -118,6 +151,6 @@ public class WebPTests
 		lossless[14] = (byte)'8';
 		lossless[15] = (byte)'L';
 		Assert.False(ImageDecoder.TryDecode(lossless, out _, out error));
-		Assert.Contains("lossless", error);
+		Assert.NotNull(error);
 	}
 }

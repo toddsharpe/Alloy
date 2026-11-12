@@ -2,7 +2,7 @@ using System;
 
 namespace Alloy.Sdk.Web.Images
 {
-	// WebP: the RIFF container around a VP8 key frame (lossy), with the extended header's alpha plane when it is stored raw
+	// WebP: the RIFF container around a VP8 key frame (lossy) or a VP8L image (lossless), with the extended header's alpha plane
 	public static class WebP
 	{
 		public static bool IsWebP(ReadOnlySpan<byte> data) => data.Length >= 12 && data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F' && data[8] == 'W' && data[9] == 'E' && data[10] == 'B' && data[11] == 'P';
@@ -50,14 +50,13 @@ namespace Alloy.Sdk.Web.Images
 						if (alpha.Length > 0 && alphaWidth == bitmap.Width && alphaHeight == bitmap.Height && !ApplyAlpha(bitmap, alpha))
 						{
 							bitmap = null;
-							error = "WebP with losslessly compressed alpha is not supported yet";
+							error = "corrupt WebP alpha plane";
 							return false;
 						}
 						return true;
 					}
 					case "VP8L":
-						error = "lossless WebP is not supported yet";
-						return false;
+						return Vp8LDecoder.TryDecode(payload, out bitmap, out error);
 				}
 				at = start + size + (size & 1);
 			}
@@ -65,17 +64,22 @@ namespace Alloy.Sdk.Web.Images
 			return false;
 		}
 
-		// The ALPH chunk: a method byte, then raw alpha rows, optionally predicted from neighbours; false when the plane is compressed, which needs the lossless decoder
+		// The ALPH chunk: a method byte, then the alpha rows raw or as a lossless image stream, optionally predicted from their neighbours
 		private static bool ApplyAlpha(Bitmap bitmap, ReadOnlySpan<byte> chunk)
 		{
 			int compression = chunk[0] & 3;
 			int filter = (chunk[0] >> 2) & 3;
 			int width = bitmap.Width;
 			int height = bitmap.Height;
-			if (compression != 0 || chunk.Length < 1 + width * height)
-				return false;
 			byte[] alpha = new byte[width * height];
-			chunk.Slice(1, width * height).CopyTo(alpha);
+			if (compression == 0)
+			{
+				if (chunk.Length < 1 + width * height)
+					return false;
+				chunk.Slice(1, width * height).CopyTo(alpha);
+			}
+			else if (compression != 1 || !Vp8LDecoder.TryDecodeAlpha(chunk.Slice(1), width, height, alpha))
+				return false;
 			if (filter != 0)
 			{
 				for (int y = 0; y < height; y++)
