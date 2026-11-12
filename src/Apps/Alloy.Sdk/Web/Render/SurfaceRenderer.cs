@@ -27,8 +27,8 @@ namespace Alloy.Sdk.Web.Render
 
 		public override float Measure(ReadOnlySpan<char> text) => Font.Measure(text);
 
-		// Draws with the baseline at y, clipped to the rectangle
-		public void Draw(in Surface surface, int x, int y, string text, uint color, in Rectangle clip)
+		// Draws with the baseline at y, clipped to the rectangle, with letter spacing after each character
+		public void Draw(in Surface surface, int x, int y, string text, uint color, in Rectangle clip, float spacing = 0)
 		{
 			float pen = x;
 			int previous = 0;
@@ -39,7 +39,7 @@ namespace Alloy.Sdk.Web.Render
 				int left = (int)MathF.Round(pen) + glyph.Left;
 				if (left < clip.X + clip.Width && left + glyph.Width > clip.X)
 					DrawGlyph(in surface, left, y - glyph.Top, glyph, color, in clip);
-				pen += glyph.Advance;
+				pen += glyph.Advance + spacing;
 				previous = glyph.Id;
 			}
 		}
@@ -166,7 +166,7 @@ namespace Alloy.Sdk.Web.Render
 						if (baseline + 4 < clip.Y - item.Font.Size || baseline - item.Font.Size * 2 > clip.Y + clip.Height)
 							break;
 						if (item.Font is SdkFont sdk)
-							sdk.Draw(in surface, x, baseline, item.Text, item.Color.Rgb, in clip);
+							sdk.Draw(in surface, x, baseline, item.Text, item.Color.Rgb, in clip, item.Spacing);
 						else if (baseline - 8 >= clip.Y && baseline <= clip.Y + clip.Height)
 							surface.DrawText(x, baseline - 8, item.Text, item.Color.Rgb, 1);
 						break;

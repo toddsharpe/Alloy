@@ -30,8 +30,10 @@ namespace Alloy.Sdk.Web.Layout
 		public readonly string Text;
 		public readonly LayoutFont Font;
 		public readonly Alloy.Sdk.Web.Images.Bitmap Image;
+		// Extra advance after each character of a text item, the letter-spacing the layout measured with
+		public readonly float Spacing;
 
-		public DisplayItem(DisplayItemKind kind, float x, float y, float width, float height, Color color, string text = null, LayoutFont font = null, Alloy.Sdk.Web.Images.Bitmap image = null)
+		public DisplayItem(DisplayItemKind kind, float x, float y, float width, float height, Color color, string text = null, LayoutFont font = null, Alloy.Sdk.Web.Images.Bitmap image = null, float spacing = 0)
 		{
 			Kind = kind;
 			X = x;
@@ -42,6 +44,7 @@ namespace Alloy.Sdk.Web.Layout
 			Text = text;
 			Font = font;
 			Image = image;
+			Spacing = spacing;
 		}
 
 		public override string ToString() => Kind switch
@@ -64,10 +67,10 @@ namespace Alloy.Sdk.Web.Layout
 				Items.Add(new DisplayItem(DisplayItemKind.Rect, x, y, width, height, color));
 		}
 
-		public void Text(float x, float baseline, string text, LayoutFont font, Color color)
+		public void Text(float x, float baseline, string text, LayoutFont font, Color color, float spacing = 0)
 		{
 			if (text.Length > 0 && color.A > 0)
-				Items.Add(new DisplayItem(DisplayItemKind.Text, x, baseline, 0, 0, color, text, font));
+				Items.Add(new DisplayItem(DisplayItemKind.Text, x, baseline, 0, 0, color, text, font, null, spacing));
 		}
 	}
 
@@ -247,7 +250,7 @@ namespace Alloy.Sdk.Web.Layout
 					if (fragment.Text.Length == 0)
 						continue;
 					float baseline = fragment.Y + fragment.Baseline;
-					list.Text(fragment.X, baseline, fragment.Text, fragment.Font, style.Color);
+					list.Text(fragment.X, baseline, fragment.Text, fragment.Font, style.Color, style.LetterSpacing);
 					float thickness = Math.Max(1, MathF.Round(fragment.Font.Size / 14));
 					if (style.Underline)
 						list.Rect(fragment.X, baseline + Math.Max(1, fragment.Font.Descent / 2), fragment.Width, thickness, style.Color);

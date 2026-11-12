@@ -503,6 +503,15 @@ public class LayoutTests
 	}
 
 	[Fact]
+	public void TextItemsCarryTheirLetterSpacing()
+	{
+		LayoutBox root = Lay("<body><p style=\"letter-spacing:-2px\">tight</p><p>plain</p></body>");
+		DisplayList list = Painter.Paint(root, Width, Height);
+		Assert.Equal(-2, list.Items.Find(item => item.Kind == DisplayItemKind.Text && item.Text == "tight").Spacing);
+		Assert.Equal(0, list.Items.Find(item => item.Kind == DisplayItemKind.Text && item.Text == "plain").Spacing);
+	}
+
+	[Fact]
 	public void AutoMarginsNeverPullAWideBoxLeft()
 	{
 		LayoutBox root = Lay("<body style=\"margin:0;width:400px\"><div id=\"wide\" style=\"width:500px;margin:0 auto;height:10px\"></div><div id=\"fits\" style=\"width:200px;margin:0 auto;height:10px\"></div><div id=\"capped\" style=\"width:min(100%, 300px);height:10px\"></div></body>");
