@@ -652,6 +652,9 @@ namespace Alloy.Sdk.Web.Layout
 			{
 				float width = box.Style.Width.IsAuto || box.Style.Width.IsPercent ? Math.Max(0, box.IntrinsicWidth) : box.ContentWidthOf(box.Style.Width.Value);
 				min = max = width;
+				// A percentage width on a picture resolves against nothing while its container is being sized, so it asks for no minimum
+				if (box.Style.Width.IsPercent || (!box.Style.MaxWidth.IsAuto && box.Style.MaxWidth.IsPercent))
+					min = 0;
 			}
 			else if (box.Kind == BoxKind.Table)
 			{

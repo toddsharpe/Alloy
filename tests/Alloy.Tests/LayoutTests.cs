@@ -415,4 +415,21 @@ public class LayoutTests
 		DisplayList list = Painter.Paint(root, Width, Height);
 		Assert.Contains(list.Items, item => item.Kind == DisplayItemKind.Rect && item.Color.ToString() == "#ff0000");
 	}
+
+	[Fact]
+	public void APercentageWidePictureLetsItsFlexItemShrink()
+	{
+		Document document = HtmlParser.Parse("<body style=\"margin:0\"><div style=\"display:flex;width:300px\"><div id=\"card\"><div><img id=\"big\" src=\"x.png\" style=\"width:100%;height:auto\"></div></div><div id=\"side\" style=\"width:100px;flex:none\">s</div></div></body>");
+		MediaEnvironment media = new MediaEnvironment(Width, Height);
+		StyleResolver resolver = new StyleResolver(media);
+		resolver.AddStylesheet(CssParser.Parse("body { margin: 0 }", media));
+		Alloy.Sdk.Web.Images.Bitmap picture = new Alloy.Sdk.Web.Images.Bitmap(1000, 500);
+		LayoutBox root = new BoxBuilder(resolver, element => element.TagName == "img" ? picture : null).Build(document);
+		new LayoutEngine(new FixedFontProvider(), Width, Height).Layout(root);
+		LayoutBox card = FindId(root, "card");
+		Assert.True(card.Width <= 200.5f, "card width " + card.Width);
+		LayoutBox big = FindId(root, "big");
+		Assert.True(big.Width <= 200.5f, "image width " + big.Width);
+		Assert.Equal(big.Width / 2, big.Height, 1f);
+	}
 }
