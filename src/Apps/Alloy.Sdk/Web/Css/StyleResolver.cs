@@ -808,6 +808,44 @@ namespace Alloy.Sdk.Web.Css
 				case "border":
 					ApplyBorderShorthand(tokens, -1);
 					break;
+				case "border-radius":
+				{
+					// Horizontal radii only; what follows a slash would be the vertical ones
+					List<CssToken> horizontal = tokens;
+					for (int i = 0; i < tokens.Count; i++)
+					{
+						if (tokens[i].IsDelim('/'))
+						{
+							horizontal = tokens.GetRange(0, i);
+							break;
+						}
+					}
+					if (horizontal.Count == 0)
+						break;
+					Edges radii = new Edges(Length.Zero);
+					ApplyEdges(horizontal, ref radii, false, false);
+					_style.RadiusTopLeft = radii.Top;
+					_style.RadiusTopRight = radii.Right;
+					_style.RadiusBottomRight = radii.Bottom;
+					_style.RadiusBottomLeft = radii.Left;
+					break;
+				}
+				case "border-top-left-radius":
+				case "border-start-start-radius":
+					ApplyEdge(tokens[0], ref _style.RadiusTopLeft, false, false);
+					break;
+				case "border-top-right-radius":
+				case "border-start-end-radius":
+					ApplyEdge(tokens[0], ref _style.RadiusTopRight, false, false);
+					break;
+				case "border-bottom-right-radius":
+				case "border-end-end-radius":
+					ApplyEdge(tokens[0], ref _style.RadiusBottomRight, false, false);
+					break;
+				case "border-bottom-left-radius":
+				case "border-end-start-radius":
+					ApplyEdge(tokens[0], ref _style.RadiusBottomLeft, false, false);
+					break;
 				case "border-top":
 					ApplyBorderShorthand(tokens, 0);
 					break;

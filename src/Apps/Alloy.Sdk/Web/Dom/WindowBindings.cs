@@ -1643,7 +1643,14 @@ namespace Alloy.Sdk.Web.Dom
 						interpreter.ReportError(x.Value);
 						continue;
 					}
-					CustomCallback(element, "connectedCallback");
+					// Defined from an imported module, the connected callbacks wait for the importing module's top level, which often supplies what they await; an await cannot suspend here
+					if (interpreter.InDependencyModule)
+					{
+						Element upgraded = element;
+						interpreter.EnqueueJob(() => CustomCallback(upgraded, "connectedCallback"));
+					}
+					else
+						CustomCallback(element, "connectedCallback");
 				}
 				return JsValue.Undefined;
 			});

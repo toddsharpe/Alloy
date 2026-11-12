@@ -268,6 +268,11 @@ namespace Alloy.Sdk.Script
 		public JsObject NamespaceOf(ModuleRecord record) => record.Namespace ??= new JsModuleNamespace(this, record);
 
 		// Runs dependencies first, then the module body; a module in a cycle is left to its first evaluation
+		private int _moduleDepth;
+
+		// True while a module another module imported is being evaluated, before the importing module's own top level has run
+		public bool InDependencyModule => _moduleDepth > 1;
+
 		private void Evaluate(ModuleRecord record)
 		{
 			if (record.State == ModuleState.Failed)
@@ -275,6 +280,7 @@ namespace Alloy.Sdk.Script
 			if (record.State != ModuleState.Linked)
 				return;
 			record.State = ModuleState.Evaluating;
+			_moduleDepth++;
 			try
 			{
 				foreach (Statement statement in record.Program.Body)
@@ -303,6 +309,10 @@ namespace Alloy.Sdk.Script
 				record.State = ModuleState.Failed;
 				record.Error = t.Value;
 				throw;
+			}
+			finally
+			{
+				_moduleDepth--;
 			}
 		}
 

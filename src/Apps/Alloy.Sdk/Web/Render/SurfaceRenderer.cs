@@ -27,9 +27,11 @@ namespace Alloy.Sdk.Web.Render
 
 		public override float Measure(ReadOnlySpan<char> text) => Font.Measure(text);
 
-		// Draws with the baseline at y, clipped to the rectangle, with letter spacing after each character
-		public void Draw(in Surface surface, int x, int y, string text, uint color, in Rectangle clip, float spacing = 0)
+		// Draws with the baseline at y, clipped to the rectangle, with letter spacing after each character and an overall alpha
+		public void Draw(in Surface surface, int x, int y, string text, uint color, in Rectangle clip, float spacing = 0, int alpha = 255)
 		{
+			if (alpha <= 0)
+				return;
 			float pen = x;
 			int previous = 0;
 			foreach (char c in text)
@@ -38,13 +40,13 @@ namespace Alloy.Sdk.Web.Render
 				pen += Font.Advance(previous, glyph.Id);
 				int left = (int)MathF.Round(pen) + glyph.Left;
 				if (left < clip.X + clip.Width && left + glyph.Width > clip.X)
-					DrawGlyph(in surface, left, y - glyph.Top, glyph, color, in clip);
+					DrawGlyph(in surface, left, y - glyph.Top, glyph, color, in clip, alpha);
 				pen += glyph.Advance + spacing;
 				previous = glyph.Id;
 			}
 		}
 
-		private static void DrawGlyph(in Surface surface, int x, int y, Glyph glyph, uint color, in Rectangle clip)
+		private static void DrawGlyph(in Surface surface, int x, int y, Glyph glyph, uint color, in Rectangle clip, int opacity)
 		{
 			int x0 = Math.Max(Math.Max(x, 0), clip.X);
 			int y0 = Math.Max(Math.Max(y, 0), clip.Y);
@@ -64,6 +66,8 @@ namespace Alloy.Sdk.Web.Render
 					uint alpha = glyph.Coverage[source + column - x];
 					if (alpha == 0)
 						continue;
+					if (opacity < 255)
+						alpha = (alpha * (uint)opacity + 127) / 255;
 					if (alpha == 255)
 					{
 						line[column] = color;
@@ -146,14 +150,21 @@ namespace Alloy.Sdk.Web.Render
 							clip = clips.Pop();
 						break;
 					case DisplayItemKind.Rect:
-						FillRect(in surface, Intersect(clip, ToRectangle(item, scrollX, scrollY, viewport)), item.Color);
+					{
+						Rectangle box = ToRectangle(item, scrollX, scrollY, viewport);
+						Color color = Faded(item.Color, item.Opacity);
+						if (item.Radius.Any || item.Stroke > 0)
+							FillRounded(in surface, box, Intersect(clip, box), color, item.Radius, item.Stroke);
+						else
+							FillRect(in surface, Intersect(clip, box), color);
 						break;
+					}
 					case DisplayItemKind.Image:
 					{
 						Rectangle box = ToRectangle(item, scrollX, scrollY, viewport);
 						if (item.Image != null)
 						{
-							DrawBitmap(in surface, item.Image, box, Intersect(clip, box));
+							DrawBitmap(in surface, item.Image, box, Intersect(clip, box), item.Radius, item.Opacity);
 							break;
 						}
 						FillRect(in surface, Intersect(clip, box), Color.FromRgb(0xDD, 0xDD, 0xDD));
@@ -176,7 +187,7 @@ namespace Alloy.Sdk.Web.Render
 						if (baseline + 4 < clip.Y - item.Font.Size || baseline - item.Font.Size * 2 > clip.Y + clip.Height)
 							break;
 						if (item.Font is SdkFont sdk)
-							sdk.Draw(in surface, x, baseline, item.Text, item.Color.Rgb, in clip, item.Spacing);
+							sdk.Draw(in surface, x, baseline, item.Text, item.Color.Rgb, in clip, item.Spacing, (int)(item.Color.A * item.Opacity + 0.5f));
 						else if (baseline - 8 >= clip.Y && baseline <= clip.Y + clip.Height)
 							surface.DrawText(x, baseline - 8, item.Text, item.Color.Rgb, 1);
 						break;
@@ -185,12 +196,81 @@ namespace Alloy.Sdk.Web.Render
 			}
 		}
 
-		// Nearest-neighbour scaling into the box, blending pixels with alpha over what is there
-		private static void DrawBitmap(in Surface surface, Bitmap bitmap, Rectangle box, Rectangle clip)
+		private static Color Faded(Color color, float opacity) => opacity >= 1 ? color : Color.FromRgb(color.R, color.G, color.B, (int)(color.A * opacity + 0.5f));
+
+		// Coverage of a pixel by a rounded rectangle: one inside, falling off across the arc at each rounded corner
+		private static float CornerCoverage(float x, float y, Rectangle rect, Corners radius)
+		{
+			float left = rect.X;
+			float top = rect.Y;
+			float right = rect.X + rect.Width;
+			float bottom = rect.Y + rect.Height;
+			if (radius.TopLeft > 0 && x < left + radius.TopLeft && y < top + radius.TopLeft)
+				return Disk(x, y, left + radius.TopLeft, top + radius.TopLeft, radius.TopLeft);
+			if (radius.TopRight > 0 && x > right - radius.TopRight && y < top + radius.TopRight)
+				return Disk(x, y, right - radius.TopRight, top + radius.TopRight, radius.TopRight);
+			if (radius.BottomRight > 0 && x > right - radius.BottomRight && y > bottom - radius.BottomRight)
+				return Disk(x, y, right - radius.BottomRight, bottom - radius.BottomRight, radius.BottomRight);
+			if (radius.BottomLeft > 0 && x < left + radius.BottomLeft && y > bottom - radius.BottomLeft)
+				return Disk(x, y, left + radius.BottomLeft, bottom - radius.BottomLeft, radius.BottomLeft);
+			return 1;
+		}
+
+		private static float Disk(float x, float y, float cx, float cy, float r)
+		{
+			float dx = x - cx;
+			float dy = y - cy;
+			return Math.Clamp(r + 0.5f - MathF.Sqrt(dx * dx + dy * dy), 0, 1);
+		}
+
+		// A rounded rectangle, or with a stroke the ring between it and the same shape inset by the stroke; rows clear of the corners fill as spans
+		private static void FillRounded(in Surface surface, Rectangle box, Rectangle clip, Color color, Corners radius, float stroke)
+		{
+			if (clip.Width <= 0 || clip.Height <= 0 || color.A == 0)
+				return;
+			Rectangle inner = new Rectangle(box.X + (int)stroke, box.Y + (int)stroke, Math.Max(0, box.Width - 2 * (int)stroke), Math.Max(0, box.Height - 2 * (int)stroke));
+			Corners innerRadius = radius.Inset(stroke);
+			int bandTop = box.Y + (int)MathF.Ceiling(Math.Max(radius.MaxTop, stroke > 0 ? stroke : 0));
+			int bandBottom = box.Y + box.Height - (int)MathF.Ceiling(Math.Max(radius.MaxBottom, stroke > 0 ? stroke : 0));
+			for (int y = clip.Y; y < clip.Y + clip.Height; y++)
+			{
+				if (y >= bandTop && y < bandBottom)
+				{
+					// No corner reaches this row: the whole row, or just the two sides of a ring
+					if (stroke <= 0)
+						FillRect(in surface, new Rectangle(clip.X, y, clip.Width, 1), color);
+					else
+					{
+						FillRect(in surface, Intersect(clip, new Rectangle(box.X, y, (int)stroke, 1)), color);
+						FillRect(in surface, Intersect(clip, new Rectangle(box.X + box.Width - (int)stroke, y, (int)stroke, 1)), color);
+					}
+					continue;
+				}
+				Span<uint> row = surface.Row(y);
+				for (int x = clip.X; x < clip.X + clip.Width; x++)
+				{
+					float px = x + 0.5f;
+					float py = y + 0.5f;
+					float coverage = CornerCoverage(px, py, box, radius);
+					if (stroke > 0 && px > inner.X && px < inner.X + inner.Width && py > inner.Y && py < inner.Y + inner.Height)
+						coverage -= CornerCoverage(px, py, inner, innerRadius);
+					if (coverage <= 0)
+						continue;
+					int alpha = (int)(color.A * coverage + 0.5f);
+					if (alpha <= 0)
+						continue;
+					row[x] = alpha >= 255 ? color.Rgb : Color.FromRgb(color.R, color.G, color.B, alpha).Over(row[x]);
+				}
+			}
+		}
+
+		// Nearest-neighbour scaling into the box, blending pixels with alpha over what is there, inside rounded corners and at an opacity
+		private static void DrawBitmap(in Surface surface, Bitmap bitmap, Rectangle box, Rectangle clip, Corners radius = default, float opacity = 1)
 		{
 			if (clip.Width <= 0 || clip.Height <= 0 || box.Width <= 0 || box.Height <= 0)
 				return;
-			bool opaque = bitmap.IsOpaque;
+			bool opaque = bitmap.IsOpaque && !radius.Any && opacity >= 1;
+			bool shaped = radius.Any || opacity < 1;
 			long stepX = ((long)bitmap.Width << 16) / box.Width;
 			long stepY = ((long)bitmap.Height << 16) / box.Height;
 			for (int y = clip.Y; y < clip.Y + clip.Height; y++)
@@ -207,6 +287,16 @@ namespace Alloy.Sdk.Web.Render
 					if (sourceX >= bitmap.Width)
 						sourceX = bitmap.Width - 1;
 					uint pixel = bitmap.Pixels[sourceRow + sourceX];
+					if (shaped)
+					{
+						float factor = opacity * (radius.Any ? CornerCoverage(x + 0.5f, y + 0.5f, box, radius) : 1);
+						if (factor <= 0)
+							continue;
+						uint alpha = (uint)((pixel >> 24) * factor + 0.5f);
+						if (alpha == 0)
+							continue;
+						pixel = alpha << 24 | (pixel & 0xFFFFFF);
+					}
 					if (opaque || pixel >= 0xFF000000)
 						row[x] = pixel & 0xFFFFFF;
 					else if (pixel >= 0x01000000)

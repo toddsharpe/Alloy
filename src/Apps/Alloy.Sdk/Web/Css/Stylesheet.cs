@@ -404,7 +404,7 @@ namespace Alloy.Sdk.Web.Css
 				return false;
 			string name = parts[0].Value.ToLowerInvariant();
 			if (parts.Count == 1)
-				return name == "color" || name == "width" || name == "height";
+				return name == "color" || name == "width" || name == "height" || name == "prefers-reduced-motion";
 			if (parts.Count < 3 || parts[1].Type != CssTokenType.Colon)
 				return false;
 			CssToken value = parts[2];
@@ -427,7 +427,8 @@ namespace Alloy.Sdk.Web.Css
 				case "prefers-color-scheme":
 					return value.IsIdent("dark");
 				case "prefers-reduced-motion":
-					return value.IsIdent("no-preference");
+					// Nothing here animates, so pages are asked for their reduced-motion styling rather than entrances that start invisible
+					return value.IsIdent("reduce");
 				case "hover":
 					return value.IsIdent("hover");
 				case "pointer":

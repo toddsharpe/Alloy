@@ -25,11 +25,21 @@ namespace Alloy.Tools.PageProbe
 		private static readonly HttpClient s_http = new HttpClient(new HttpClientHandler { UseCookies = false, AllowAutoRedirect = true, AutomaticDecompression = System.Net.DecompressionMethods.All }) { Timeout = TimeSpan.FromSeconds(20) };
 		private static bool s_verbose;
 
+		// Deep page scripts need far more stack than the main thread has
 		private static int Main(string[] args)
+		{
+			int result = 0;
+			System.Threading.Thread worker = new System.Threading.Thread(() => result = Run(args), 512 * 1024 * 1024);
+			worker.Start();
+			worker.Join();
+			return result;
+		}
+
+		private static int Run(string[] args)
 		{
 			if (args.Length < 1)
 			{
-				Console.WriteLine("usage: pageprobe <url> [-v] [-click <selector>]... [-text] [-width <px>] [-png <path>] [-full] [-fixedfont] [-at x,y]");
+				Console.WriteLine("usage: pageprobe <url> [-v] [-click <selector>]... [-text] [-width <px>] [-png <path>] [-full] [-fixedfont] [-at x,y] [-wait <ms>]");
 				return 1;
 			}
 			string url = args[0].Contains("://") ? args[0] : "https://" + args[0];
@@ -42,6 +52,7 @@ namespace Alloy.Tools.PageProbe
 			string png = null;
 			bool full = false;
 			bool fixedFont = false;
+			int waitMs = 3000;
 			for (int i = 1; i < args.Length; i++)
 			{
 				if (args[i] == "-repeat" && i + 1 < args.Length)
@@ -67,6 +78,8 @@ namespace Alloy.Tools.PageProbe
 					full = true;
 				else if (args[i] == "-fixedfont")
 					fixedFont = true;
+				else if (args[i] == "-wait" && i + 1 < args.Length)
+					waitMs = int.Parse(args[++i]);
 			}
 			// The image's TrueType faces give the probe the VM's text metrics; without them the fixed-width stand-in keeps the numbers stable
 			IFontProvider fonts = !fixedFont && Fonts.Get(Fonts.Sans, 16) != null ? new SdkFontProvider() : new FixedFontProvider();
@@ -171,17 +184,20 @@ namespace Alloy.Tools.PageProbe
 			Console.WriteLine($"scripts: {host.ScriptsRun} run, {host.ScriptErrors} errors, {host.ScriptsSkipped} skipped, {scripts.ElapsedMilliseconds} ms, {sheets.Count - before} stylesheets added by scripts, document now {Count(document)} elements, title \"{document.Title}\"");
 
 			int pumps = 0;
+			long longestPump = 0;
 			Stopwatch idle = Stopwatch.StartNew();
-			while (host.HasTimers && idle.ElapsedMilliseconds < 3000 && pumps < 200)
+			while (host.HasTimers && idle.ElapsedMilliseconds < waitMs && pumps < waitMs / 15)
 			{
 				double wait = host.NextTimerDue - host.Interpreter.Clock();
 				if (wait > 0)
 					System.Threading.Thread.Sleep((int)Math.Min(wait, 100));
+				long pumpStart = idle.ElapsedMilliseconds;
 				host.Pump();
+				longestPump = Math.Max(longestPump, idle.ElapsedMilliseconds - pumpStart);
 				pumps++;
 			}
 			if (pumps > 0)
-				Console.WriteLine($"timers: pumped {pumps} times over {idle.ElapsedMilliseconds} ms, {host.ScriptErrors} errors so far, {host.ForcedLayouts} layouts forced by scripts");
+				Console.WriteLine($"timers: pumped {pumps} times over {idle.ElapsedMilliseconds} ms (longest pump {longestPump} ms), {host.ScriptErrors} errors so far, {host.ForcedLayouts} layouts forced by scripts");
 
 			foreach (string selector in clicks)
 			{
@@ -268,7 +284,7 @@ namespace Alloy.Tools.PageProbe
 			if (box == null)
 				return name + " (no box)";
 			ComputedStyle style = box.Style;
-			return $"{name} {box.Kind} at {box.X:0},{box.Y:0} {box.Width:0}x{box.Height:0} display={style.Display} position={style.Position} float={style.Float} width={style.Width} height={style.Height} font={style.FontSize:0.#}px line={style.LineHeight:0.#} flex={style.FlexDirection}{(style.FlexWrap ? " wrap" : "")} grow={style.FlexGrow} margin={box.MarginTop:0}/{box.MarginRight:0}/{box.MarginBottom:0}/{box.MarginLeft:0} padding={box.PaddingTop:0}/{box.PaddingRight:0}/{box.PaddingBottom:0}/{box.PaddingLeft:0} visible={style.Visible} overflow={style.Overflow}";
+			return $"{name} {box.Kind} at {box.X:0},{box.Y:0} {box.Width:0}x{box.Height:0} display={style.Display} position={style.Position} float={style.Float} width={style.Width} height={style.Height} font={style.FontSize:0.#}px line={style.LineHeight:0.#} flex={style.FlexDirection}{(style.FlexWrap ? " wrap" : "")} grow={style.FlexGrow} margin={box.MarginTop:0}/{box.MarginRight:0}/{box.MarginBottom:0}/{box.MarginLeft:0} padding={box.PaddingTop:0}/{box.PaddingRight:0}/{box.PaddingBottom:0}/{box.PaddingLeft:0} visible={style.Visible} overflow={style.Overflow} opacity={style.Opacity}{(element.GetAttribute("style") != null ? " style=\"" + Trim(element.GetAttribute("style"), 80) + "\"" : "")}";
 		}
 
 		private static ResourceResponse Fetch(string method, Uri url, byte[] body, string contentType, IReadOnlyList<KeyValuePair<string, string>> headers)

@@ -21,6 +21,34 @@ namespace Alloy.Sdk.Web.Layout
 		Unfixed,
 	}
 
+	// The corner radii of a rectangle in pixels, clockwise from the top left
+	public readonly struct Corners
+	{
+		public readonly float TopLeft;
+		public readonly float TopRight;
+		public readonly float BottomRight;
+		public readonly float BottomLeft;
+
+		public Corners(float topLeft, float topRight, float bottomRight, float bottomLeft)
+		{
+			TopLeft = topLeft;
+			TopRight = topRight;
+			BottomRight = bottomRight;
+			BottomLeft = bottomLeft;
+		}
+
+		public bool Any => TopLeft > 0 || TopRight > 0 || BottomRight > 0 || BottomLeft > 0;
+
+		public float MaxTop => Math.Max(TopLeft, TopRight);
+
+		public float MaxBottom => Math.Max(BottomLeft, BottomRight);
+
+		// The radii of the rectangle inset by a border, which are that much smaller
+		public Corners Inset(float by) => new Corners(Math.Max(0, TopLeft - by), Math.Max(0, TopRight - by), Math.Max(0, BottomRight - by), Math.Max(0, BottomLeft - by));
+
+		public Corners Scale(float factor) => new Corners(TopLeft * factor, TopRight * factor, BottomRight * factor, BottomLeft * factor);
+	}
+
 	// One drawing operation in document coordinates; a renderer turns the list into pixels wherever it likes
 	public readonly struct DisplayItem
 	{
@@ -35,8 +63,14 @@ namespace Alloy.Sdk.Web.Layout
 		public readonly Alloy.Sdk.Web.Images.Bitmap Image;
 		// Extra advance after each character of a text item, the letter-spacing the layout measured with
 		public readonly float Spacing;
+		// Rounded corners of a rect or image
+		public readonly Corners Radius;
+		// When positive, a rect is only the ring this wide inside its edge, as a border around rounded corners
+		public readonly float Stroke;
+		// The opacity the item's colours are drawn with, from the opacity of the boxes it is inside
+		public readonly float Opacity;
 
-		public DisplayItem(DisplayItemKind kind, float x, float y, float width, float height, Color color, string text = null, LayoutFont font = null, Alloy.Sdk.Web.Images.Bitmap image = null, float spacing = 0)
+		public DisplayItem(DisplayItemKind kind, float x, float y, float width, float height, Color color, string text = null, LayoutFont font = null, Alloy.Sdk.Web.Images.Bitmap image = null, float spacing = 0, Corners radius = default, float stroke = 0, float opacity = 1)
 		{
 			Kind = kind;
 			X = x;
@@ -48,6 +82,9 @@ namespace Alloy.Sdk.Web.Layout
 			Font = font;
 			Image = image;
 			Spacing = spacing;
+			Radius = radius;
+			Stroke = stroke;
+			Opacity = opacity;
 		}
 
 		public override string ToString() => Kind switch
@@ -63,17 +100,26 @@ namespace Alloy.Sdk.Web.Layout
 		public readonly List<DisplayItem> Items = new List<DisplayItem>();
 		public float Width;
 		public float Height;
+		// The opacity of the boxes being painted, multiplied into everything added while it is below one
+		public float Opacity = 1;
 
-		public void Rect(float x, float y, float width, float height, Color color)
+		public void Rect(float x, float y, float width, float height, Color color) => Rect(x, y, width, height, color, default, 0);
+
+		public void Rect(float x, float y, float width, float height, Color color, Corners radius, float stroke)
 		{
 			if (width > 0 && height > 0 && color.A > 0)
-				Items.Add(new DisplayItem(DisplayItemKind.Rect, x, y, width, height, color));
+				Items.Add(new DisplayItem(DisplayItemKind.Rect, x, y, width, height, color, null, null, null, 0, radius, stroke, Opacity));
 		}
 
 		public void Text(float x, float baseline, string text, LayoutFont font, Color color, float spacing = 0)
 		{
 			if (text.Length > 0 && color.A > 0)
-				Items.Add(new DisplayItem(DisplayItemKind.Text, x, baseline, 0, 0, color, text, font, null, spacing));
+				Items.Add(new DisplayItem(DisplayItemKind.Text, x, baseline, 0, 0, color, text, font, null, spacing, default, 0, Opacity));
+		}
+
+		public void Image(float x, float y, float width, float height, Color color, string alt, Alloy.Sdk.Web.Images.Bitmap bitmap, Corners radius)
+		{
+			Items.Add(new DisplayItem(DisplayItemKind.Image, x, y, width, height, color, alt, null, bitmap, 0, radius, 0, Opacity));
 		}
 	}
 
@@ -104,6 +150,23 @@ namespace Alloy.Sdk.Web.Layout
 
 		private static void PaintBox(DisplayList list, LayoutBox box, bool isRoot)
 		{
+			// An element's opacity fades everything inside it; anonymous boxes carry none of their own
+			float saved = list.Opacity;
+			if (!isRoot && box.Node != null && box.Kind != BoxKind.Text && box.Style != null && box.Style.Opacity < 1)
+			{
+				list.Opacity *= box.Style.Opacity;
+				if (list.Opacity < 0.004f)
+				{
+					list.Opacity = saved;
+					return;
+				}
+			}
+			PaintBoxContents(list, box, isRoot);
+			list.Opacity = saved;
+		}
+
+		private static void PaintBoxContents(DisplayList list, LayoutBox box, bool isRoot)
+		{
 			ComputedStyle style = box.Style;
 			bool pinned = box.IsAbsolute && style.Position == Position.Fixed;
 			if (pinned)
@@ -126,10 +189,10 @@ namespace Alloy.Sdk.Web.Layout
 			if (clip)
 				list.Items.Add(new DisplayItem(DisplayItemKind.Clip, box.X, box.Y, box.Width, box.Height, default));
 			if (box.IsReplaced && box.Children.Count == 0 && box.TagName == "img" && box.Width > 0 && box.Height > 0 && style.Visible)
-				list.Items.Add(new DisplayItem(DisplayItemKind.Image, box.ContentX, box.ContentY, box.ContentWidth, box.ContentHeight, style.Color, box.Alt, null, box.Image));
+				list.Image(box.ContentX, box.ContentY, box.ContentWidth, box.ContentHeight, style.Color, box.Alt, box.Image, RadiiOf(box).Inset(Math.Max(box.BorderTop, box.PaddingTop)));
 			// An inline svg is rasterized at its box size, with currentColor being the element's colour
 			if (box.TagName == "svg" && box.Element != null && box.ContentWidth >= 1 && box.ContentHeight >= 1 && style.Visible)
-				list.Items.Add(new DisplayItem(DisplayItemKind.Image, box.ContentX, box.ContentY, box.ContentWidth, box.ContentHeight, style.Color, null, null, Alloy.Sdk.Web.Images.Svg.Cached(box.Element, (int)MathF.Round(box.ContentWidth), (int)MathF.Round(box.ContentHeight), style.Color, style.Rotate)));
+				list.Image(box.ContentX, box.ContentY, box.ContentWidth, box.ContentHeight, style.Color, null, Alloy.Sdk.Web.Images.Svg.Cached(box.Element, (int)MathF.Round(box.ContentWidth), (int)MathF.Round(box.ContentHeight), style.Color, style.Rotate), default);
 			if (box.Marker != null && style.Visible)
 				PaintMarker(list, box);
 			if (box.Lines != null)
@@ -180,10 +243,50 @@ namespace Alloy.Sdk.Web.Layout
 			ComputedStyle style = box.Style;
 			if (!style.Visible || box.Kind == BoxKind.Inline)
 				return;
+			Corners radii = RadiiOf(box);
+			if (radii.Any)
+			{
+				// Rounded corners: a uniform border is a ring around the rounded background; mixed borders stay straight-edged
+				float border = box.BorderTop;
+				bool uniform = border > 0 && box.BorderRight == border && box.BorderBottom == border && box.BorderLeft == border && style.BorderTop.Color.Argb == style.BorderRight.Color.Argb && style.BorderTop.Color.Argb == style.BorderBottom.Color.Argb && style.BorderTop.Color.Argb == style.BorderLeft.Color.Argb;
+				if (uniform)
+				{
+					if (!style.BackgroundColor.IsTransparent)
+						list.Rect(box.X + border, box.Y + border, box.Width - 2 * border, box.Height - 2 * border, style.BackgroundColor, radii.Inset(border), 0);
+					list.Rect(box.X, box.Y, box.Width, box.Height, BorderColor(style.BorderTop, style, true), radii, border);
+					return;
+				}
+				if (!style.BackgroundColor.IsTransparent)
+					list.Rect(box.X, box.Y, box.Width, box.Height, style.BackgroundColor, radii, 0);
+				PaintBorders(list, box.X, box.Y, box.Width, box.Height, style, box.BorderTop, box.BorderRight, box.BorderBottom, box.BorderLeft);
+				return;
+			}
 			if (!style.BackgroundColor.IsTransparent)
 				list.Rect(box.X, box.Y, box.Width, box.Height, style.BackgroundColor);
 			PaintBorders(list, box.X, box.Y, box.Width, box.Height, style, box.BorderTop, box.BorderRight, box.BorderBottom, box.BorderLeft);
 		}
+
+		// The box's corner radii in pixels: percentages of its size, and all scaled down together when neighbours would overlap
+		internal static Corners RadiiOf(LayoutBox box)
+		{
+			ComputedStyle style = box.Style;
+			if (style.RadiusTopLeft.Value == 0 && style.RadiusTopRight.Value == 0 && style.RadiusBottomRight.Value == 0 && style.RadiusBottomLeft.Value == 0)
+				return default;
+			float basis = Math.Min(box.Width, box.Height);
+			Corners radii = new Corners(Radius(style.RadiusTopLeft, box, basis), Radius(style.RadiusTopRight, box, basis), Radius(style.RadiusBottomRight, box, basis), Radius(style.RadiusBottomLeft, box, basis));
+			float factor = 1;
+			if (radii.TopLeft + radii.TopRight > box.Width)
+				factor = Math.Min(factor, box.Width / (radii.TopLeft + radii.TopRight));
+			if (radii.BottomLeft + radii.BottomRight > box.Width)
+				factor = Math.Min(factor, box.Width / (radii.BottomLeft + radii.BottomRight));
+			if (radii.TopLeft + radii.BottomLeft > box.Height)
+				factor = Math.Min(factor, box.Height / (radii.TopLeft + radii.BottomLeft));
+			if (radii.TopRight + radii.BottomRight > box.Height)
+				factor = Math.Min(factor, box.Height / (radii.TopRight + radii.BottomRight));
+			return factor < 1 ? radii.Scale(factor) : radii;
+		}
+
+		private static float Radius(Length length, LayoutBox box, float basis) => Math.Max(0, length.IsPercent ? length.Resolve(basis) : length.Value);
 
 		private static void PaintBorders(DisplayList list, float x, float y, float width, float height, ComputedStyle style, float top, float right, float bottom, float left)
 		{

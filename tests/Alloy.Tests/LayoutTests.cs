@@ -533,4 +533,31 @@ public class LayoutTests
 		Assert.Same(bar, Painter.HitTest(root, 10, 1010, 0, 1000));
 		Assert.NotSame(bar, Painter.HitTest(root, 10, 1010));
 	}
+
+	[Fact]
+	public void RoundedBoxesPaintWithCornersAndRings()
+	{
+		LayoutBox root = Lay("<body style=\"margin:0\"><div id=\"a\" style=\"width:100px;height:50px;border-radius:10px;background:#ff0000\"></div><div id=\"b\" style=\"width:100px;height:50px;border:2px solid #000000;border-radius:6px\"></div><div id=\"c\" style=\"width:40px;height:40px;border-radius:50%;background:#00ff00\"></div></body>");
+		DisplayList list = Painter.Paint(root, Width, Height);
+		DisplayItem red = list.Items.Find(item => item.Kind == DisplayItemKind.Rect && item.Color.ToString() == "#ff0000");
+		Assert.Equal(10, red.Radius.TopLeft);
+		Assert.Equal(0, red.Stroke);
+		DisplayItem ring = list.Items.Find(item => item.Kind == DisplayItemKind.Rect && item.Color.ToString() == "#000000" && item.Stroke > 0);
+		Assert.Equal(2, ring.Stroke);
+		Assert.Equal(6, ring.Radius.BottomRight);
+		DisplayItem green = list.Items.Find(item => item.Kind == DisplayItemKind.Rect && item.Color.ToString() == "#00ff00");
+		Assert.Equal(20, green.Radius.TopLeft);
+	}
+
+	[Fact]
+	public void OpacityFadesABoxAndWhatIsInsideIt()
+	{
+		LayoutBox root = Lay("<body style=\"margin:0\"><div style=\"opacity:0.5;background:#ff0000;width:100px;height:50px\"><p style=\"opacity:0.5\">faded</p></div><div style=\"opacity:0;background:#0000ff;width:10px;height:10px\"></div><p>solid</p></body>");
+		DisplayList list = Painter.Paint(root, Width, Height);
+		DisplayItem red = list.Items.Find(item => item.Kind == DisplayItemKind.Rect && item.Color.Rgb == 0xff0000);
+		Assert.Equal(0.5f, red.Opacity, 0.01f);
+		Assert.Equal(0.25f, list.Items.Find(item => item.Kind == DisplayItemKind.Text && item.Text == "faded").Opacity, 0.01f);
+		Assert.Equal(1f, list.Items.Find(item => item.Kind == DisplayItemKind.Text && item.Text == "solid").Opacity);
+		Assert.DoesNotContain(list.Items, item => item.Kind == DisplayItemKind.Rect && item.Color.Rgb == 0x0000ff);
+	}
 }

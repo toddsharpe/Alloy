@@ -214,6 +214,11 @@ namespace Alloy.Sdk.Web.Css
 		public BorderEdge BorderRight;
 		public BorderEdge BorderBottom;
 		public BorderEdge BorderLeft;
+		// Corner radii, percentages of the box's own size
+		public Length RadiusTopLeft = Length.Zero;
+		public Length RadiusTopRight = Length.Zero;
+		public Length RadiusBottomRight = Length.Zero;
+		public Length RadiusBottomLeft = Length.Zero;
 		public Length Width = Length.Auto;
 		public Length Height = Length.Auto;
 		public Length MinWidth = Length.Zero;

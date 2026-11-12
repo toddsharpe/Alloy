@@ -137,20 +137,46 @@ namespace Alloy.Sdk.Web.Dom
 				if (script.TagName == "script" && ScriptKind(script) == "importmap")
 					LoadImportMap(script);
 			}
+			// Classic scripts first, then modules, which the parser defers; an await that cannot progress runs the next one early
+			_queue.Clear();
+			_queueAt = 0;
 			foreach (Element script in new List<Element>(Document.DescendantElements()))
 			{
 				if (script.TagName == "script" && ScriptKind(script) == "classic")
-					RunScript(script);
+					_queue.Add(script);
 			}
 			foreach (Element script in new List<Element>(Document.DescendantElements()))
 			{
 				if (script.TagName == "script" && ScriptKind(script) == "module")
-					RunScript(script);
+					_queue.Add(script);
 			}
+			Interpreter.HostPump = PumpForAwait;
+			while (_queueAt < _queue.Count)
+				RunScript(_queue[_queueAt++]);
 			ReadyState = "interactive";
 			DispatchSimple("readystatechange", Document, false, false);
 			DispatchSimple("DOMContentLoaded", Document, true, false);
 			RunJobsBudgeted();
+		}
+
+		private readonly List<Element> _queue = new List<Element>();
+		private int _queueAt;
+
+		// What an await does while its promise is pending: a browser would run the scripts still to come and fire timers before resuming, so this does the same in that order
+		private bool PumpForAwait()
+		{
+			if (_queueAt < _queue.Count)
+			{
+				RunScript(_queue[_queueAt++]);
+				return true;
+			}
+			if (!Interpreter.HasTimers)
+				return false;
+			double wait = Interpreter.NextTimerDue - Now;
+			if (wait > 0)
+				System.Threading.Thread.Sleep((int)Math.Min(wait, 250));
+			Interpreter.RunTimers();
+			return true;
 		}
 
 		// Pending promise jobs under a budget, never unbounded: a page that chains work forever must not hold the load
@@ -288,6 +314,8 @@ namespace Alloy.Sdk.Web.Dom
 				source = script.TextContent;
 			Element previous = _currentScript;
 			_currentScript = script;
+			// A script run from inside another's await keeps that script's deadline when it hands back
+			double savedDeadline = Interpreter.Deadline;
 			Interpreter.Deadline = Math.Min(Now + ScriptBudgetMs, _loadDeadline);
 			ScriptsRun++;
 			try
@@ -299,7 +327,7 @@ namespace Alloy.Sdk.Web.Dom
 			}
 			finally
 			{
-				Interpreter.Deadline = double.PositiveInfinity;
+				Interpreter.Deadline = savedDeadline;
 				_currentScript = previous;
 			}
 			if (target != null)

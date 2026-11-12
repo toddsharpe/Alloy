@@ -51,7 +51,8 @@ namespace Alloy.Sdk.Script
 		public static Interpreter Current;
 		public readonly JsObject Global;
 		public readonly Scope GlobalScope;
-		public int MaxDepth = 2000;
+		// A generous frame limit; the thread's stack, checked on each call, is the real bound
+		public int MaxDepth = 20000;
 		public int CurrentLine;
 		public Action<string> OnError;
 		// A clock reading after which statements stop with a RangeError, so a runaway script cannot hold the host forever

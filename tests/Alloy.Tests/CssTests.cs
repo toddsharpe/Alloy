@@ -266,6 +266,22 @@ public class CssTests
 	}
 
 	[Fact]
+	public void ParsesBorderRadius()
+	{
+		ComputedStyle all = Style("<p>x</p>", "p { border-radius: 4px }", "p");
+		Assert.Equal(4, all.RadiusTopLeft.Value);
+		Assert.Equal(4, all.RadiusBottomRight.Value);
+		ComputedStyle two = Style("<p>x</p>", "p { border-radius: 8px 0 }", "p");
+		Assert.Equal(8, two.RadiusTopLeft.Value);
+		Assert.Equal(0, two.RadiusTopRight.Value);
+		Assert.Equal(8, two.RadiusBottomRight.Value);
+		Assert.Equal(0, two.RadiusBottomLeft.Value);
+		Assert.True(Style("<p>x</p>", "p { border-radius: 50% }", "p").RadiusTopLeft.IsPercent);
+		Assert.Equal(10, Style("<p>x</p>", "p { border-radius: 10px / 5px }", "p").RadiusTopRight.Value);
+		Assert.Equal(3, Style("<p>x</p>", "p { border-top-left-radius: 3px }", "p").RadiusTopLeft.Value);
+	}
+
+	[Fact]
 	public void ParsesTransformRotation()
 	{
 		Assert.Equal(90, Style("<p>x</p>", "p { transform: rotate(90deg) }", "p").Rotate);

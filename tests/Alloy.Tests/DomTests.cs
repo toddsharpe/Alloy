@@ -73,6 +73,13 @@ public class DomTests
 	private static string Eval(Harness harness, string expression) => harness.Host.Interpreter.Evaluate(expression).ToJsString();
 
 	[Fact]
+	public void AnAwaitThatCannotProgressRunsTheNextScript()
+	{
+		Harness harness = Open("<script>window.p = new Promise(r => window.resolveIt = r); (async () => { document.title = 'got ' + await window.p; })();</script><script type=\"module\">window.resolveIt('late');</script><p>x</p>");
+		Assert.Equal("got late", harness.Host.Document.Title);
+	}
+
+	[Fact]
 	public void MutatesTheDocument()
 	{
 		Harness h = Open(@"<title>Old</title><div id=a class='x y'>hi</div><script>
