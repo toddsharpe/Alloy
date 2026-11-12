@@ -8,7 +8,9 @@ namespace Alloy.Sdk.Script
 	// Date: a time value in milliseconds since the epoch, taken apart and put together here; local time is UTC on this system
 	public sealed partial class Interpreter
 	{
-		public ClockHandler Now = () => Math.Floor((DateTime.UtcNow - DateTime.UnixEpoch).TotalMilliseconds);
+		// The wall clock in milliseconds since the epoch; hosts without DateTime.UtcNow set the default before making interpreters
+		public static ClockHandler DefaultNow = () => Math.Floor((DateTime.UtcNow - DateTime.UnixEpoch).TotalMilliseconds);
+		public ClockHandler Now = DefaultNow;
 		private static readonly string[] Days = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
 		private static readonly string[] Months = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 		private static readonly string[] LongMonths = { "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december" };

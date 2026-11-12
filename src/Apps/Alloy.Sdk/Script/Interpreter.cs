@@ -50,6 +50,13 @@ namespace Alloy.Sdk.Script
 		public int MaxDepth = 2000;
 		public int CurrentLine;
 		public Action<string> OnError;
+		// A clock reading after which statements stop with a RangeError, so a runaway script cannot hold the host forever
+		public double Deadline = double.PositiveInfinity;
+		private int _steps;
+		private int _running;
+
+		// Whether script is executing right now, so a host callback knows not to drain the job queue underneath it
+		public bool InScript => _running > 0 || _depth > 0;
 		[ThreadStatic]
 		private static int _depth;
 		[ThreadStatic]
@@ -115,6 +122,7 @@ namespace Alloy.Sdk.Script
 		{
 			Interpreter prior = Current;
 			Current = this;
+			_running++;
 			try
 			{
 				HoistVars(program.Body, GlobalScope, true);
@@ -126,11 +134,23 @@ namespace Alloy.Sdk.Script
 					if (completion.HasValue)
 						last = completion.Value;
 				}
-				RunJobs();
+				if (_running == 1)
+				{
+					_running--;
+					try
+					{
+						RunJobs();
+					}
+					finally
+					{
+						_running++;
+					}
+				}
 				return last;
 			}
 			finally
 			{
+				_running--;
 				Current = prior;
 			}
 		}
@@ -153,6 +173,8 @@ namespace Alloy.Sdk.Script
 		private Completion Execute(Statement statement, Scope scope)
 		{
 			CurrentLine = statement.Line;
+			if ((++_steps & 1023) == 0 && Clock() > Deadline)
+				throw RangeError("Script ran too long");
 			switch (statement)
 			{
 				case ExpressionStatement e:

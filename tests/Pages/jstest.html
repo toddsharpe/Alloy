@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><title>Script test</title>
+<style>body { font-family: sans-serif; margin: 24px } #box { background: #ffd; padding: 12px; border: 2px solid #cc0 } .on { background: #cfc } button { font-size: 18px; padding: 6px 14px } li { margin: 4px 0 }</style>
+</head><body>
+<h1 id="title">Loading...</h1>
+<p>Clock: <span id="clock">-</span> &nbsp; Clicks: <b id="count">0</b></p>
+<button id="btn">Click me</button>
+<button id="toggle">Toggle box</button>
+<div id="box">The box</div>
+<form id="f"><input id="name" placeholder="type here"> <span id="echo"></span></form>
+<ul id="list"></ul>
+<p id="fetched">fetch: pending</p>
+<script>
+  document.getElementById('title').textContent = 'JavaScript works on Alloy';
+  let clicks = 0;
+  document.getElementById('btn').addEventListener('click', () => {
+    clicks++;
+    document.getElementById('count').textContent = clicks;
+    const li = document.createElement('li');
+    li.textContent = 'click ' + clicks + ' at ' + new Date().toLocaleTimeString();
+    document.getElementById('list').prepend(li);
+  });
+  document.getElementById('toggle').onclick = () => document.getElementById('box').classList.toggle('on');
+  document.getElementById('name').addEventListener('input', e => document.getElementById('echo').textContent = 'you typed: ' + e.target.value);
+  let ticks = 0;
+  setInterval(() => { ticks++; document.getElementById('clock').textContent = ticks + 's'; }, 1000);
+  fetch('data.json').then(r => r.json()).then(d => document.getElementById('fetched').textContent = 'fetch: ' + d.items.join(', ')).catch(e => document.getElementById('fetched').textContent = 'fetch failed: ' + e.message);
+</script>
+</body></html>

@@ -97,7 +97,22 @@ namespace Alloy.Apps.Browser
 			s_forward = new Button(">", default) { Click = _ => Forward() };
 			s_reload = new Button("Reload", default) { Click = _ => Reload() };
 			s_address = new AddressBar(default) { Submit = Go };
-			s_page = new PageControl(default) { LinkClicked = target => Navigate(Get(target), true), LinkHovered = ShowLink, FormSubmitted = submission => Navigate(submission, true) };
+			s_page = new PageControl(default)
+			{
+				LinkClicked = target => Navigate(Get(target), true),
+				LinkHovered = ShowLink,
+				FormSubmitted = submission => Navigate(submission, true),
+				HistoryRequested = delta =>
+				{
+					if (delta < 0)
+						Back();
+					else
+						Forward();
+				},
+				Alerted = text => Status("Alert: " + text),
+				ConsoleOutput = ScriptConsole,
+			};
+			Page.DefaultFonts = new SdkFontProvider();
 			s_status = new Label("", default, 1) { Foreground = Theme.Hint, Background = Theme.Iron };
 			Arrange();
 			s_gui.Add(s_page);
@@ -163,14 +178,33 @@ namespace Alloy.Apps.Browser
 						s_loadedPush = push;
 					}
 				}
-			});
+			}, 16 * 1024 * 1024);
 			worker.IsBackground = true;
 			worker.Start();
 		}
 
-		// Every tick: a finished load becomes the shown page, and any request made meanwhile starts
+		// Scripts' console lines go to the kernel log; errors show on the status line too
+		private static void ScriptConsole(string level, string text)
+		{
+			Console.WriteLine($"browser: script {level}: {text}");
+			if (level == "error")
+			{
+				int newline = text.IndexOf('\n');
+				Status("Script error: " + (newline < 0 ? text : text.Substring(0, newline)));
+			}
+		}
+
+		// Every tick: the page's timers run, a finished load becomes the shown page, and any request made meanwhile starts
 		private static bool OnTick(Gui gui)
 		{
+			bool changed = s_page.Tick();
+			if (s_page.Page?.Scripts is { TitleChanged: true } scripts)
+			{
+				scripts.TitleChanged = false;
+				if (s_loading == null)
+					Status(s_page.Title);
+				changed = true;
+			}
 			Page page;
 			bool push;
 			FormSubmission request;
@@ -182,7 +216,7 @@ namespace Alloy.Apps.Browser
 				s_loaded = null;
 			}
 			if (page == null)
-				return false;
+				return changed;
 			s_loading = null;
 			s_page.Show(page);
 			string shown = Address.Display(page.Url);
@@ -196,7 +230,7 @@ namespace Alloy.Apps.Browser
 			}
 			if (!s_address.Focused)
 				s_address.Text = shown;
-			Status(page.Error != null ? page.Error : $"{page.Title}  ({page.Status}, {page.StylesheetUrls.Count} stylesheets, fetched in {page.FetchMs} ms)");
+			Status(page.Error != null ? page.Error : $"{page.Title}  ({page.Status}, {page.StylesheetUrls.Count} stylesheets, {page.Scripts?.ScriptsRun ?? 0} scripts, fetched in {page.FetchMs} ms)");
 			if (s_pending != null)
 			{
 				FormSubmission next = s_pending;
