@@ -123,12 +123,14 @@ namespace Alloy.Sdk.Web.Render
 				Invalidate();
 		}
 
-		// Timers and jobs the page's scripts queued; true when the page needs redrawing
+		// Timers and jobs the page's scripts queued, and pictures that finished decoding; true when the page needs redrawing
 		public bool Tick()
 		{
-			if (Page?.Scripts == null)
+			if (Page == null)
 				return false;
-			bool changed = Page.Scripts.Pump();
+			bool changed = Page.Scripts != null && Page.Scripts.Pump();
+			if (Page.TakeImagesChanged())
+				changed = true;
 			if (changed)
 				Invalidate();
 			return changed;

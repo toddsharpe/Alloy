@@ -18,9 +18,22 @@ namespace Alloy.Sdk.Web
 
 		// Where a redirect the client would not follow points (another scheme, usually https)
 		public string Redirect;
-		// Decoded images by absolute URL, and how many img elements asked for one
+		// Decoded images by absolute URL, filled in by worker threads after the first paint, and how many img elements asked for one
 		public readonly Dictionary<string, Bitmap> Images = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
 		public int ImageCount;
+		private volatile bool _imagesChanged;
+		private volatile int _imagesPending;
+
+		// True once since the last call when a picture finished decoding, so the host relayouts to show it
+		public bool TakeImagesChanged()
+		{
+			if (!_imagesChanged)
+				return false;
+			_imagesChanged = false;
+			return true;
+		}
+
+		public int ImagesPending => _imagesPending;
 		public const int MaxImages = 60;
 		public const int MaxImageBytes = 8 * 1024 * 1024;
 		public const int ImageThreads = 4;
@@ -273,26 +286,30 @@ namespace Alloy.Sdk.Web
 			}
 		}
 
-		// Fetches and decodes the pictures the img elements point at, each URL once, up to the limits, on a few threads at once
+		// Starts fetching and decoding the pictures the img elements point at, each URL once, up to the limits, on a few threads; the page paints meanwhile and again as they arrive
 		private void CollectImages(ulong timeoutMs)
 		{
 			List<string> keys = new List<string>();
-			foreach (Element element in Document.DescendantElements())
+			lock (Images)
 			{
-				if (element.TagName != "img")
-					continue;
-				ImageCount++;
-				if (keys.Count >= MaxImages)
-					continue;
-				string key = ImageKey(element);
-				if (key == null || Images.ContainsKey(key))
-					continue;
-				Images[key] = null;
-				keys.Add(key);
+				foreach (Element element in Document.DescendantElements())
+				{
+					if (element.TagName != "img")
+						continue;
+					ImageCount++;
+					if (keys.Count >= MaxImages)
+						continue;
+					string key = ImageKey(element);
+					if (key == null || Images.ContainsKey(key))
+						continue;
+					Images[key] = null;
+					keys.Add(key);
+				}
 			}
 			if (keys.Count == 0)
 				return;
 			int next = 0;
+			_imagesPending = keys.Count;
 			void Worker()
 			{
 				while (true)
@@ -304,26 +321,25 @@ namespace Alloy.Sdk.Web
 							return;
 						key = keys[next++];
 					}
-					HttpResponse response = Http.Get(key, timeoutMs);
-					if (!response.Ok || response.Body.Length == 0 || response.Body.Length > MaxImageBytes)
-						continue;
-					if (ImageDecoder.TryDecode(response.Body, out Bitmap bitmap, out _))
+					try
 					{
-						lock (Images)
-							Images[key] = bitmap;
+						HttpResponse response = Http.Get(key, timeoutMs);
+						if (response.Ok && response.Body.Length > 0 && response.Body.Length <= MaxImageBytes && ImageDecoder.TryDecode(response.Body, out Bitmap bitmap, out _))
+						{
+							lock (Images)
+								Images[key] = bitmap;
+							_imagesChanged = true;
+						}
+					}
+					finally
+					{
+						System.Threading.Interlocked.Decrement(ref _imagesPending);
 					}
 				}
 			}
 			int threads = Math.Min(ImageThreads, keys.Count);
-			System.Threading.Thread[] workers = new System.Threading.Thread[threads - 1];
-			for (int i = 0; i < workers.Length; i++)
-			{
-				workers[i] = new System.Threading.Thread(Worker) { IsBackground = true };
-				workers[i].Start();
-			}
-			Worker();
-			foreach (System.Threading.Thread worker in workers)
-				worker.Join();
+			for (int i = 0; i < threads; i++)
+				new System.Threading.Thread(Worker, 1024 * 1024) { IsBackground = true }.Start();
 		}
 
 		// The absolute http URL of an img's src, or null when it is missing, relative to nothing, or another scheme
@@ -342,7 +358,10 @@ namespace Alloy.Sdk.Web
 		public Bitmap ImageFor(Element element)
 		{
 			string key = ImageKey(element);
-			return key != null && Images.TryGetValue(key, out Bitmap bitmap) ? bitmap : null;
+			if (key == null)
+				return null;
+			lock (Images)
+				return Images.TryGetValue(key, out Bitmap bitmap) ? bitmap : null;
 		}
 
 		private static bool MediaAttributeApplies(Element element)

@@ -154,8 +154,9 @@ namespace Alloy.Sdk.Web.Css
 				case "rem":
 					return value * rootFontSize;
 				case "ex":
-				case "ch":
 					return value * fontSize * 0.5;
+				case "ch":
+					return value * fontSize * 0.55;
 				case "pt":
 					return value * 96 / 72;
 				case "pc":
