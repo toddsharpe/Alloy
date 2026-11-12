@@ -37,6 +37,7 @@ namespace Alloy.Apps.JsApp
 				source = Encoding.UTF8.GetString(bytes);
 			}
 
+			Interpreter.DefaultNow = Page.EpochNow;
 			Interpreter interpreter = new Interpreter();
 			interpreter.OnConsole = (level, text) => Console.WriteLine(level == "log" || level == "info" || level == "debug" ? text : level + ": " + text);
 			interpreter.OnError = text => Console.WriteLine(text);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Alloy.Sdk.Web.Css;
+using Alloy.Sdk.Web.Dom;
 using Alloy.Sdk.Web.Html;
 using Alloy.Sdk.Web.Images;
 using Alloy.Sdk.Web.Layout;
@@ -29,8 +30,37 @@ namespace Alloy.Sdk.Web
 		public DisplayList Display;
 		public long FetchMs;
 		public long LayoutMs;
+		// The page's scripts and what they see; null when scripting is off
+		public ScriptHost Scripts;
+		public static bool ScriptsEnabled = true;
+		public static IFontProvider DefaultFonts;
+		public const int DefaultViewportWidth = 1200;
+		public const int DefaultViewportHeight = 746;
+		private readonly Dictionary<Element, string> _linkSheets = new Dictionary<Element, string>();
 
 		public string Title => Document?.Title ?? Url?.Host ?? "";
+
+		static Page()
+		{
+			Script.Interpreter.DefaultNow = EpochNow;
+		}
+
+		// The kernel's clock as scripts want it: milliseconds since the epoch, with the RTC taken as UTC
+		public static double EpochNow()
+		{
+			Abi.SystemTime time = Kernel.Time;
+			if (time.Year < 2000)
+				return 0;
+			try
+			{
+				DateTime now = new DateTime(time.Year, time.Month, time.Day, time.Hour, time.Minute, time.Second, time.Milliseconds, DateTimeKind.Utc);
+				return Math.Floor((now - DateTime.UnixEpoch).TotalMilliseconds);
+			}
+			catch (ArgumentOutOfRangeException)
+			{
+				return 0;
+			}
+		}
 
 		// Fetches a URL and its stylesheets; a failure is reported through Error and an empty document
 		public static Page Load(string url, ulong timeoutMs = 15000) => Load(new FormSubmission { Url = Uri.TryCreate(url, UriKind.Absolute, out Uri parsed) ? parsed : null, Method = "GET" }, url, timeoutMs);
@@ -87,34 +117,53 @@ namespace Alloy.Sdk.Web
 			if (type.Contains("text/plain", StringComparison.OrdinalIgnoreCase))
 				page.Document.Body.FirstElement("pre").AppendChild(new TextNode(response.BodyText()));
 			page.CollectStylesheets(timeoutMs);
+			page.RunScripts(timeoutMs);
+			page.CollectStylesheets(timeoutMs);
 			page.CollectImages(timeoutMs);
 			page.FetchMs = (long)(Kernel.TickCount - start);
+			page.Scripts?.FireLoad();
 			return page;
 		}
+
+		// Runs the page's scripts, with the network for their fetches and a layout on demand for their measurements
+		private void RunScripts(ulong timeoutMs)
+		{
+			if (!ScriptsEnabled || Document == null)
+				return;
+			Scripts = new ScriptHost(Document, Url);
+			Scripts.Fetch = (method, url, body, contentType) => ToResource(Http.Request(method, url, body, contentType, timeoutMs));
+			Scripts.BoxFor = BoxFor;
+			Scripts.EnsureLayout = () => Layout(DefaultViewportWidth, DefaultViewportHeight, DefaultFonts ?? new FixedFontProvider());
+			Scripts.ViewportWidth = DefaultViewportWidth;
+			Scripts.ViewportHeight = DefaultViewportHeight;
+			Scripts.Console = (level, text) => Console.WriteLine("script " + level + ": " + text);
+			Scripts.RunScripts();
+		}
+
+		private static ResourceResponse ToResource(HttpResponse response) => new ResourceResponse
+		{
+			Status = response.Status,
+			Reason = response.Reason,
+			Url = response.Url,
+			Headers = response.Headers,
+			Body = response.Body,
+			Error = response.Error,
+		};
 
 		// A page from markup already in hand, for errors and tests
 		public static Page FromHtml(string html, Uri url = null)
 		{
 			Page page = new Page { Url = url, Document = HtmlParser.Parse(html) };
-			foreach (Element element in page.Document.DescendantElements())
-			{
-				if (element.TagName == "style")
-					page.StylesheetText.Add(element.TextContent);
-			}
+			page.RefreshStylesheets();
 			return page;
 		}
 
+		// Fetches the linked stylesheets not fetched yet, then rebuilds the list layout reads
 		private void CollectStylesheets(ulong timeoutMs)
 		{
-			foreach (Element element in Document.DescendantElements())
+			foreach (Element element in new List<Element>(Document.DescendantElements()))
 			{
-				if (element.TagName == "style")
-				{
-					if (MediaAttributeApplies(element))
-						StylesheetText.Add(element.TextContent);
-					continue;
-				}
-				if (element.TagName != "link" || StylesheetUrls.Count >= 12)
+				if (element.TagName != "link" || _linkSheets.ContainsKey(element) || StylesheetUrls.Count >= 12)
 					continue;
 				string rel = element.GetAttribute("rel") ?? "";
 				if (!rel.Contains("stylesheet", StringComparison.OrdinalIgnoreCase) || rel.Contains("alternate", StringComparison.OrdinalIgnoreCase))
@@ -128,7 +177,24 @@ namespace Alloy.Sdk.Web
 					continue;
 				StylesheetUrls.Add(target.ToString());
 				HttpResponse response = Http.Get(target, timeoutMs);
-				StylesheetText.Add(response.Ok ? response.BodyText() : "");
+				_linkSheets[element] = response.Ok ? response.BodyText() : "";
+			}
+			RefreshStylesheets();
+		}
+
+		// The stylesheets in document order: style elements as they stand now, link elements as fetched
+		private void RefreshStylesheets()
+		{
+			StylesheetText.Clear();
+			foreach (Element element in Document.DescendantElements())
+			{
+				if (element.TagName == "style")
+				{
+					if (MediaAttributeApplies(element))
+						StylesheetText.Add(element.TextContent);
+				}
+				else if (_linkSheets.TryGetValue(element, out string css))
+					StylesheetText.Add(css);
 			}
 		}
 
@@ -216,6 +282,8 @@ namespace Alloy.Sdk.Web
 		public void Layout(int width, int height, IFontProvider fonts)
 		{
 			ulong start = Kernel.TickCount;
+			if (Scripts != null && Scripts.Dirty)
+				RefreshStylesheets();
 			CssValue.Viewport.Width = width;
 			CssValue.Viewport.Height = height;
 			MediaEnvironment media = new MediaEnvironment(width, height);
@@ -226,6 +294,8 @@ namespace Alloy.Sdk.Web
 			new LayoutEngine(fonts, width, height).Layout(Root);
 			Display = Painter.Paint(Root, width, height);
 			LayoutMs = (long)(Kernel.TickCount - start);
+			if (Scripts != null)
+				Scripts.Dirty = false;
 		}
 
 		// The form control under a document point (text field, button, checkbox, radio or select), if any

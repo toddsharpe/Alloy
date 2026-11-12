@@ -2,6 +2,7 @@ using System;
 using Alloy.Abi;
 using Alloy.Graphics;
 using Alloy.Sdk.UI;
+using Alloy.Sdk.Web.Dom;
 using Alloy.Sdk.Web.Html;
 using Alloy.Sdk.Web.Layout;
 
@@ -30,6 +31,11 @@ namespace Alloy.Sdk.Web.Render
 		public Action<Uri> LinkClicked;
 		public Action<Uri> LinkHovered;
 		public Action<FormSubmission> FormSubmitted;
+		// Scripts asked to move through history, showed an alert, or wrote to the console
+		public Action<int> HistoryRequested;
+		public Action<string> Alerted;
+		public Action<string, string> ConsoleOutput;
+		private string _focusValue;
 
 		public PageControl(Rectangle bounds) : base(bounds)
 		{
@@ -44,15 +50,87 @@ namespace Alloy.Sdk.Web.Render
 			_laidOutWidth = 0;
 			_hovered = null;
 			FocusedField = null;
+			Attach(page.Scripts);
+		}
+
+		// Hooks the page's scripts to this control: layout for their measurements, scrolling, focus, navigation and the status line
+		private void Attach(ScriptHost scripts)
+		{
+			if (scripts == null)
+				return;
+			scripts.BoxFor = Page.BoxFor;
+			scripts.EnsureLayout = EnsureLayout;
+			scripts.ScrollY = () => ScrollY;
+			scripts.ScrollTo = y =>
+			{
+				ScrollY = y;
+				ClampScroll();
+			};
+			scripts.Focus = element =>
+			{
+				FocusedField = Forms.IsTextField(element) ? element : null;
+				_focusValue = element == null ? null : Forms.ValueOf(element);
+			};
+			scripts.Navigate = submission => FormSubmitted?.Invoke(submission);
+			scripts.HistoryMove = delta => HistoryRequested?.Invoke(delta);
+			scripts.Alert = text => Alerted?.Invoke(text);
+			scripts.Console = (level, text) => ConsoleOutput?.Invoke(level, text);
+			scripts.ViewportWidth = Bounds.Width;
+			scripts.ViewportHeight = Bounds.Height;
 		}
 
 		public void SetBounds(Rectangle bounds)
 		{
 			Bounds = bounds;
 			_laidOutWidth = 0;
+			if (Page?.Scripts != null)
+			{
+				Page.Scripts.ViewportWidth = bounds.Width;
+				Page.Scripts.ViewportHeight = bounds.Height;
+				Page.Scripts.DispatchSimple("resize", Page.Scripts.Interpreter.Global, false, false);
+			}
 		}
 
-		public void Blur() => FocusedField = null;
+		public void Blur() => LeaveField();
+
+		private void EnterField(Element field)
+		{
+			FocusedField = field;
+			_focusValue = Forms.ValueOf(field);
+			Page.Scripts?.SetActiveElement(field);
+			Touch();
+		}
+
+		// Leaves the focused field, with a change event when its value moved
+		private void LeaveField()
+		{
+			Element field = FocusedField;
+			FocusedField = null;
+			if (field == null || Page?.Scripts == null)
+				return;
+			if (_focusValue != Forms.ValueOf(field))
+				Page.Scripts.DispatchSimple("change", field, true, false);
+			Page.Scripts.SetActiveElement(null);
+			Touch();
+		}
+
+		// After scripts ran: the page is laid out again if they changed it
+		private void Touch()
+		{
+			if (Page?.Scripts != null && Page.Scripts.Dirty)
+				Invalidate();
+		}
+
+		// Timers and jobs the page's scripts queued; true when the page needs redrawing
+		public bool Tick()
+		{
+			if (Page?.Scripts == null)
+				return false;
+			bool changed = Page.Scripts.Pump();
+			if (changed)
+				Invalidate();
+			return changed;
+		}
 
 		public int CountBoxes()
 		{
@@ -68,7 +146,7 @@ namespace Alloy.Sdk.Web.Render
 
 		private void EnsureLayout()
 		{
-			if (Page == null || (_laidOutWidth == Bounds.Width && _laidOutHeight == Bounds.Height))
+			if (Page == null || (_laidOutWidth == Bounds.Width && _laidOutHeight == Bounds.Height && !(Page.Scripts?.Dirty ?? false)))
 				return;
 			Page.Layout(Bounds.Width, Bounds.Height, _fonts);
 			_laidOutWidth = Bounds.Width;
@@ -177,7 +255,16 @@ namespace Alloy.Sdk.Web.Render
 					return false;
 			}
 			ClampScroll();
+			Scrolled();
 			return true;
+		}
+
+		private void Scrolled()
+		{
+			if (Page?.Scripts == null)
+				return;
+			Page.Scripts.DispatchSimple("scroll", Page.Document, true, false);
+			Touch();
 		}
 
 		// Typing into the focused field: characters, Backspace, Enter submits a single-line field's form, Escape and Tab leave it; true when consumed
@@ -185,12 +272,18 @@ namespace Alloy.Sdk.Web.Render
 		{
 			if (FocusedField == null || Page == null)
 				return false;
+			ScriptHost scripts = Page.Scripts;
 			bool multiline = FocusedField.TagName == "textarea";
+			if (scripts != null && !scripts.DispatchKey("keydown", FocusedField, KeyName(key, shift), KeyCodeName(key), key, shift, ctrl, false))
+			{
+				Touch();
+				return true;
+			}
 			switch (key)
 			{
 				case VirtualKey.Escape:
 				case VirtualKey.Tab:
-					FocusedField = null;
+					LeaveField();
 					return true;
 				case VirtualKey.Return:
 					if (multiline)
@@ -198,7 +291,19 @@ namespace Alloy.Sdk.Web.Render
 						Append("\n");
 						return true;
 					}
-					Submit(FocusedField);
+					if (scripts == null)
+					{
+						Submit(FocusedField);
+						return true;
+					}
+					if (_focusValue != Forms.ValueOf(FocusedField))
+					{
+						_focusValue = Forms.ValueOf(FocusedField);
+						scripts.DispatchSimple("change", FocusedField, true, false);
+					}
+					if (FocusedField != null)
+						scripts.SubmitForm(FocusedField);
+					Touch();
 					return true;
 				case VirtualKey.Back:
 				{
@@ -207,6 +312,7 @@ namespace Alloy.Sdk.Web.Render
 					{
 						Forms.SetValue(FocusedField, ctrl ? "" : value.Substring(0, value.Length - 1));
 						Invalidate();
+						scripts?.DispatchInput(FocusedField, null);
 					}
 					return true;
 				}
@@ -236,6 +342,53 @@ namespace Alloy.Sdk.Web.Render
 				return;
 			Forms.SetValue(FocusedField, value + text);
 			Invalidate();
+			Page.Scripts?.DispatchInput(FocusedField, text);
+		}
+
+		// The key and code names scripts expect for a virtual key
+		private static string KeyName(ushort key, bool shift)
+		{
+			switch (key)
+			{
+				case VirtualKey.Return:
+					return "Enter";
+				case VirtualKey.Back:
+					return "Backspace";
+				case VirtualKey.Escape:
+					return "Escape";
+				case VirtualKey.Tab:
+					return "Tab";
+				case VirtualKey.Left:
+					return "ArrowLeft";
+				case VirtualKey.Right:
+					return "ArrowRight";
+				case VirtualKey.Up:
+					return "ArrowUp";
+				case VirtualKey.Down:
+					return "ArrowDown";
+				case VirtualKey.Home:
+					return "Home";
+				case VirtualKey.End:
+					return "End";
+				case VirtualKey.Prior:
+					return "PageUp";
+				case VirtualKey.Next:
+					return "PageDown";
+				case VirtualKey.Space:
+					return " ";
+			}
+			char c = KeyMap.ToChar(key, shift);
+			return c == '\0' ? "Unidentified" : c.ToString();
+		}
+
+		private static string KeyCodeName(ushort key)
+		{
+			if (key >= 'A' && key <= 'Z')
+				return "Key" + (char)key;
+			if (key >= '0' && key <= '9')
+				return "Digit" + (char)key;
+			string name = KeyName(key, false);
+			return name == " " ? "Space" : name.Length == 1 ? "Unidentified" : name;
 		}
 
 		private void Submit(Element control)
@@ -262,6 +415,7 @@ namespace Alloy.Sdk.Web.Render
 			{
 				ScrollY -= wheel * LineStep * 3 / 2;
 				ClampScroll();
+				Scrolled();
 				return true;
 			}
 			bool down = (buttons & InputEvent.LeftButton) != 0;
@@ -276,56 +430,115 @@ namespace Alloy.Sdk.Web.Render
 				{
 					_pressX = x;
 					_pressY = y;
+					DispatchMouseAt("mousedown", x, y);
 				}
 				return false;
 			}
 			int pressX = _pressX;
 			int pressY = _pressY;
 			_pressX = _pressY = -1;
-			if (Math.Abs(pressX - x) > 3 || Math.Abs(pressY - y) > 3 || !Bounds.Contains(x, y))
+			if (!Bounds.Contains(x, y))
 				return false;
-			return Click(x - Bounds.X, y - Bounds.Y + ScrollY);
+			bool allowed = DispatchMouseAt("mouseup", x, y);
+			if (Math.Abs(pressX - x) > 3 || Math.Abs(pressY - y) > 3)
+				return !allowed || _laidOutWidth == 0;
+			return Click(x - Bounds.X, y - Bounds.Y + ScrollY) || _laidOutWidth == 0;
 		}
 
-		// A click lands on a control first, then on a link
+		// The element under a document point, for the events scripts listen to
+		private Element ElementAt(float x, float y)
+		{
+			LayoutBox hit = Page.Root == null ? null : Painter.HitTest(Page.Root, x, y);
+			for (Node node = hit?.Node; node != null; node = node.Parent)
+			{
+				if (node is Element element)
+					return element;
+			}
+			return Page.Document?.Body ?? Page.Document?.DocumentElement;
+		}
+
+		private bool DispatchMouseAt(string type, int x, int y)
+		{
+			if (Page?.Scripts == null)
+				return true;
+			float px = x - Bounds.X;
+			float py = y - Bounds.Y + ScrollY;
+			Element target = ElementAt(px, py);
+			if (target == null)
+				return true;
+			bool allowed = Page.Scripts.DispatchMouse(type, target, px, py);
+			Touch();
+			return allowed;
+		}
+
+		// A click goes to the page's scripts first, then lands on a control, then on a link
 		private bool Click(float x, float y)
 		{
+			ScriptHost scripts = Page.Scripts;
+			if (scripts != null)
+			{
+				Element target = ElementAt(x, y);
+				if (target != null && !scripts.DispatchMouse("click", target, x, y))
+				{
+					Touch();
+					return true;
+				}
+			}
 			Element control = Page.ControlAt(x, y);
 			if (control != null)
 			{
 				if (Forms.IsTextField(control))
 				{
-					FocusedField = control;
+					if (FocusedField != control)
+					{
+						LeaveField();
+						EnterField(control);
+					}
 					return true;
 				}
-				FocusedField = null;
+				LeaveField();
 				if (Forms.IsCheckable(control))
 				{
 					Forms.Toggle(control);
 					Invalidate();
+					scripts?.DispatchInput(control, null);
+					scripts?.DispatchSimple("change", control, true, false);
 					return true;
 				}
 				if (control.TagName == "select")
 				{
 					Forms.Advance(control);
 					Invalidate();
+					scripts?.DispatchInput(control, null);
+					scripts?.DispatchSimple("change", control, true, false);
 					return true;
 				}
 				if (Forms.IsSubmitButton(control))
 				{
-					Submit(control);
+					if (scripts != null)
+						scripts.SubmitForm(control);
+					else
+						Submit(control);
+					Touch();
 					return true;
 				}
 				return false;
 			}
 			bool hadFocus = FocusedField != null;
-			FocusedField = null;
+			LeaveField();
 			Element link = Page.LinkAt(x, y);
 			if (link == null)
 				return hadFocus;
-			Uri target = Page.Resolve(link.GetAttribute("href"));
-			if (target != null)
-				LinkClicked?.Invoke(target);
+			string href = link.GetAttribute("href") ?? "";
+			if (scripts != null && href.StartsWith("#", StringComparison.Ordinal))
+			{
+				scripts.PerformClickDefault(link);
+				Touch();
+				return true;
+			}
+			Uri destination = Page.Resolve(href);
+			if (destination != null)
+				LinkClicked?.Invoke(destination);
 			return hadFocus;
 		}
 

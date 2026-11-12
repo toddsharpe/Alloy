@@ -26,9 +26,11 @@ namespace Alloy.Apps.PageView
 			Gui gui = Gui.Create("View", 40, 40 + Theme.FrameTop, 1024, 720, WmProtocol.StyleResizable, Icons.Window);
 			if (gui == null)
 				return 1;
-			PageControl page = new PageControl(new Rectangle(0, 0, gui.Width, gui.Height));
+			Page.DefaultFonts = new SdkFontProvider();
+			PageControl page = new PageControl(new Rectangle(0, 0, gui.Width, gui.Height)) { ConsoleOutput = (level, text) => Console.WriteLine($"view: script {level}: {text}") };
 			gui.Background = 0xFFFFFF;
 			gui.Add(page);
+			gui.OnTick = g => page.Tick();
 			Open(page, url);
 			page.LinkClicked = target => Open(page, target.ToString());
 			gui.OnEvent = (Gui g, in IpcMessage message) =>
