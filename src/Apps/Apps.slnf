@@ -7,6 +7,7 @@
       "src\\Apps\\Dhcp\\Dhcp.csproj",
       "src\\Apps\\Dns\\Dns.csproj",
       "src\\Apps\\Fire\\Fire.csproj",
+      "src\\Apps\\GcStress\\GcStress.csproj",
       "src\\Apps\\FontTest\\FontTest.csproj",
       "src\\Apps\\Hello\\Hello.csproj",
       "src\\Apps\\Http\\Http.csproj",
