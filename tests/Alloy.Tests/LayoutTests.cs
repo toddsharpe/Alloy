@@ -519,4 +519,18 @@ public class LayoutTests
 		Assert.Equal(100, FindId(root, "fits").X);
 		Assert.Equal(300, FindId(root, "capped").Width);
 	}
+
+	[Fact]
+	public void FixedBoxesPaintPinnedAndHitTestAgainstTheViewport()
+	{
+		LayoutBox root = Lay("<body style=\"margin:0\"><div style=\"height:3000px\">tall</div><div id=\"bar\" style=\"position:fixed;top:0;left:0;width:100px;height:50px;background:#ff0000\"></div></body>");
+		DisplayList list = Painter.Paint(root, Width, Height);
+		int start = list.Items.FindIndex(item => item.Kind == DisplayItemKind.Fixed);
+		int rect = list.Items.FindIndex(item => item.Kind == DisplayItemKind.Rect && item.Color.ToString() == "#ff0000");
+		int end = list.Items.FindIndex(item => item.Kind == DisplayItemKind.Unfixed);
+		Assert.True(start >= 0 && start < rect && rect < end, $"fixed {start} rect {rect} unfixed {end}");
+		LayoutBox bar = FindId(root, "bar");
+		Assert.Same(bar, Painter.HitTest(root, 10, 1010, 0, 1000));
+		Assert.NotSame(bar, Painter.HitTest(root, 10, 1010));
+	}
 }

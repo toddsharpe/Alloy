@@ -30,7 +30,19 @@ namespace Alloy.Sdk.Web.Render
 		private const int MaxVisibleOptions = 12;
 
 		public Page Page { get; private set; }
-		public int ScrollY;
+		private int _scrollY;
+
+		// The page keeps a copy, so its hit tests see fixed boxes where they show
+		public int ScrollY
+		{
+			get => _scrollY;
+			set
+			{
+				_scrollY = value;
+				if (Page != null)
+					Page.ScrollY = value;
+			}
+		}
 
 		// The text field being typed into, if any
 		public Element FocusedField { get; private set; }
@@ -612,7 +624,7 @@ namespace Alloy.Sdk.Web.Render
 		// The element under a document point, for the events scripts listen to
 		private Element ElementAt(float x, float y)
 		{
-			LayoutBox hit = Page.Root == null ? null : Painter.HitTest(Page.Root, x, y);
+			LayoutBox hit = Page.Root == null ? null : Painter.HitTest(Page.Root, x, y, 0, ScrollY);
 			for (Node node = hit?.Node; node != null; node = node.Parent)
 			{
 				if (node is Element element)

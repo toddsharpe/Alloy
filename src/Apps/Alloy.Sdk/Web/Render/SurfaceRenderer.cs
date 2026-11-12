@@ -119,14 +119,24 @@ namespace Alloy.Sdk.Web.Render
 	// Draws a display list onto a surface, scrolled and clipped to a viewport rectangle
 	public static class SurfaceRenderer
 	{
-		public static void Draw(in Surface surface, DisplayList list, int scrollX, int scrollY, Rectangle viewport)
+		public static void Draw(in Surface surface, DisplayList list, int pageScrollX, int pageScrollY, Rectangle viewport)
 		{
 			Stack<Rectangle> clips = new Stack<Rectangle>();
 			Rectangle clip = Intersect(viewport, new Rectangle(0, 0, surface.Width, surface.Height));
+			int pinned = 0;
 			foreach (DisplayItem item in list.Items)
 			{
+				// Inside a fixed box the document scroll does not apply
+				int scrollX = pinned > 0 ? 0 : pageScrollX;
+				int scrollY = pinned > 0 ? 0 : pageScrollY;
 				switch (item.Kind)
 				{
+					case DisplayItemKind.Fixed:
+						pinned++;
+						break;
+					case DisplayItemKind.Unfixed:
+						pinned--;
+						break;
 					case DisplayItemKind.Clip:
 						clips.Push(clip);
 						clip = Intersect(clip, ToRectangle(item, scrollX, scrollY, viewport));

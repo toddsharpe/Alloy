@@ -429,7 +429,7 @@ namespace Alloy.Sdk.Web
 		{
 			if (Root == null)
 				return null;
-			LayoutBox hit = Painter.HitTest(Root, x, y);
+			LayoutBox hit = Painter.HitTest(Root, x, y, 0, ScrollY);
 			for (Node node = hit?.Node; node != null; node = node.Parent)
 			{
 				if (node is Element element && (element.TagName == "input" || element.TagName == "textarea" || element.TagName == "button" || element.TagName == "select"))
@@ -481,11 +481,14 @@ namespace Alloy.Sdk.Web
 		}
 
 		// The link under a document point, if any
+		// How far the view showing this page is scrolled, so hit tests find fixed boxes where they show
+		public int ScrollY;
+
 		public Element LinkAt(float x, float y)
 		{
 			if (Root == null)
 				return null;
-			LayoutBox hit = Painter.HitTest(Root, x, y);
+			LayoutBox hit = Painter.HitTest(Root, x, y, 0, ScrollY);
 			return hit == null ? null : Painter.LinkFor(hit.Node);
 		}
 

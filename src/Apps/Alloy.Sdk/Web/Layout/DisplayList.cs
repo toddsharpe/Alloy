@@ -16,6 +16,9 @@ namespace Alloy.Sdk.Web.Layout
 		Unclip,
 		// An image: its bitmap scaled into the rectangle, or a placeholder with the alt text while there is none
 		Image,
+		// Everything until the matching Unfixed is drawn against the viewport, not the scrolled document
+		Fixed,
+		Unfixed,
 	}
 
 	// One drawing operation in document coordinates; a renderer turns the list into pixels wherever it likes
@@ -102,6 +105,9 @@ namespace Alloy.Sdk.Web.Layout
 		private static void PaintBox(DisplayList list, LayoutBox box, bool isRoot)
 		{
 			ComputedStyle style = box.Style;
+			bool pinned = box.IsAbsolute && style.Position == Position.Fixed;
+			if (pinned)
+				list.Items.Add(new DisplayItem(DisplayItemKind.Fixed, 0, 0, 0, 0, default));
 			if (!isRoot && box.Kind != BoxKind.Text)
 				PaintBackgroundAndBorders(list, box);
 			if (box.Kind == BoxKind.Text)
@@ -147,6 +153,8 @@ namespace Alloy.Sdk.Web.Layout
 						PaintBox(list, child, false);
 				}
 			}
+			if (pinned)
+				list.Items.Add(new DisplayItem(DisplayItemKind.Unfixed, 0, 0, 0, 0, default));
 		}
 
 		// The positioned boxes a container holds, lowest z-index first and document order within a level, as they paint
@@ -308,8 +316,18 @@ namespace Alloy.Sdk.Web.Layout
 		}
 
 		// The deepest box under a document point, text fragments first, so a click finds the link it landed on
-		public static LayoutBox HitTest(LayoutBox box, float x, float y)
+		public static LayoutBox HitTest(LayoutBox box, float x, float y) => HitTest(box, x, y, 0, 0);
+
+		// With the scroll the document point includes, so a fixed box is tested where it shows rather than where it was laid out
+		public static LayoutBox HitTest(LayoutBox box, float x, float y, float scrollX, float scrollY)
 		{
+			if ((scrollX != 0 || scrollY != 0) && box.IsAbsolute && box.Style.Position == Position.Fixed)
+			{
+				x -= scrollX;
+				y -= scrollY;
+				scrollX = 0;
+				scrollY = 0;
+			}
 			List<LayoutBox> ordered = box.Positioned != null ? OrderedPositioned(box) : null;
 			if (ordered != null)
 			{
@@ -317,7 +335,7 @@ namespace Alloy.Sdk.Web.Layout
 				{
 					if (ordered[i].Style.ZIndex < 0)
 						break;
-					LayoutBox hit = HitTest(ordered[i], x, y);
+					LayoutBox hit = HitTest(ordered[i], x, y, scrollX, scrollY);
 					if (hit != null)
 						return hit;
 				}
@@ -334,7 +352,7 @@ namespace Alloy.Sdk.Web.Layout
 							continue;
 						if (fragment.IsAtomic)
 						{
-							LayoutBox inner = HitTest(fragment.Box, x, y);
+							LayoutBox inner = HitTest(fragment.Box, x, y, scrollX, scrollY);
 							return inner ?? fragment.Box;
 						}
 						if (fragment.Text.Length > 0 && y >= fragment.Y && y < fragment.Y + fragment.Height)
@@ -347,7 +365,7 @@ namespace Alloy.Sdk.Web.Layout
 				LayoutBox child = box.Children[i];
 				if (child.Kind == BoxKind.Text || child.Kind == BoxKind.Inline || child.Kind == BoxKind.LineBreak || child.Kind == BoxKind.InlineBlock || child.IsAbsolute)
 					continue;
-				LayoutBox hit = HitTest(child, x, y);
+				LayoutBox hit = HitTest(child, x, y, scrollX, scrollY);
 				if (hit != null)
 					return hit;
 			}
@@ -357,7 +375,7 @@ namespace Alloy.Sdk.Web.Layout
 				{
 					if (ordered[i].Style.ZIndex >= 0)
 						continue;
-					LayoutBox hit = HitTest(ordered[i], x, y);
+					LayoutBox hit = HitTest(ordered[i], x, y, scrollX, scrollY);
 					if (hit != null)
 						return hit;
 				}
