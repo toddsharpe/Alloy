@@ -38,6 +38,9 @@ namespace Alloy.Sdk.Web
 		public const int DefaultViewportHeight = 746;
 		private readonly Dictionary<Element, string> _linkSheets = new Dictionary<Element, string>();
 		private readonly Dictionary<string, Stylesheet> _parsedSheets = new Dictionary<string, Stylesheet>(StringComparer.Ordinal);
+		// The resolver lives across layouts while the viewport and stylesheets stay the same, so most elements keep their computed styles
+		private StyleResolver _resolver;
+		private string _resolverKey;
 		public const int MaxStylesheets = 40;
 
 		public string Title => Document?.Title ?? Url?.Host ?? "";
@@ -274,20 +277,29 @@ namespace Alloy.Sdk.Web
 			CssValue.Viewport.Width = width;
 			CssValue.Viewport.Height = height;
 			MediaEnvironment media = new MediaEnvironment(width, height);
-			StyleResolver resolver = new StyleResolver(media);
+			System.Text.StringBuilder resolverKey = new System.Text.StringBuilder().Append(width).Append('x').Append(height);
 			foreach (string css in StylesheetText)
+				resolverKey.Append(':').Append(css.Length).Append('/').Append(css.GetHashCode());
+			string resolverKeyText = resolverKey.ToString();
+			if (_resolver == null || _resolverKey != resolverKeyText)
 			{
-				// Parsed once per text and viewport; a relayout after a script tick must not pay for megabytes of CSS again
-				string key = width + "x" + height + "\n" + css;
-				if (!_parsedSheets.TryGetValue(key, out Stylesheet sheet))
+				StyleResolver resolver = new StyleResolver(media);
+				foreach (string css in StylesheetText)
 				{
-					if (_parsedSheets.Count > 64)
-						_parsedSheets.Clear();
-					_parsedSheets[key] = sheet = CssParser.Parse(css, media);
+					// Parsed once per text and viewport; a relayout after a script tick must not pay for megabytes of CSS again
+					string key = width + "x" + height + "\n" + css;
+					if (!_parsedSheets.TryGetValue(key, out Stylesheet sheet))
+					{
+						if (_parsedSheets.Count > 64)
+							_parsedSheets.Clear();
+						_parsedSheets[key] = sheet = CssParser.Parse(css, media);
+					}
+					resolver.AddStylesheet(sheet);
 				}
-				resolver.AddStylesheet(sheet);
+				_resolver = resolver;
+				_resolverKey = resolverKeyText;
 			}
-			Root = new BoxBuilder(resolver, ImageFor).Build(Document);
+			Root = new BoxBuilder(_resolver, ImageFor).Build(Document);
 			new LayoutEngine(fonts, width, height).Layout(Root);
 			Display = Painter.Paint(Root, width, height);
 			LayoutMs = (long)(Kernel.TickCount - start);

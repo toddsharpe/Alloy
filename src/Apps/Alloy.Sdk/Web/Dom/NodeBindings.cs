@@ -1186,7 +1186,7 @@ namespace Alloy.Sdk.Web.Dom
 			string old = element.GetAttribute(name);
 			if (old == null)
 				return;
-			element.Attributes.RemoveAll(a => a.Key == name);
+			element.RemoveAttribute(name);
 			Mutated(element, "attributes", name);
 			AttributeChanged(element, name, old, null);
 		}

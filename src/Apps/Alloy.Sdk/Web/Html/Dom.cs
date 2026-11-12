@@ -19,6 +19,9 @@ namespace Alloy.Sdk.Web.Html
 
 		public readonly List<Node> Children = new List<Node>();
 
+		// Bumped whenever the child list changes, so cached styles that depend on sibling position know to recompute
+		public int ChildrenVersion;
+
 		public abstract NodeType Type { get; }
 
 		public Element ParentElement => Parent as Element;
@@ -29,26 +32,39 @@ namespace Alloy.Sdk.Web.Html
 
 		public void AppendChild(Node child)
 		{
-			child.Parent?.Children.Remove(child);
+			if (child.Parent != null)
+			{
+				child.Parent.Children.Remove(child);
+				child.Parent.ChildrenVersion++;
+			}
 			child.Parent = this;
 			Children.Add(child);
+			ChildrenVersion++;
 		}
 
 		public void InsertBefore(Node child, Node reference)
 		{
 			int index = reference == null ? -1 : Children.IndexOf(reference);
-			child.Parent?.Children.Remove(child);
+			if (child.Parent != null)
+			{
+				child.Parent.Children.Remove(child);
+				child.Parent.ChildrenVersion++;
+			}
 			child.Parent = this;
 			if (index < 0)
 				Children.Add(child);
 			else
 				Children.Insert(index, child);
+			ChildrenVersion++;
 		}
 
 		public void RemoveChild(Node child)
 		{
 			if (Children.Remove(child))
+			{
 				child.Parent = null;
+				ChildrenVersion++;
+			}
 		}
 
 		// Every node below this one, depth first, in document order
@@ -183,6 +199,8 @@ namespace Alloy.Sdk.Web.Html
 
 		public readonly string TagName;
 		public readonly List<KeyValuePair<string, string>> Attributes = new List<KeyValuePair<string, string>>();
+		// Bumped on every attribute change, which is what a cached computed style must watch
+		public int AttributeVersion;
 		// A shadow tree a script attached: its Parent is this element, it is not among Children, and layout renders it in place of them
 		public Element ShadowRoot;
 
@@ -208,6 +226,7 @@ namespace Alloy.Sdk.Web.Html
 		// The first attribute wins, as in browsers; a later duplicate is dropped
 		public void SetAttribute(string name, string value)
 		{
+			AttributeVersion++;
 			for (int i = 0; i < Attributes.Count; i++)
 			{
 				if (Attributes[i].Key == name)
@@ -219,11 +238,20 @@ namespace Alloy.Sdk.Web.Html
 			Attributes.Add(new KeyValuePair<string, string>(name, value));
 		}
 
+		public bool RemoveAttribute(string name)
+		{
+			if (Attributes.RemoveAll(a => a.Key == name) == 0)
+				return false;
+			AttributeVersion++;
+			return true;
+		}
+
 		public string Id => GetAttribute("id");
 
 		public Element AttachShadow()
 		{
 			ShadowRoot = new Element(ShadowRootTag) { Parent = this };
+			ChildrenVersion++;
 			return ShadowRoot;
 		}
 

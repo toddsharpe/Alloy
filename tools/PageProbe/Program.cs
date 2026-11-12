@@ -78,12 +78,20 @@ namespace Alloy.Tools.PageProbe
 			long layouts = 0;
 			long layoutMs = 0;
 			MediaEnvironment media = new MediaEnvironment(width, 800);
+			StyleResolver resolver = null;
+			int resolverSheets = -1;
 			void Layout()
 			{
 				Stopwatch sw = Stopwatch.StartNew();
-				StyleResolver resolver = new StyleResolver(media);
-				foreach (string css in sheets)
-					resolver.AddStylesheet(CssParser.Parse(css, media));
+				if (resolver == null || resolverSheets != sheets.Count)
+				{
+					resolver = new StyleResolver(media);
+					foreach (string css in sheets)
+						resolver.AddStylesheet(CssParser.Parse(css, media));
+					resolverSheets = sheets.Count;
+				}
+				resolver.Reused = 0;
+				resolver.Computed = 0;
 				long parsedCss = sw.ElapsedMilliseconds;
 				if (s_verbose)
 				{
@@ -114,7 +122,7 @@ namespace Alloy.Tools.PageProbe
 				layouts++;
 				layoutMs += sw.ElapsedMilliseconds;
 				if (s_verbose || sw.ElapsedMilliseconds > 500)
-					Console.WriteLine($"  layout pass: css parse {parsedCss} ms, cascade+boxes {built - parsedCss} ms, layout {laid - built} ms, paint {sw.ElapsedMilliseconds - laid} ms");
+					Console.WriteLine($"  layout pass: css parse {parsedCss} ms, cascade+boxes {built - parsedCss} ms ({resolver.Computed} styles computed, {resolver.Reused} reused), layout {laid - built} ms, paint {sw.ElapsedMilliseconds - laid} ms");
 			}
 
 			List<string> log = new List<string>();

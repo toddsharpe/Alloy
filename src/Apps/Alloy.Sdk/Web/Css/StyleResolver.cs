@@ -222,7 +222,19 @@ namespace Alloy.Sdk.Web.Css
 		private readonly RuleIndex _userAgent;
 		private readonly List<StyleRule> _author = new List<StyleRule>();
 		private RuleIndex _authorIndex;
-		private readonly Dictionary<Element, ComputedStyle> _styles = new Dictionary<Element, ComputedStyle>();
+		// A computed style kept with what it was computed from: it stands until the element's attributes, its parent's style or its siblings change
+		private sealed class CachedStyle
+		{
+			public ComputedStyle Style;
+			public ComputedStyle Parent;
+			public int AttributeVersion;
+			public int SiblingsVersion;
+			public float RootFontSize;
+		}
+
+		private readonly Dictionary<Element, CachedStyle> _styles = new Dictionary<Element, CachedStyle>();
+		public int Reused;
+		public int Computed;
 		private readonly List<MatchedDeclaration> _matched = new List<MatchedDeclaration>();
 		private readonly List<IndexedSelector> _candidates = new List<IndexedSelector>();
 		private static readonly Comparison<IndexedSelector> s_byRule = (a, b) => a.Rule.CompareTo(b.Rule);
@@ -262,16 +274,25 @@ namespace Alloy.Sdk.Web.Css
 			return result.ToString();
 		}
 
-		// The style of an element, computing its ancestors' first since most properties inherit
+		// The style of an element, computing its ancestors' first since most properties inherit; a style from an earlier layout is reused while nothing it depends on has changed
 		public ComputedStyle Resolve(Element element)
 		{
-			if (_styles.TryGetValue(element, out ComputedStyle cached))
-				return cached;
 			ComputedStyle parent = element.ParentElement == null ? null : Resolve(element.ParentElement);
+			int siblings = element.Parent?.ChildrenVersion ?? 0;
+			if (_styles.TryGetValue(element, out CachedStyle cached) && ReferenceEquals(cached.Parent, parent) && cached.AttributeVersion == element.AttributeVersion && cached.SiblingsVersion == siblings && (element.TagName == "html" || cached.RootFontSize == RootFontSize))
+			{
+				Reused++;
+				if (element.TagName == "html")
+					RootFontSize = cached.Style.FontSize;
+				return cached.Style;
+			}
 			ComputedStyle style = Compute(element, parent);
-			_styles[element] = style;
+			Computed++;
 			if (element.TagName == "html")
 				RootFontSize = style.FontSize;
+			if (_styles.Count > 200000)
+				_styles.Clear();
+			_styles[element] = new CachedStyle { Style = style, Parent = parent, AttributeVersion = element.AttributeVersion, SiblingsVersion = siblings, RootFontSize = RootFontSize };
 			return style;
 		}
 

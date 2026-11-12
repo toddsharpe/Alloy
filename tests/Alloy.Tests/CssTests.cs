@@ -234,6 +234,45 @@ public class CssTests
 	}
 
 	[Fact]
+	public void KeepsComputedStylesUntilTheirInputsChange()
+	{
+		Document document = HtmlParser.Parse("<div id=\"a\" class=\"x\"><p id=\"b\">t</p><p id=\"c\">u</p></div><div id=\"d\">v</div>");
+		MediaEnvironment media = new MediaEnvironment(800, 600);
+		StyleResolver resolver = new StyleResolver(media);
+		resolver.AddStylesheet(CssParser.Parse(".x p { color: red } .y p { color: blue } p:first-child { font-weight: bold }", media));
+		Element a = Find(document, "a");
+		Element b = Find(document, "b");
+		Element c = Find(document, "c");
+		Element d = Find(document, "d");
+		ComputedStyle b1 = resolver.Resolve(b);
+		ComputedStyle d1 = resolver.Resolve(d);
+		Assert.Same(b1, resolver.Resolve(b));
+		Assert.Equal("#ff0000", b1.Color.ToString());
+		a.SetAttribute("class", "y");
+		ComputedStyle b2 = resolver.Resolve(b);
+		Assert.NotSame(b1, b2);
+		Assert.Equal("#0000ff", b2.Color.ToString());
+		Assert.Same(d1, resolver.Resolve(d));
+		ComputedStyle c1 = resolver.Resolve(c);
+		Assert.False(c1.Bold);
+		a.RemoveChild(b);
+		ComputedStyle c2 = resolver.Resolve(c);
+		Assert.NotSame(c1, c2);
+		Assert.True(c2.Bold);
+		Assert.Same(d1, resolver.Resolve(d));
+	}
+
+	private static Element Find(Node node, string id)
+	{
+		foreach (Node descendant in node.Descendants())
+		{
+			if (descendant is Element element && element.Id == id)
+				return element;
+		}
+		return null;
+	}
+
+	[Fact]
 	public void EvaluatesMediaRangeSyntax()
 	{
 		Stylesheet sheet = Sheet("@media (width >= 1012px) { p { color: red } } @media (width<768px) { p { color: blue } } @media (600px <= width < 1200px) { p { color: green } } @media (height > 800px) { p { color: pink } } @media (width = 1024px) { p { color: gold } } @media screen and (width<=1024px) { p { color: teal } }");

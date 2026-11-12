@@ -569,7 +569,7 @@ line2 ${`nested ${1 + 1}`}`
 		List<string> log = new List<string>();
 		Interpreter interpreter = New(log);
 		interpreter.TryEvaluate("for (let i = 0; i < 5; i++) setTimeout(() => { const s = Date.now(); while (Date.now() - s < 30) {} console.log('t' + i) }, 1)");
-		System.Threading.Thread.Sleep(5);
+		System.Threading.Thread.Sleep(40);
 		interpreter.RunTimers(interpreter.Clock() + 50);
 		Assert.InRange(log.Count, 1, 4);
 		interpreter.RunTimers();

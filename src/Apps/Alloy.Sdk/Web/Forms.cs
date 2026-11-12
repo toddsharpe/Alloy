@@ -108,7 +108,7 @@ namespace Alloy.Sdk.Web
 			if (type == "checkbox")
 			{
 				if (element.HasAttribute("checked"))
-					element.Attributes.RemoveAll(a => a.Key == "checked");
+					element.RemoveAttribute("checked");
 				else
 					element.SetAttribute("checked", "");
 				return;
@@ -121,7 +121,7 @@ namespace Alloy.Sdk.Web
 			foreach (Element other in group)
 			{
 				if (other != element && other.TagName == "input" && name != null && other.GetAttribute("name") == name)
-					other.Attributes.RemoveAll(a => a.Key == "checked");
+					other.RemoveAttribute("checked");
 			}
 			element.SetAttribute("checked", "");
 		}
@@ -134,7 +134,7 @@ namespace Alloy.Sdk.Web
 				return;
 			int selected = Math.Max(0, options.FindIndex(o => o.HasAttribute("selected")));
 			foreach (Element option in options)
-				option.Attributes.RemoveAll(a => a.Key == "selected");
+				option.RemoveAttribute("selected");
 			options[(selected + 1) % options.Count].SetAttribute("selected", "");
 		}
 
