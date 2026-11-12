@@ -286,7 +286,24 @@ namespace Alloy.Sdk.Web.Layout
 			}
 			if (box.Kind == BoxKind.Inline)
 			{
-				// Blocks inside inlines: treated as inline-blocks so the line keeps flowing, which is close enough to the split browsers do
+				// An inline holding only blocks, the way custom element wrappers do, becomes a block itself; blocks among inline content turn inline-block so the line keeps flowing
+				bool onlyBlocks = true;
+				bool anyBlock = false;
+				foreach (LayoutBox child in box.Children)
+				{
+					if (child.IsOutOfFlow)
+						continue;
+					if (child.Kind == BoxKind.Block || child.Kind == BoxKind.AnonymousBlock)
+						anyBlock = true;
+					else if (child.Kind != BoxKind.Text || !IsAllWhitespace(child.Text))
+						onlyBlocks = false;
+				}
+				if (anyBlock && onlyBlocks && box.Element != null && !box.Style.IsFlexContainer)
+				{
+					box.Kind = BoxKind.Block;
+					box.Style.Display = Display.Block;
+					return;
+				}
 				foreach (LayoutBox child in box.Children)
 				{
 					if (child.Kind == BoxKind.Block || child.Kind == BoxKind.AnonymousBlock)

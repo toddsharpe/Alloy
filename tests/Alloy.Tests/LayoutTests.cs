@@ -361,4 +361,16 @@ public class LayoutTests
 		Assert.Equal(300, bare.Width, 0.5f);
 		Assert.Equal(150, bare.Height, 0.5f);
 	}
+
+	[Fact]
+	public void AnInlineWrapperHoldingOnlyBlocksBecomesABlock()
+	{
+		LayoutBox root = Lay("<body style=\"margin:0\"><my-partial><div id=\"a\">header</div></my-partial><span>x <div id=\"b\">mixed</div> y</span></body>", "body { width: 800px }");
+		LayoutBox a = FindId(root, "a");
+		Assert.Equal(800, a.Width, 0.5f);
+		LayoutBox wrapper = Find(root, "my-partial");
+		Assert.Equal(BoxKind.Block, wrapper.Kind);
+		LayoutBox b = FindId(root, "b");
+		Assert.Equal(BoxKind.InlineBlock, b.Kind);
+	}
 }

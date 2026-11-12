@@ -213,7 +213,8 @@ namespace Alloy.Sdk.Web.Css
 					SkipDeclaration(end);
 					continue;
 				}
-				string property = token.Value.ToLowerInvariant();
+				// Property names are case-insensitive, but custom properties keep their case: --lineHeight and --lineheight differ
+				string property = token.Value.StartsWith("--", StringComparison.Ordinal) ? token.Value : token.Value.ToLowerInvariant();
 				_at++;
 				while (_at < end && _tokens[_at].Type == CssTokenType.Whitespace)
 					_at++;

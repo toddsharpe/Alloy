@@ -204,6 +204,14 @@ public class CssTests
 	}
 
 	[Fact]
+	public void CustomPropertiesKeepTheirCase()
+	{
+		ComputedStyle style = Style("<p>x</p>", ":root { --lineHeight: 2; --Color: red } p { line-height: var(--lineHeight); color: var(--Color); font-size: 10px }", "p");
+		Assert.Equal(20, style.LineHeight);
+		Assert.Equal("#ff0000", style.Color.ToString());
+	}
+
+	[Fact]
 	public void EvaluatesMediaRangeSyntax()
 	{
 		Stylesheet sheet = Sheet("@media (width >= 1012px) { p { color: red } } @media (width<768px) { p { color: blue } } @media (600px <= width < 1200px) { p { color: green } } @media (height > 800px) { p { color: pink } } @media (width = 1024px) { p { color: gold } } @media screen and (width<=1024px) { p { color: teal } }");
