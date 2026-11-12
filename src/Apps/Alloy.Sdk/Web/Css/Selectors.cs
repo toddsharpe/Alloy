@@ -106,6 +106,9 @@ namespace Alloy.Sdk.Web.Css
 
 		public bool Matches(Element element) => Compounds.Count > 0 && MatchesFrom(element, Compounds.Count - 1);
 
+		// The pseudo-classes MatchesPseudo can answer; the rest (hover, focus, visited, host and the like) never match here
+		public static bool SupportsPseudoClass(string name) => name is "not" or "is" or "where" or "root" or "link" or "any-link" or "empty" or "first-child" or "last-child" or "only-child" or "first-of-type" or "last-of-type" or "nth-child" or "nth-last-child" or "nth-of-type" or "nth-last-of-type" or "checked" or "disabled" or "enabled" or "lang";
+
 		// Right to left: the last compound must match the element, each earlier one an element the combinator points at
 		private bool MatchesFrom(Element element, int index)
 		{

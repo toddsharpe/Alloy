@@ -37,6 +37,8 @@ namespace Alloy.Sdk.Web
 		public const int DefaultViewportWidth = 1200;
 		public const int DefaultViewportHeight = 746;
 		private readonly Dictionary<Element, string> _linkSheets = new Dictionary<Element, string>();
+		private readonly Dictionary<string, Stylesheet> _parsedSheets = new Dictionary<string, Stylesheet>(StringComparer.Ordinal);
+		public const int MaxStylesheets = 40;
 
 		public string Title => Document?.Title ?? Url?.Host ?? "";
 
@@ -148,7 +150,7 @@ namespace Alloy.Sdk.Web
 		{
 			foreach (Element element in new List<Element>(Document.DescendantElementsWithShadow()))
 			{
-				if (element.TagName != "link" || _linkSheets.ContainsKey(element) || StylesheetUrls.Count >= 12)
+				if (element.TagName != "link" || _linkSheets.ContainsKey(element) || StylesheetUrls.Count >= MaxStylesheets)
 					continue;
 				string rel = element.GetAttribute("rel") ?? "";
 				if (!rel.Contains("stylesheet", StringComparison.OrdinalIgnoreCase) || rel.Contains("alternate", StringComparison.OrdinalIgnoreCase))
@@ -274,7 +276,17 @@ namespace Alloy.Sdk.Web
 			MediaEnvironment media = new MediaEnvironment(width, height);
 			StyleResolver resolver = new StyleResolver(media);
 			foreach (string css in StylesheetText)
-				resolver.AddStylesheet(CssParser.Parse(css, media));
+			{
+				// Parsed once per text and viewport; a relayout after a script tick must not pay for megabytes of CSS again
+				string key = width + "x" + height + "\n" + css;
+				if (!_parsedSheets.TryGetValue(key, out Stylesheet sheet))
+				{
+					if (_parsedSheets.Count > 64)
+						_parsedSheets.Clear();
+					_parsedSheets[key] = sheet = CssParser.Parse(css, media);
+				}
+				resolver.AddStylesheet(sheet);
+			}
 			Root = new BoxBuilder(resolver, ImageFor).Build(Document);
 			new LayoutEngine(fonts, width, height).Layout(Root);
 			Display = Painter.Paint(Root, width, height);

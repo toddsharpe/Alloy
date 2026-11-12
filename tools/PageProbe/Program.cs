@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using Alloy.Sdk.Script;
@@ -74,10 +75,36 @@ namespace Alloy.Tools.PageProbe
 				StyleResolver resolver = new StyleResolver(media);
 				foreach (string css in sheets)
 					resolver.AddStylesheet(CssParser.Parse(css, media));
+				long parsedCss = sw.ElapsedMilliseconds;
+				if (s_verbose)
+				{
+					Stopwatch tokens = Stopwatch.StartNew();
+					int tokenCount = 0;
+					long cssChars = 0;
+					foreach (string css in sheets)
+					{
+						tokenCount += CssTokenizer.Tokenize(css).Count;
+						cssChars += css.Length;
+					}
+					Console.WriteLine($"  css: {cssChars} chars, {tokenCount} tokens, tokenized alone in {tokens.ElapsedMilliseconds} ms");
+					Stopwatch resolve = Stopwatch.StartNew();
+					int resolved = 0;
+					foreach (Element element in document.DescendantElementsWithShadow())
+					{
+						resolver.Resolve(element);
+						resolved++;
+					}
+					Console.WriteLine($"  cascade: {resolved} elements resolved in {resolve.ElapsedMilliseconds} ms");
+				}
 				root = new BoxBuilder(resolver).Build(document);
+				long built = sw.ElapsedMilliseconds;
 				new LayoutEngine(new FixedFontProvider(), width, 800).Layout(root);
+				long laid = sw.ElapsedMilliseconds;
+				Painter.Paint(root, width, 800);
 				layouts++;
 				layoutMs += sw.ElapsedMilliseconds;
+				if (s_verbose || sw.ElapsedMilliseconds > 500)
+					Console.WriteLine($"  layout pass: css parse {parsedCss} ms, cascade+boxes {built - parsedCss} ms, layout {laid - built} ms, paint {sw.ElapsedMilliseconds - laid} ms");
 			}
 
 			List<string> log = new List<string>();

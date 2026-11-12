@@ -30,6 +30,7 @@ namespace Alloy.Sdk.Web.Css
 			private readonly Dictionary<string, List<IndexedSelector>> _byId = new Dictionary<string, List<IndexedSelector>>(StringComparer.Ordinal);
 			private readonly Dictionary<string, List<IndexedSelector>> _byClass = new Dictionary<string, List<IndexedSelector>>(StringComparer.Ordinal);
 			private readonly Dictionary<string, List<IndexedSelector>> _byTag = new Dictionary<string, List<IndexedSelector>>(StringComparer.Ordinal);
+			private readonly Dictionary<string, List<IndexedSelector>> _byAttribute = new Dictionary<string, List<IndexedSelector>>(StringComparer.Ordinal);
 			private readonly List<IndexedSelector> _universal = new List<IndexedSelector>();
 
 			public RuleIndex(List<StyleRule> rules)
@@ -45,21 +46,37 @@ namespace Alloy.Sdk.Web.Css
 						string id = null;
 						string cls = null;
 						string tag = null;
+						string attribute = null;
+						bool impossible = false;
 						foreach (SimpleSelector part in selector.Compounds[selector.Compounds.Count - 1].Parts)
 						{
+							if (part.Type == SimpleSelector.Kind.PseudoClass && part.Negated == null)
+							{
+								if (part.Name == "root")
+									tag ??= "html";
+								else if (!Selector.SupportsPseudoClass(part.Name))
+									impossible = true;
+							}
 							if (part.Type == SimpleSelector.Kind.Id && id == null)
 								id = part.Name;
 							else if (part.Type == SimpleSelector.Kind.Class && cls == null)
 								cls = part.Name;
 							else if (part.Type == SimpleSelector.Kind.Type && tag == null)
 								tag = part.Name;
+							else if (part.Type == SimpleSelector.Kind.Attribute && attribute == null)
+								attribute = part.Name;
 						}
+						// A selector that needs a state this engine never has (hover, focus, visited) can never match; it is not worth testing
+						if (impossible)
+							continue;
 						if (id != null)
 							Add(_byId, id, entry);
 						else if (cls != null)
 							Add(_byClass, cls, entry);
 						else if (tag != null)
 							Add(_byTag, tag, entry);
+						else if (attribute != null)
+							Add(_byAttribute, attribute, entry);
 						else
 							_universal.Add(entry);
 					}
@@ -81,6 +98,14 @@ namespace Alloy.Sdk.Web.Css
 				string id = element.Id;
 				if (id != null && _byId.TryGetValue(id, out List<IndexedSelector> byId))
 					into.AddRange(byId);
+				if (_byAttribute.Count > 0)
+				{
+					foreach (KeyValuePair<string, string> attribute in element.Attributes)
+					{
+						if (_byAttribute.TryGetValue(attribute.Key, out List<IndexedSelector> byAttribute))
+							into.AddRange(byAttribute);
+					}
+				}
 				string className = _byClass.Count == 0 ? null : element.GetAttribute("class");
 				if (className == null)
 					return;
