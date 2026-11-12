@@ -395,7 +395,11 @@ namespace Alloy.Sdk.Web.Css
 				if (token.Type != CssTokenType.Whitespace)
 					parts.Add(token);
 			}
-			if (parts.Count == 0 || parts[0].Type != CssTokenType.Ident)
+			if (parts.Count == 0)
+				return false;
+			if (parts.Count > 2 && (parts[0].Type != CssTokenType.Ident || parts[1].Type != CssTokenType.Colon))
+				return Range(parts, media);
+			if (parts[0].Type != CssTokenType.Ident)
 				return false;
 			string name = parts[0].Value.ToLowerInvariant();
 			if (parts.Count == 1)
@@ -439,6 +443,69 @@ namespace Alloy.Sdk.Web.Css
 					return false;
 			}
 		}
+
+		// The range syntax: (width >= 1012px), (width < 768px), (400px <= height < 900px)
+		private static bool Range(List<CssToken> parts, MediaEnvironment media)
+		{
+			double? left = null;
+			string leftOp = null;
+			double? right = null;
+			string rightOp = null;
+			double? feature = null;
+			string op = null;
+			foreach (CssToken part in parts)
+			{
+				if (part.Type == CssTokenType.Delim && (part.Value == "<" || part.Value == ">" || part.Value == "="))
+				{
+					op = op != null && part.Value == "=" ? op + "=" : part.Value;
+					continue;
+				}
+				if (part.Type == CssTokenType.Ident)
+				{
+					string name = part.Value.ToLowerInvariant();
+					if (name == "width")
+						feature = media.Width;
+					else if (name == "height")
+						feature = media.Height;
+					else
+						return false;
+					leftOp = op;
+					op = null;
+					continue;
+				}
+				if (part.Type == CssTokenType.Dimension || part.Type == CssTokenType.Number)
+				{
+					if (feature == null)
+						left = Pixels(part);
+					else
+					{
+						right = Pixels(part);
+						rightOp = op;
+					}
+					op = null;
+					continue;
+				}
+				return false;
+			}
+			if (feature == null)
+				return false;
+			bool result = true;
+			if (left != null)
+				result &= Compare(left.Value, leftOp, feature.Value);
+			if (right != null)
+				result &= Compare(feature.Value, rightOp, right.Value);
+			return result && (left != null || right != null);
+		}
+
+		private static bool Compare(double a, string op, double b) => op switch
+		{
+			"<" => a < b,
+			"<=" => a <= b,
+			">" => a > b,
+			">=" => a >= b,
+			"=" => a == b,
+			_ => false,
+		};
 
 		private static double Pixels(CssToken token)
 		{

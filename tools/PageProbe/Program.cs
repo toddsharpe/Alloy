@@ -181,6 +181,11 @@ namespace Alloy.Tools.PageProbe
 				}
 				LayoutBox box = Find(root, target);
 				Console.WriteLine($"style {selector}:");
+				List<Element> ancestors = new List<Element>();
+				for (Element up = target.ParentElement; up != null; up = up.ParentElement)
+					ancestors.Insert(0, up);
+				foreach (Element ancestor in ancestors)
+					Console.WriteLine(" ^ " + Describe(ancestor, Find(root, ancestor)));
 				Console.WriteLine("  " + Describe(target, box));
 				if (box != null)
 				{

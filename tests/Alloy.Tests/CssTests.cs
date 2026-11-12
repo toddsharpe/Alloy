@@ -204,6 +204,17 @@ public class CssTests
 	}
 
 	[Fact]
+	public void EvaluatesMediaRangeSyntax()
+	{
+		Stylesheet sheet = Sheet("@media (width >= 1012px) { p { color: red } } @media (width<768px) { p { color: blue } } @media (600px <= width < 1200px) { p { color: green } } @media (height > 800px) { p { color: pink } } @media (width = 1024px) { p { color: gold } } @media screen and (width<=1024px) { p { color: teal } }");
+		Assert.Equal(4, sheet.Rules.Count);
+		Assert.Equal("red", sheet.Rules[0].Declarations[0].Value[0].Value);
+		Assert.Equal("green", sheet.Rules[1].Declarations[0].Value[0].Value);
+		Assert.Equal("gold", sheet.Rules[2].Declarations[0].Value[0].Value);
+		Assert.Equal("teal", sheet.Rules[3].Declarations[0].Value[0].Value);
+	}
+
+	[Fact]
 	public void HonoursPresentationalAttributes()
 	{
 		const string html = "<body bgcolor=\"#ccc\" text=navy><table width=50% border=1 cellpadding=4><tr><td>c</td></tr></table><img width=120 height=80 align=right><font color=red size=5>f</font><p align=center>p</p></body>";
