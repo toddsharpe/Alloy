@@ -256,9 +256,29 @@ namespace Alloy.Sdk.Web.Html
 
 		public string ClassName => GetAttribute("class") ?? "";
 
+		private string _classSource;
+		private string[] _classes = Array.Empty<string>();
+
+		// The class names, split once per value of the attribute; selector matching asks for them constantly
+		public string[] Classes
+		{
+			get
+			{
+				string current = GetAttribute("class");
+				if (!ReferenceEquals(current, _classSource))
+				{
+					_classSource = current;
+					_classes = current == null ? Array.Empty<string>() : current.Split(s_classSeparators, StringSplitOptions.RemoveEmptyEntries);
+				}
+				return _classes;
+			}
+		}
+
+		private static readonly char[] s_classSeparators = { ' ', '\t', '\n', '\r', '\f' };
+
 		public bool HasClass(string name)
 		{
-			foreach (string candidate in ClassName.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+			foreach (string candidate in Classes)
 			{
 				if (candidate == name)
 					return true;

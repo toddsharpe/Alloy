@@ -186,6 +186,10 @@ namespace Alloy.Sdk.Web.Css
 	{
 		public const float DefaultFontSize = 16;
 
+		// A bloom filter of this element's and its ancestors' tags, ids and classes, for rejecting descendant selectors cheaply
+		internal ulong AncestorBitsLow;
+		internal ulong AncestorBitsHigh;
+
 		public Display Display = Display.Inline;
 		public Position Position = Position.Static;
 		public FloatSide Float = FloatSide.None;

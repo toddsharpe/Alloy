@@ -21,6 +21,63 @@ namespace Alloy.Sdk.Web.Css
 			public int Rule;
 			public Selector Selector;
 			public int Specificity;
+			// The tags, ids and classes the element's ancestors must carry for this selector to match at all
+			public ulong NeedLow;
+			public ulong NeedHigh;
+		}
+
+		// Two bits per name in a 128-bit filter, as browsers do for ancestor matching
+		private static void AddBits(ref ulong low, ref ulong high, char kind, string name)
+		{
+			int hash = name.GetHashCode() * 31 + kind;
+			int a = hash & 127;
+			int b = (hash >> 7) & 127;
+			if (a < 64)
+				low |= 1UL << a;
+			else
+				high |= 1UL << (a - 64);
+			if (b < 64)
+				low |= 1UL << b;
+			else
+				high |= 1UL << (b - 64);
+		}
+
+		private static void ElementBits(Element element, ref ulong low, ref ulong high)
+		{
+			AddBits(ref low, ref high, 't', element.TagName);
+			string id = element.Id;
+			if (id != null)
+				AddBits(ref low, ref high, 'i', id);
+			foreach (string name in element.Classes)
+				AddBits(ref low, ref high, 'c', name);
+		}
+
+		// What a selector's compounds to the left of the rightmost one demand of the ancestors, following descendant and child combinators
+		private static void SelectorNeeds(Selector selector, out ulong low, out ulong high)
+		{
+			low = 0;
+			high = 0;
+			for (int i = selector.Compounds.Count - 2; i >= 0; i--)
+			{
+				Combinator combinator = selector.Compounds[i + 1].Combinator;
+				if (combinator != Combinator.Descendant && combinator != Combinator.Child)
+					continue;
+				foreach (SimpleSelector part in selector.Compounds[i].Parts)
+				{
+					switch (part.Type)
+					{
+						case SimpleSelector.Kind.Type:
+							AddBits(ref low, ref high, 't', part.Name);
+							break;
+						case SimpleSelector.Kind.Id:
+							AddBits(ref low, ref high, 'i', part.Name);
+							break;
+						case SimpleSelector.Kind.Class:
+							AddBits(ref low, ref high, 'c', part.Name);
+							break;
+					}
+				}
+			}
 		}
 
 		// Selectors bucketed by the rightmost compound's id, class or type, so an element only tests the rules that could match it
@@ -45,6 +102,7 @@ namespace Alloy.Sdk.Web.Css
 						if (selector.PseudoElement != null || selector.Compounds.Count == 0)
 							continue;
 						IndexedSelector entry = new IndexedSelector { Rule = r, Selector = selector, Specificity = selector.Specificity };
+						SelectorNeeds(selector, out entry.NeedLow, out entry.NeedHigh);
 						_keys.Clear();
 						if (!KeysOf(selector.Compounds[selector.Compounds.Count - 1], _keys))
 							continue;
@@ -151,10 +209,9 @@ namespace Alloy.Sdk.Web.Css
 							into.AddRange(byAttribute);
 					}
 				}
-				string className = _byClass.Count == 0 ? null : element.GetAttribute("class");
-				if (className == null)
+				if (_byClass.Count == 0)
 					return;
-				foreach (string name in className.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+				foreach (string name in element.Classes)
 				{
 					if (_byClass.TryGetValue(name, out List<IndexedSelector> byClass))
 						into.AddRange(byClass);
@@ -218,9 +275,17 @@ namespace Alloy.Sdk.Web.Css
 			return style;
 		}
 
+		private ulong _ancestorLow;
+		private ulong _ancestorHigh;
+
 		private ComputedStyle Compute(Element element, ComputedStyle parent)
 		{
 			ComputedStyle style = ComputedStyle.Inherit(parent);
+			_ancestorLow = parent?.AncestorBitsLow ?? 0;
+			_ancestorHigh = parent?.AncestorBitsHigh ?? 0;
+			style.AncestorBitsLow = _ancestorLow;
+			style.AncestorBitsHigh = _ancestorHigh;
+			ElementBits(element, ref style.AncestorBitsLow, ref style.AncestorBitsHigh);
 			_matched.Clear();
 			Collect(element, _userAgent, 0);
 			Collect(element, _authorIndex ??= new RuleIndex(_author), 1);
@@ -281,6 +346,8 @@ namespace Alloy.Sdk.Web.Css
 					current = candidate.Rule;
 					best = -1;
 				}
+				if ((candidate.NeedLow & _ancestorLow) != candidate.NeedLow || (candidate.NeedHigh & _ancestorHigh) != candidate.NeedHigh)
+					continue;
 				if (candidate.Selector.Matches(element))
 					best = Math.Max(best, candidate.Specificity);
 			}

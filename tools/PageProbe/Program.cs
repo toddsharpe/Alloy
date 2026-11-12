@@ -32,8 +32,14 @@ namespace Alloy.Tools.PageProbe
 			List<string> clicks = new List<string>();
 			bool text = false;
 			int width = 1200;
+			int repeat = 1;
 			for (int i = 1; i < args.Length; i++)
 			{
+				if (args[i] == "-repeat" && i + 1 < args.Length)
+				{
+					repeat = int.Parse(args[++i]);
+					continue;
+				}
 				if (args[i] == "-v")
 					s_verbose = true;
 				else if (args[i] == "-click" && i + 1 < args.Length)
@@ -159,6 +165,8 @@ namespace Alloy.Tools.PageProbe
 			}
 
 			Layout();
+			for (int extra = 1; extra < repeat; extra++)
+				Layout();
 			Console.WriteLine($"layout: {layouts} runs, {layoutMs} ms total, page height {root.Height:0}, {CountBoxes(root)} boxes, total {total.ElapsedMilliseconds} ms");
 			if (text)
 				Console.WriteLine(RenderText(root));
