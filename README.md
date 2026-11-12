@@ -11,7 +11,7 @@ Alloy boots as a Hyper-V Generation 2 guest and talks to the hypervisor's synthe
 | Device | What Alloy does with it |
 |---|---|
 | UEFI | The loader (`BOOTX64.EFI`) self-tests the CoreLib, reads the GOP framebuffer, maps `kernel.exe` and hands it a `BootInfo` |
-| x64 CPU | The kernel installs its own descriptor tables, page tables and heap, turns on WP/NX/SMEP/SMAP, and runs ring-3 processes in their own address spaces with syscalls; a fault produces a symbolized bugcheck |
+| x64 CPU | The kernel installs its own descriptor tables, page tables and heap, turns on WP/NX/SMEP/SMAP and XSAVE with AVX, and runs ring-3 processes in their own address spaces with syscalls; a fault produces a symbolized bugcheck |
 | Synthetic timer | Preemptive kernel threads and the scheduler's clock |
 | Synthetic video (synthvid) | The framebuffer at the largest mode the host offers, 1920x1080, that the user-mode window manager composites into |
 | Synthetic keyboard and mouse | Key and pointer events, including the wheel, routed through the kernel's input ring to the window manager and on to the focused app |
@@ -46,7 +46,7 @@ Alloy boots as a Hyper-V Generation 2 guest and talks to the hypervisor's synthe
 | `css <url>` | What the cascade decided for a page's first elements |
 | `js [file|url|-e source]` | Runs JavaScript; with no argument, the engine's self-test |
 | `ps`, `time`, `hello` | One line per process, the RTC time, the obligatory greeting |
-| `crash`, `ipctest`, `ziptest`, `gcstress` | Fault handling, port and shared-memory IPC, the BCL's compression, and the GC under interlocked, large-object, syscall and thread-churn load, each proven in a small program |
+| `crash`, `ipctest`, `ziptest`, `gcstress` | Fault handling, port and shared-memory IPC, the BCL's compression, and the GC under interlocked, large-object, syscall and thread-churn load, AVX registers kept live across preemption, and the Win32 layer's thread-suspension self-test (`gcstress 1015` runs worker mask 1 for 15 s; 32 is the self-test), each proven in a small program |
 
 The apps are built on `Alloy.Sdk`, which holds the windowing and drawing code, the system clipboard (kept by the window server; Ctrl+C and Ctrl+V in the browser and terminal), sockets, an HTTP/1.1 client with keep-alive, a TLS 1.3 client written in C# (X25519, AES-GCM and ChaCha20-Poly1305, SHA-2, HKDF, RSA and ECDSA verification, X.509 chains against the Mozilla root bundle in `/certs`), a cookie jar, an HTML parser, a CSS engine (selectors, the cascade, inheritance, custom properties, media queries), a layout engine (block and inline formatting, floats, tables, flexbox, grid, positioning) with a painter, PNG, GIF, JPEG and WebP decoders, a TrueType rasterizer, a JavaScript engine (a tree-walking interpreter with ES2015+ syntax, modules, generators, async/await, typed arrays, Proxy and the standard library), and the DOM, events, timers, fetch and storage that pages' scripts expect.
 
@@ -79,7 +79,7 @@ scripts\boot_test.ps1 -Until 'Alloy Kernel: ready'  # boot, check COM1, power of
 dotnet test tests\Alloy.Tests                         # host tests
 ```
 
-`scripts\stop_vm.ps1` asks the guest to shut down and turns the VM off if it doesn't. `scripts\read_com1.ps1` dumps raw serial output and `scripts\screenshot.ps1` saves the VM's screen, both useful when a boot hangs before printing a full line. `scripts\send_input.ps1 -Keys Ctrl+Esc,Enter -Click 960,540 -Drag 1200,511,500,200` types, clicks and drags in the running VM. `dotnet run --project tools\PageProbe -- <url>` loads a page on the host with the SDK's parser, cascade, scripts and layout and reports script errors and timings.
+`scripts\stop_vm.ps1` asks the guest to shut down and turns the VM off if it doesn't. `scripts\read_com1.ps1` dumps raw serial output and `scripts\screenshot.ps1` saves the VM's screen, both useful when a boot hangs before printing a full line. `scripts\send_input.ps1 -Keys Ctrl+Esc,Enter -Click 960,540 -Drag 1200,511,500,200` types, clicks and drags in the running VM. `dotnet run --project tools\PageProbe -- <url>` loads a page on the host with the SDK's parser, cascade, scripts and layout and reports script errors and timings. `tools\UnwindCheck\build.ps1` builds a harness that runs the Win32 layer's RtlVirtualUnwind and Windows' own over every instruction of an image (`unwindcheck.exe <image.exe> <addresses>`, addresses from `dumpbin /DISASM`) and reports where they disagree; the runtime walks managed stacks with it, so it must match exactly.
 
 ## Layout
 

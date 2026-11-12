@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 using System.Threading;
 using Alloy.Sdk;
 
 namespace Alloy.Apps.GcStress
 {
-	// Hammers the runtime the way the browser does: Interlocked on heap fields, big and small allocations, threads blocked in syscalls, and workers that start and exit while collections run
+	// Hammers the runtime the way the browser does: Interlocked on heap fields, big and small allocations, threads blocked in syscalls, workers that start and exit while collections run, and live AVX registers across preemption
 	internal static class Program
 	{
 		private sealed class Counter
@@ -21,16 +24,35 @@ namespace Alloy.Apps.GcStress
 		private static int s_spawned;
 		private static volatile bool s_stop;
 
-		private static int Main()
+		private static int Main(string[] args)
 		{
-			int seconds = Kernel.ProcessArgument > 0 ? (int)Kernel.ProcessArgument : 60;
-			Console.WriteLine($"gcstress: {seconds} s of interlocked, large object, syscall and short-lived thread workers");
-			StartWorker(Interlocked_, 0);
-			StartWorker(Interlocked_, 1);
-			StartWorker(LargeObjects, 2);
-			StartWorker(Syscalls, 3);
-			StartWorker(Syscalls, 4);
-			StartWorker(Spawner, 5);
+			// The argument is seconds, plus 1000 times a mask of workers to run: 1 interlocked, 2 large objects, 4 syscalls, 8 spawner, 16 vectors, 32 the Win32 layer's suspension self-test; 0 runs them all
+			ulong argument = args.Length > 0 && ulong.TryParse(args[0], out ulong parsed) ? parsed : 0;
+			int seconds = argument % 1000 > 0 ? (int)(argument % 1000) : 60;
+			int mask = argument >= 1000 ? (int)(argument / 1000) : 31;
+			Console.WriteLine($"gcstress: {seconds} s of interlocked, large object, syscall, short-lived thread and vector workers (mask {mask})");
+			Console.WriteLine($"  Vector256 accelerated: {Vector256.IsHardwareAccelerated}, AVX2: {Avx2.IsSupported}, Vector512 accelerated: {Vector512.IsHardwareAccelerated}");
+			if ((mask & 1) != 0)
+			{
+				StartWorker(Interlocked_, 0);
+				StartWorker(Interlocked_, 1);
+			}
+			if ((mask & 2) != 0)
+				StartWorker(LargeObjects, 2);
+			if ((mask & 4) != 0)
+			{
+				StartWorker(Syscalls, 3);
+				StartWorker(Syscalls, 4);
+			}
+			if ((mask & 8) != 0)
+				StartWorker(Spawner, 5);
+			if ((mask & 16) != 0)
+			{
+				StartWorker(Vectors, 6);
+				StartWorker(Vectors, 7);
+			}
+			if ((mask & 32) != 0)
+				StartWorker(Contexts, 8);
 			ulong started = Kernel.TickCount;
 			long lastTotal = 0;
 			int second = 0;
@@ -103,6 +125,49 @@ namespace Alloy.Apps.GcStress
 				if ((ops & 1023) == 0)
 					Interlocked.Add(ref s_shared.Total, 1024);
 				ops++;
+			}
+		});
+
+		[DllImport("*", EntryPoint = "PhxContextSelfTest", ExactSpelling = true)]
+		private static extern int PhxContextSelfTest(int milliseconds);
+
+		// The Win32 layer suspends a spinning thread, reads and redirects its context and checks every register, as the GC does to stop threads; details go to the serial log
+		private static void Contexts(object state) => Guarded(state, id =>
+		{
+			while (!s_stop)
+			{
+				int failures = PhxContextSelfTest(2000);
+				if (failures != 0)
+				{
+					Interlocked.Increment(ref s_failed);
+					Console.WriteLine($"  worker {id}: context self-test reported {failures} failures");
+					break;
+				}
+				Interlocked.Add(ref s_shared.Total, 1);
+			}
+		});
+
+		// A running sum kept in a 256-bit register, checked against the iteration count: the upper halves survive only if the kernel saves them across interrupts
+		private static void Vectors(object state) => Guarded(state, id =>
+		{
+			Vector256<long> step = Vector256.Create(1L, 2L, 3L, 4L);
+			Vector256<long> sum = Vector256<long>.Zero;
+			long rounds = 0;
+			while (!s_stop)
+			{
+				sum += step;
+				rounds++;
+				if ((rounds & 0xFFFF) == 0)
+				{
+					Vector256<long> expected = Vector256.Create(rounds, 2 * rounds, 3 * rounds, 4 * rounds);
+					if (sum != expected)
+					{
+						Interlocked.Increment(ref s_failed);
+						Console.WriteLine($"  worker {id}: vector register corrupted after {rounds} rounds: {sum} instead of {expected}");
+						break;
+					}
+					Interlocked.Add(ref s_shared.Total, 0x10000);
+				}
 			}
 		});
 
