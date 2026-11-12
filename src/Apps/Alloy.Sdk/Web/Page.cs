@@ -254,6 +254,9 @@ namespace Alloy.Sdk.Web
 		}
 
 		// Fetches the linked stylesheets not fetched yet, then rebuilds the list layout reads
+		// Each stylesheet URL is fetched once, however many link elements name it
+		private readonly Dictionary<string, string> _sheetByUrl = new Dictionary<string, string>(StringComparer.Ordinal);
+
 		private void CollectStylesheets(ulong timeoutMs)
 		{
 			foreach (Element element in new List<Element>(Document.DescendantElementsWithShadow()))
@@ -270,9 +273,15 @@ namespace Alloy.Sdk.Web
 					continue;
 				if (target.Scheme != "http" && target.Scheme != "https")
 					continue;
-				StylesheetUrls.Add(target.ToString());
-				HttpResponse response = Http.Get(target, timeoutMs);
-				_linkSheets[element] = response.Ok ? response.BodyText() : "";
+				string key = target.ToString();
+				StylesheetUrls.Add(key);
+				if (!_sheetByUrl.TryGetValue(key, out string css))
+				{
+					HttpResponse response = Http.Get(target, timeoutMs);
+					css = response.Ok ? response.BodyText() : "";
+					_sheetByUrl[key] = css;
+				}
+				_linkSheets[element] = css;
 			}
 			RefreshStylesheets();
 		}

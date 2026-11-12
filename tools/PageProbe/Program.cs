@@ -24,6 +24,7 @@ namespace Alloy.Tools.PageProbe
 	{
 		private static readonly HttpClient s_http = new HttpClient(new HttpClientHandler { UseCookies = false, AllowAutoRedirect = true, AutomaticDecompression = System.Net.DecompressionMethods.All }) { Timeout = TimeSpan.FromSeconds(20) };
 		private static bool s_verbose;
+		private static readonly Dictionary<string, string> s_sheetByUrl = new Dictionary<string, string>();
 
 		// Deep page scripts need far more stack than the main thread has
 		private static int Main(string[] args)
@@ -362,8 +363,13 @@ namespace Alloy.Tools.PageProbe
 					continue;
 				if (index >= sheets.Count)
 				{
-					ResourceResponse response = Fetch("GET", target, null, null, null);
-					sheets.Add(response.Ok ? ScriptHost.Decode(response.Body) : "");
+					if (!s_sheetByUrl.TryGetValue(target.ToString(), out string css))
+					{
+						ResourceResponse response = Fetch("GET", target, null, null, null);
+						css = response.Ok ? ScriptHost.Decode(response.Body) : "";
+						s_sheetByUrl[target.ToString()] = css;
+					}
+					sheets.Add(css);
 					linked++;
 				}
 				index++;
