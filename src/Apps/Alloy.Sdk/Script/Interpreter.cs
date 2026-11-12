@@ -987,17 +987,21 @@ namespace Alloy.Sdk.Script
 			{
 				case "=":
 				{
-					JsValue value = EvaluateNamed(assignment.Value, scope, assignment.Target as Identifier);
+					// The object and key come before the value, so o[i++] = i stores the incremented i
 					if (assignment.Target is MemberExpression member)
 					{
+						bool viaSuper = member.Object is SuperExpression;
+						JsValue target = viaSuper ? JsValue.Undefined : Evaluate(member.Object, scope);
 						string key = MemberKey(member, scope);
-						if (member.Object is SuperExpression)
-							SuperSet(scope, key, value);
+						JsValue assigned = EvaluateNamed(assignment.Value, scope, null);
+						if (viaSuper)
+							SuperSet(scope, key, assigned);
 						else
-							SetMember(Evaluate(member.Object, scope), key, value);
+							SetMember(target, key, assigned);
+						return assigned;
 					}
-					else
-						BindPattern(assignment.Target, value, scope, null);
+					JsValue value = EvaluateNamed(assignment.Value, scope, assignment.Target as Identifier);
+					BindPattern(assignment.Target, value, scope, null);
 					return value;
 				}
 				case "&&=":
@@ -1017,14 +1021,15 @@ namespace Alloy.Sdk.Script
 					string op = assignment.Operator.Substring(0, assignment.Operator.Length - 1);
 					if (assignment.Target is MemberExpression member)
 					{
-						string key = MemberKey(member, scope);
 						if (member.Object is SuperExpression)
 						{
+							string superKey = MemberKey(member, scope);
 							JsValue superResult = BinaryOperation(op, Evaluate(member, scope), Evaluate(assignment.Value, scope));
-							SuperSet(scope, key, superResult);
+							SuperSet(scope, superKey, superResult);
 							return superResult;
 						}
 						JsValue target = Evaluate(member.Object, scope);
+						string key = MemberKey(member, scope);
 						JsValue result = BinaryOperation(op, GetMember(target, key), Evaluate(assignment.Value, scope));
 						SetMember(target, key, result);
 						return result;
