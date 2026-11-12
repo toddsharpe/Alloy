@@ -187,7 +187,7 @@ public class DomTests
 	public void FetchesAndStores()
 	{
 		List<string> requests = new List<string>();
-		ResourceFetcher fetch = (method, url, body, type) =>
+		ResourceFetcher fetch = (method, url, body, type, headers) =>
 		{
 			requests.Add(method + " " + url + (body == null ? "" : " " + Encoding.UTF8.GetString(body)));
 			ResourceResponse response = new ResourceResponse { Status = 200, Reason = "OK", Url = url };
@@ -341,7 +341,7 @@ public class DomTests
 	[Fact]
 	public void RunsModuleScriptsWithAnImportMap()
 	{
-		ResourceFetcher fetch = (method, url, body, type) =>
+		ResourceFetcher fetch = (method, url, body, type, headers) =>
 		{
 			string source = url.AbsolutePath switch
 			{
@@ -393,5 +393,21 @@ public class DomTests
 		</script>");
 		Assert.Empty(h.Log);
 		Assert.Equal("function|function|true|en-US|boolean|true|true|number|string|1,234.5|UTC|true|true|true|true|[object HTMLBodyElement]|function|false|undefined|1|ok", Eval(h, "out.join('|')"));
+	}
+
+	[Fact]
+	public void RequestHeadersReachTheNetworkAndStyleKnowsItsProperties()
+	{
+		List<string> seen = new List<string>();
+		ResourceFetcher fetch = (method, url, body, type, headers) =>
+		{
+			seen.Add(method + " " + url.AbsolutePath + " " + string.Join(";", headers == null ? new List<string>() : new List<KeyValuePair<string, string>>(headers).ConvertAll(h => h.Key.ToLowerInvariant() + "=" + h.Value)));
+			return new ResourceResponse { Status = 200, Url = url, Body = System.Text.Encoding.UTF8.GetBytes("{}") };
+		};
+		Harness harness = Open("<div id=\"d\"></div><script>const x = new XMLHttpRequest(); x.open('GET', '/geo', false); x.setRequestHeader('Accept', 'application/json'); x.send(); fetch('/api', { headers: { 'X-Token': 'abc' } }); const s = document.getElementById('d').style; console.log(('transform' in s) + ' ' + ('webkitPerspective' in s) + ' ' + ('bogusThing' in s) + ' ' + ('cssText' in s))</script>", fetch);
+		harness.Host.Pump();
+		Assert.Contains("GET /geo accept=application/json", seen);
+		Assert.Contains("GET /api x-token=abc", seen);
+		Assert.Contains("true true false true", harness.Log);
 	}
 }

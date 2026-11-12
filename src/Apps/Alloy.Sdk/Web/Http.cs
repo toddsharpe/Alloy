@@ -79,12 +79,12 @@ namespace Alloy.Sdk.Web
 		}
 
 		// Follows redirects between http hosts; a redirect to another scheme comes back as the 3xx itself so the caller can decide
-		public static HttpResponse Request(string method, Uri url, byte[] body, string contentType, ulong timeoutMs = 15000)
+		public static HttpResponse Request(string method, Uri url, byte[] body, string contentType, ulong timeoutMs = 15000, IReadOnlyList<KeyValuePair<string, string>> headers = null)
 		{
 			HttpResponse response = null;
 			for (int hop = 0; hop <= MaxRedirects; hop++)
 			{
-				response = Exchange(method, url, body, contentType, timeoutMs);
+				response = Exchange(method, url, body, contentType, timeoutMs, headers);
 				if (response.Status != 301 && response.Status != 302 && response.Status != 303 && response.Status != 307 && response.Status != 308)
 					return response;
 				string location = response.Header("Location");
@@ -101,7 +101,7 @@ namespace Alloy.Sdk.Web
 		}
 
 		// One request on a pooled connection; a kept-alive connection the server dropped is retried once on a fresh one
-		private static HttpResponse Exchange(string method, Uri url, byte[] body, string contentType, ulong timeoutMs)
+		private static HttpResponse Exchange(string method, Uri url, byte[] body, string contentType, ulong timeoutMs, IReadOnlyList<KeyValuePair<string, string>> headers)
 		{
 			HttpResponse response = new HttpResponse { Url = url };
 			ulong started = Kernel.TickCount;
@@ -109,7 +109,7 @@ namespace Alloy.Sdk.Web
 				return Failed(response, $"{url.Scheme} is not supported, only http and https");
 			if (!Dns.TryResolve(url.Host, out uint address))
 				return Failed(response, $"can't resolve {url.Host}");
-			byte[] request = BuildRequest(method, url, body, contentType, CookieJar.HeaderFor(url));
+			byte[] request = BuildRequest(method, url, body, contentType, CookieJar.HeaderFor(url), headers);
 			string key = HttpConnection.KeyFor(url);
 			for (int attempt = 0; attempt < 2; attempt++)
 			{
@@ -170,17 +170,38 @@ namespace Alloy.Sdk.Web
 			return response;
 		}
 
-		private static byte[] BuildRequest(string method, Uri url, byte[] body, string contentType, string cookies)
+		private static byte[] BuildRequest(string method, Uri url, byte[] body, string contentType, string cookies, IReadOnlyList<KeyValuePair<string, string>> headers)
 		{
+			// The script's own headers ride along, except the ones the connection owns; its Accept replaces the browser's default
+			string accept = null;
+			StringBuilder extra = null;
+			if (headers != null)
+			{
+				foreach (KeyValuePair<string, string> header in headers)
+				{
+					string name = header.Key.Trim();
+					if (name.Length == 0 || header.Value == null || header.Value.IndexOfAny(s_headerBreaks) >= 0)
+						continue;
+					string lower = name.ToLowerInvariant();
+					if (lower == "accept")
+						accept = header.Value.Trim();
+					else if (lower is "host" or "content-length" or "content-type" or "connection" or "accept-encoding" or "cookie" or "user-agent" or "transfer-encoding" or "upgrade" or "te")
+						continue;
+					else
+						(extra ??= new StringBuilder()).Append(name).Append(": ").Append(header.Value.Trim()).Append("\r\n");
+				}
+			}
 			StringBuilder head = new StringBuilder();
 			head.Append(method).Append(' ').Append(url.PathAndQuery.Length == 0 ? "/" : url.PathAndQuery).Append(" HTTP/1.1\r\n");
 			head.Append("Host: ").Append(url.IsDefaultPort ? url.Host : $"{url.Host}:{url.Port}").Append("\r\n");
 			head.Append("User-Agent: ").Append(UserAgent).Append("\r\n");
-			head.Append("Accept: text/html,application/xhtml+xml,image/*,*/*;q=0.8\r\n");
+			head.Append("Accept: ").Append(string.IsNullOrEmpty(accept) ? "text/html,application/xhtml+xml,image/*,*/*;q=0.8" : accept).Append("\r\n");
 			head.Append("Accept-Encoding: gzip, deflate\r\n");
 			head.Append("Connection: keep-alive\r\n");
 			if (cookies != null)
 				head.Append("Cookie: ").Append(cookies).Append("\r\n");
+			if (extra != null)
+				head.Append(extra);
 			if (body != null)
 			{
 				head.Append("Content-Type: ").Append(contentType ?? "application/octet-stream").Append("\r\n");
@@ -195,6 +216,8 @@ namespace Alloy.Sdk.Web
 			body.CopyTo(request, headBytes.Length);
 			return request;
 		}
+
+		private static readonly char[] s_headerBreaks = { '\r', '\n' };
 
 		// The status line and headers, up to the blank line; folded header lines and repeated names are joined with commas
 		private static bool ReadHead(SocketReader reader, HttpResponse response)

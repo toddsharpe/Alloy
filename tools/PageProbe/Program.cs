@@ -211,7 +211,7 @@ namespace Alloy.Tools.PageProbe
 			return $"{name} {box.Kind} at {box.X:0},{box.Y:0} {box.Width:0}x{box.Height:0} display={style.Display} position={style.Position} float={style.Float} width={style.Width} height={style.Height} font={style.FontSize:0.#}px line={style.LineHeight:0.#} flex={style.FlexDirection}{(style.FlexWrap ? " wrap" : "")} grow={style.FlexGrow} margin={box.MarginTop:0}/{box.MarginRight:0}/{box.MarginBottom:0}/{box.MarginLeft:0} padding={box.PaddingTop:0}/{box.PaddingRight:0}/{box.PaddingBottom:0}/{box.PaddingLeft:0} visible={style.Visible} overflow={style.Overflow}";
 		}
 
-		private static ResourceResponse Fetch(string method, Uri url, byte[] body, string contentType)
+		private static ResourceResponse Fetch(string method, Uri url, byte[] body, string contentType, IReadOnlyList<KeyValuePair<string, string>> headers)
 		{
 			ResourceResponse result = new ResourceResponse { Url = url };
 			try
@@ -225,6 +225,14 @@ namespace Alloy.Tools.PageProbe
 					request.Content = new ByteArrayContent(body);
 					if (contentType != null)
 						request.Content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+				}
+				if (headers != null)
+				{
+					foreach (KeyValuePair<string, string> header in headers)
+					{
+						if (!request.Headers.TryAddWithoutValidation(header.Key, header.Value) && request.Content != null)
+							request.Content.Headers.TryAddWithoutValidation(header.Key, header.Value);
+					}
 				}
 				HttpResponseMessage response = s_http.Send(request);
 				result.Status = (int)response.StatusCode;

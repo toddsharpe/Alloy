@@ -21,7 +21,8 @@ namespace Alloy.Sdk.Web.Dom
 		public bool Ok => Status >= 200 && Status < 300;
 	}
 
-	public delegate ResourceResponse ResourceFetcher(string method, Uri url, byte[] body, string contentType);
+	// Fetches a resource for scripts; headers are the ones the script set on the request, Accept among them, or null
+	public delegate ResourceResponse ResourceFetcher(string method, Uri url, byte[] body, string contentType, IReadOnlyList<KeyValuePair<string, string>> headers);
 
 	public delegate LayoutBox BoxLookup(Element element);
 
@@ -233,7 +234,7 @@ namespace Alloy.Sdk.Web.Dom
 		{
 			if (Fetch == null || !Uri.TryCreate(url, UriKind.Absolute, out Uri target))
 				return null;
-			ResourceResponse response = Fetch("GET", target, null, null);
+			ResourceResponse response = Fetch("GET", target, null, null, null);
 			if (response == null || !response.Ok)
 			{
 				Log("error", $"module: {url} failed ({response?.Error ?? response?.Status.ToString() ?? "no response"})");
@@ -270,7 +271,7 @@ namespace Alloy.Sdk.Web.Dom
 				target = Resolve(src.Trim());
 				if (target == null || Fetch == null)
 					return;
-				ResourceResponse response = Fetch("GET", target, null, null);
+				ResourceResponse response = Fetch("GET", target, null, null, null);
 				if (response == null || !response.Ok)
 				{
 					Log("error", $"script: {target} failed ({response?.Error ?? response?.Status.ToString() ?? "no response"})");

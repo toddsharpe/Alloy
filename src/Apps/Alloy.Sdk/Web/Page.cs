@@ -118,7 +118,7 @@ namespace Alloy.Sdk.Web
 			if (!ScriptsEnabled || Document == null)
 				return;
 			Scripts = new ScriptHost(Document, Url);
-			Scripts.Fetch = (method, url, body, contentType) => ToResource(Http.Request(method, url, body, contentType, timeoutMs));
+			Scripts.Fetch = (method, url, body, contentType, headers) => ToResource(Http.Request(method, url, body, contentType, timeoutMs, headers));
 			Scripts.BoxFor = BoxFor;
 			Scripts.EnsureLayout = () => Layout(DefaultViewportWidth, DefaultViewportHeight, DefaultFonts ?? new FixedFontProvider());
 			Scripts.ViewportWidth = DefaultViewportWidth;
