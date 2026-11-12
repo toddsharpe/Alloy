@@ -148,10 +148,10 @@ namespace Alloy.Sdk.Web.Dom
 			RunJobsBudgeted();
 		}
 
-		// Pending promise jobs under the event budget, never unbounded: a page that chains work forever must not hold the load
+		// Pending promise jobs under a budget, never unbounded: a page that chains work forever must not hold the load
 		private void RunJobsBudgeted()
 		{
-			Interpreter.Deadline = Math.Min(Now + EventBudgetMs, _loadDeadline);
+			Interpreter.Deadline = EventDeadline();
 			try
 			{
 				Interpreter.RunJobs();
@@ -161,6 +161,9 @@ namespace Alloy.Sdk.Web.Dom
 				Interpreter.Deadline = double.PositiveInfinity;
 			}
 		}
+
+		// During a page load, the handlers and jobs an event sets off share the page budget; afterwards each event gets its own
+		private double EventDeadline() => double.IsPositiveInfinity(_loadDeadline) ? Now + EventBudgetMs : _loadDeadline;
 
 		// The load event, once the page's resources are in
 		public void FireLoad()
@@ -521,7 +524,7 @@ namespace Alloy.Sdk.Web.Dom
 			_currentEvent = ev;
 			double savedDeadline = Interpreter.Deadline;
 			if (double.IsPositiveInfinity(savedDeadline))
-				Interpreter.Deadline = Now + EventBudgetMs;
+				Interpreter.Deadline = EventDeadline();
 			try
 			{
 				ev.Phase = 1;
@@ -553,7 +556,7 @@ namespace Alloy.Sdk.Web.Dom
 			{
 				// The jobs the handlers queued run under the same budget; a handler awaiting what never comes must not hold the dispatch
 				if (double.IsPositiveInfinity(savedDeadline))
-					Interpreter.Deadline = Now + EventBudgetMs;
+					Interpreter.Deadline = EventDeadline();
 				try
 				{
 					Interpreter.RunJobs();
