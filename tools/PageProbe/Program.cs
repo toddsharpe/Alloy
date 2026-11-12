@@ -208,7 +208,7 @@ namespace Alloy.Tools.PageProbe
 			if (box == null)
 				return name + " (no box)";
 			ComputedStyle style = box.Style;
-			return $"{name} {box.Kind} at {box.X:0},{box.Y:0} {box.Width:0}x{box.Height:0} display={style.Display} position={style.Position} float={style.Float} width={style.Width} height={style.Height} font={style.FontSize:0.#}px line={style.LineHeight:0.#} flex={style.FlexDirection}{(style.FlexWrap ? " wrap" : "")} grow={style.FlexGrow} visible={style.Visible} overflow={style.Overflow}";
+			return $"{name} {box.Kind} at {box.X:0},{box.Y:0} {box.Width:0}x{box.Height:0} display={style.Display} position={style.Position} float={style.Float} width={style.Width} height={style.Height} font={style.FontSize:0.#}px line={style.LineHeight:0.#} flex={style.FlexDirection}{(style.FlexWrap ? " wrap" : "")} grow={style.FlexGrow} margin={box.MarginTop:0}/{box.MarginRight:0}/{box.MarginBottom:0}/{box.MarginLeft:0} padding={box.PaddingTop:0}/{box.PaddingRight:0}/{box.PaddingBottom:0}/{box.PaddingLeft:0} visible={style.Visible} overflow={style.Overflow}";
 		}
 
 		private static ResourceResponse Fetch(string method, Uri url, byte[] body, string contentType)

@@ -302,14 +302,16 @@ namespace Alloy.Sdk.Web.Layout
 				{
 					box.Kind = BoxKind.Block;
 					box.Style.Display = Display.Block;
+				}
+				else
+				{
+					foreach (LayoutBox child in box.Children)
+					{
+						if (child.Kind == BoxKind.Block || child.Kind == BoxKind.AnonymousBlock)
+							child.Kind = BoxKind.InlineBlock;
+					}
 					return;
 				}
-				foreach (LayoutBox child in box.Children)
-				{
-					if (child.Kind == BoxKind.Block || child.Kind == BoxKind.AnonymousBlock)
-						child.Kind = BoxKind.InlineBlock;
-				}
-				return;
 			}
 			bool hasBlock = false;
 			bool hasInline = false;

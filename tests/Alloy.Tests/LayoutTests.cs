@@ -372,5 +372,11 @@ public class LayoutTests
 		Assert.Equal(BoxKind.Block, wrapper.Kind);
 		LayoutBox b = FindId(root, "b");
 		Assert.Equal(BoxKind.InlineBlock, b.Kind);
+		// Whitespace around the blocks and nesting, as server-rendered partials have them, add no lines and keep the full width
+		root = Lay("<body style=\"margin:0\"><my-partial>\n  <div>\n<div><header id=\"h\" style=\"width:100%\">header</header></div></div>\n</my-partial><my-partial>\n<div id=\"empty\"></div>\n</my-partial><div id=\"after\">after</div></body>", "body { width: 800px; line-height: 21px }");
+		LayoutBox h = FindId(root, "h");
+		Assert.Equal(800, h.Width, 0.5f);
+		Assert.Equal(0, FindId(root, "empty").Height, 0.5f);
+		Assert.Equal(21, FindId(root, "after").Y, 0.5f);
 	}
 }
