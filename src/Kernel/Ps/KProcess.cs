@@ -170,6 +170,7 @@ namespace Alloy.Kernel.Ps
 			ulong stackTop = stack + reserve;
 
 			KUserThread thread = KUserThread.Create(this, entry, stackTop - 40, argument, teb, suspended);
+			thread.StackReservation = stack;
 			WriteUser(teb + Teb.StackBase, stackTop);
 			WriteUser(teb + Teb.StackLimit, stack + MemoryLayout.PageSize);
 			WriteUser(teb + Teb.Self, teb);
@@ -226,7 +227,12 @@ namespace Alloy.Kernel.Ps
 			bool last = --_threadCount == 0;
 			Scheduler.Unlock(flags);
 			if (!last)
+			{
+				// The stack and TEB go back to the address space now; the last thread's leave with the whole space below
+				Space.Free(thread.StackReservation, 0, Memory.Release);
+				Space.Free(thread.Teb, 0, Memory.Release);
 				return;
+			}
 
 			Handles.CloseAll();
 			Destroy();
@@ -338,6 +344,7 @@ namespace Alloy.Kernel.Ps
 		public readonly ulong Teb;
 		public KUserThread NextInProcess;
 		public int ExitCode = (int)ThreadFlags.StillActive;
+		public ulong StackReservation;
 
 		private readonly ulong _entry;
 		private readonly ulong _stack;
