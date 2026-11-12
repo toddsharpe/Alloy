@@ -31,6 +31,9 @@ namespace Alloy.Sdk.Web.Css
 	// Media conditions a page can ask about: the screen type and the viewport's width and height
 	public readonly struct MediaEnvironment
 	{
+		// Nothing here animates, so by default pages are asked for their reduced-motion styling rather than entrances that start invisible
+		public static bool PrefersReducedMotion = true;
+
 		public readonly int Width;
 		public readonly int Height;
 
@@ -404,7 +407,7 @@ namespace Alloy.Sdk.Web.Css
 				return false;
 			string name = parts[0].Value.ToLowerInvariant();
 			if (parts.Count == 1)
-				return name == "color" || name == "width" || name == "height" || name == "prefers-reduced-motion";
+				return name == "color" || name == "width" || name == "height" || (name == "prefers-reduced-motion" && MediaEnvironment.PrefersReducedMotion);
 			if (parts.Count < 3 || parts[1].Type != CssTokenType.Colon)
 				return false;
 			CssToken value = parts[2];
@@ -427,8 +430,7 @@ namespace Alloy.Sdk.Web.Css
 				case "prefers-color-scheme":
 					return value.IsIdent("dark");
 				case "prefers-reduced-motion":
-					// Nothing here animates, so pages are asked for their reduced-motion styling rather than entrances that start invisible
-					return value.IsIdent("reduce");
+					return value.IsIdent(MediaEnvironment.PrefersReducedMotion ? "reduce" : "no-preference");
 				case "hover":
 					return value.IsIdent("hover");
 				case "pointer":

@@ -229,7 +229,7 @@ namespace Alloy.Sdk.Web
 			Scripts.FocusStyle = (previous, current) => SetFocus(current);
 			Scripts.BoxFor = BoxFor;
 			Scripts.StyleFor = StyleOf;
-			Scripts.EnsureLayout = () => Layout(DefaultViewportWidth, DefaultViewportHeight, DefaultFonts ?? new FixedFontProvider());
+			Scripts.EnsureLayout = () => Layout(DefaultViewportWidth, DefaultViewportHeight, DefaultFonts ?? new FixedFontProvider(), false);
 			Scripts.ViewportWidth = DefaultViewportWidth;
 			Scripts.ViewportHeight = DefaultViewportHeight;
 			Scripts.Console = (level, text) => Console.WriteLine("script " + level + ": " + text);
@@ -396,7 +396,10 @@ namespace Alloy.Sdk.Web
 		}
 
 		// Styles, lays out and paints the document for a viewport; call again after a resize
-		public void Layout(int width, int height, IFontProvider fonts)
+		public void Layout(int width, int height, IFontProvider fonts) => Layout(width, height, fonts, true);
+
+		// A layout forced by a script skips the paint; the display list is refreshed when the view next draws
+		public void Layout(int width, int height, IFontProvider fonts, bool paint)
 		{
 			ulong start = Kernel.TickCount;
 			if (Scripts != null && Scripts.Dirty)
@@ -406,10 +409,23 @@ namespace Alloy.Sdk.Web
 			EnsureResolver(width, height);
 			Root = new BoxBuilder(_resolver, ImageFor).Build(Document);
 			new LayoutEngine(fonts, width, height).Layout(Root);
-			Display = Painter.Paint(Root, width, height);
+			if (paint)
+				Paint();
+			else
+				DisplayStale = true;
 			LayoutMs = (long)(Kernel.TickCount - start);
 			if (Scripts != null)
 				Scripts.Dirty = false;
+		}
+
+		// True after a layout without a paint, until Paint runs
+		public bool DisplayStale;
+
+		public void Paint()
+		{
+			if (Root != null)
+				Display = Painter.Paint(Root, _viewportWidth, _viewportHeight);
+			DisplayStale = false;
 		}
 
 		private int _viewportWidth = DefaultViewportWidth;

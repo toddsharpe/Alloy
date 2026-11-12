@@ -82,7 +82,7 @@ namespace Alloy.Sdk.Web.Render
 				return;
 			scripts.BoxFor = Page.BoxFor;
 			scripts.StyleFor = Page.StyleOf;
-			scripts.EnsureLayout = EnsureLayout;
+			scripts.EnsureLayout = () => EnsureLayout(false);
 			scripts.ScrollY = () => ScrollY;
 			scripts.ScrollTo = y =>
 			{
@@ -169,11 +169,20 @@ namespace Alloy.Sdk.Web.Render
 			return Page?.Root == null ? 0 : Count(Page.Root);
 		}
 
-		private void EnsureLayout()
+		private void EnsureLayout() => EnsureLayout(true);
+
+		// Scripts lay out without painting; a draw paints what the last layout left stale
+		private void EnsureLayout(bool paint)
 		{
-			if (Page == null || (_laidOutWidth == Bounds.Width && _laidOutHeight == Bounds.Height && !(Page.Scripts?.Dirty ?? false)))
+			if (Page == null)
 				return;
-			Page.Layout(Bounds.Width, Bounds.Height, _fonts);
+			if (_laidOutWidth == Bounds.Width && _laidOutHeight == Bounds.Height && !(Page.Scripts?.Dirty ?? false))
+			{
+				if (paint && Page.DisplayStale)
+					Page.Paint();
+				return;
+			}
+			Page.Layout(Bounds.Width, Bounds.Height, _fonts, paint);
 			_laidOutWidth = Bounds.Width;
 			_laidOutHeight = Bounds.Height;
 			ClampScroll();

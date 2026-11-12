@@ -79,6 +79,25 @@ public class DomTests
 	private static string Eval(Harness harness, string expression) => harness.Host.Interpreter.Evaluate(expression).ToJsString();
 
 	[Fact]
+	public void AnimateAppliesTheFinalKeyframeAndFinishes()
+	{
+		Harness harness = Open("<div id=d style='opacity:0'>x</div><script>window.finished = 0; const d = document.getElementById('d'); const a = d.animate([{opacity: 0, transform: 'translateX(0)'}, {opacity: 1, transform: 'translateX(10px)'}], {duration: 200, fill: 'forwards'}); a.onfinish = () => window.finished++; d.animate({backgroundColor: ['red', 'blue']}, 100).addEventListener('finish', () => window.finished++);</script>");
+		Assert.Equal("1", Eval(harness, "document.getElementById('d').style.opacity"));
+		Assert.Equal("translateX(10px)", Eval(harness, "document.getElementById('d').style.transform"));
+		Assert.Equal("blue", Eval(harness, "document.getElementById('d').style.backgroundColor"));
+		Assert.Equal("2", Eval(harness, "window.finished"));
+		Assert.Equal("finished", Eval(harness, "document.getElementById('d').animate([{opacity: 1}], 10).playState"));
+	}
+
+	[Fact]
+	public void ForcedLayoutsAreCappedPerScriptSlice()
+	{
+		Harness harness = Open("<div id=d>x</div><script>const d = document.getElementById('d'); window.widths = []; for (let i = 1; i <= 20; i++) { d.style.width = (i * 10) + 'px'; window.widths.push(d.offsetWidth); }</script>");
+		Assert.Equal(6, harness.Host.ForcedLayouts);
+		Assert.Equal("10,20,30,40,50,60,60,60", Eval(harness, "window.widths.slice(0, 8).join(',')"));
+	}
+
+	[Fact]
 	public void ComputedValuesWithoutGeometryForceNoLayout()
 	{
 		Harness harness = Open("<style>p { color: rgb(1, 2, 3); opacity: 0.5 }</style><p id=p>x</p>");

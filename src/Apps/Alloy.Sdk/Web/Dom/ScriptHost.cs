@@ -281,6 +281,7 @@ namespace Alloy.Sdk.Web.Dom
 		{
 			if (!_ranScripts.Add(script))
 				return;
+			NewSlice();
 			string kind = ScriptKind(script);
 			if (kind == "importmap")
 			{
@@ -384,6 +385,7 @@ namespace Alloy.Sdk.Web.Dom
 		// Timers and jobs, pumped by the host between events; true when the document changed meanwhile
 		public bool Pump()
 		{
+			NewSlice();
 			bool before = Dirty;
 			Dirty = false;
 			Interpreter.Deadline = Now + EventBudgetMs;
@@ -552,6 +554,8 @@ namespace Alloy.Sdk.Web.Dom
 		// The event path, listeners and handlers in order; true unless preventDefault was called
 		public bool DispatchEvent(JsEvent ev, object target)
 		{
+			if (!Interpreter.InScript)
+				NewSlice();
 			List<object> path = new List<object>();
 			if (target is Node node)
 			{
@@ -987,18 +991,28 @@ namespace Alloy.Sdk.Web.Dom
 		// Which accessors forced the layouts, for the probe's report
 		public readonly Dictionary<string, int> ForcedLayoutsBy = new Dictionary<string, int>();
 		internal string Accessor;
+		// How many layouts one script, event or timer slice may force; past that it reads the geometry of the last one, since a full layout here costs what browsers spend on a frame
+		public int ForcedLayoutLimit = 6;
+		private int _forcedThisSlice;
+		private bool _everLaidOut;
+
+		private void NewSlice() => _forcedThisSlice = 0;
 
 		internal LayoutBox LayoutBoxOf(Element element)
 		{
 			if (!_layoutValid || Dirty)
 			{
+				if (_everLaidOut && _forcedThisSlice >= ForcedLayoutLimit)
+					return BoxFor?.Invoke(element);
 				// A script that writes a style and reads a box in a loop forces a layout per round; the budget decides how many it gets
 				Interpreter.CheckDeadline();
 				ForcedLayouts++;
+				_forcedThisSlice++;
 				string accessor = Accessor ?? "other";
 				ForcedLayoutsBy[accessor] = ForcedLayoutsBy.TryGetValue(accessor, out int count) ? count + 1 : 1;
 				EnsureLayout?.Invoke();
 				_layoutValid = true;
+				_everLaidOut = true;
 			}
 			return BoxFor?.Invoke(element);
 		}

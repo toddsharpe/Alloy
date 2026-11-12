@@ -41,13 +41,14 @@ namespace Alloy.Tools.PageProbe
 		{
 			if (args.Length < 1)
 			{
-				Console.WriteLine("usage: pageprobe <url> [-v] [-click <selector>]... [-text] [-width <px>] [-png <path>] [-full] [-fixedfont] [-at x,y] [-wait <ms>]");
+				Console.WriteLine("usage: pageprobe <url> [-v] [-click <selector>]... [-text] [-width <px>] [-png <path>] [-full] [-fixedfont] [-at x,y] [-wait <ms>] [-motion] [-eval <js>] [-budget <ms>]");
 				return 1;
 			}
 			string url = args[0].Contains("://") ? args[0] : "https://" + args[0];
 			List<string> clicks = new List<string>();
 			List<string> styles = new List<string>();
 			List<string> ats = new List<string>();
+			List<string> evals = new List<string>();
 			bool text = false;
 			int width = 1200;
 			int repeat = 1;
@@ -55,6 +56,7 @@ namespace Alloy.Tools.PageProbe
 			bool full = false;
 			bool fixedFont = false;
 			int waitMs = 3000;
+			int budgetMs = 0;
 			for (int i = 1; i < args.Length; i++)
 			{
 				if (args[i] == "-repeat" && i + 1 < args.Length)
@@ -82,6 +84,12 @@ namespace Alloy.Tools.PageProbe
 					fixedFont = true;
 				else if (args[i] == "-wait" && i + 1 < args.Length)
 					waitMs = int.Parse(args[++i]);
+				else if (args[i] == "-eval" && i + 1 < args.Length)
+					evals.Add(args[++i]);
+				else if (args[i] == "-budget" && i + 1 < args.Length)
+					budgetMs = int.Parse(args[++i]);
+				else if (args[i] == "-motion")
+					MediaEnvironment.PrefersReducedMotion = false;
 			}
 			// The image's TrueType faces give the probe the VM's text metrics; without them the fixed-width stand-in keeps the numbers stable
 			IFontProvider fonts = !fixedFont && Fonts.Get(Fonts.Sans, 16) != null ? new SdkFontProvider() : new FixedFontProvider();
@@ -177,6 +185,12 @@ namespace Alloy.Tools.PageProbe
 				if (s_verbose || level == "error")
 					Console.WriteLine($"  [{level}] {Trim(line, s_verbose ? 4000 : 300)}");
 			};
+			if (budgetMs > 0)
+			{
+				host.ScriptBudgetMs = budgetMs;
+				host.EventBudgetMs = budgetMs;
+				host.LoadBudgetMs = budgetMs * 3;
+			}
 			host.Navigate = request => Console.WriteLine($"  navigate: {request}");
 			host.Alert = message => Console.WriteLine($"  alert: {message}");
 			host.EnsureLayout = () =>
@@ -260,6 +274,17 @@ namespace Alloy.Tools.PageProbe
 						if (child.Element != null)
 							Console.WriteLine("    " + Describe(child.Element, child));
 					}
+				}
+			}
+			foreach (string expression in evals)
+			{
+				try
+				{
+					Console.WriteLine($"eval {expression}: {host.Interpreter.Evaluate(expression).ToJsString()}");
+				}
+				catch (Exception x)
+				{
+					Console.WriteLine($"eval {expression}: threw {x.Message}");
 				}
 			}
 			foreach (string at in ats)

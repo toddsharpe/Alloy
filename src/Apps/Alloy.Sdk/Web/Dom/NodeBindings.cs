@@ -224,6 +224,43 @@ namespace Alloy.Sdk.Web.Dom
 			});
 		}
 
+		// The last keyframe of an animate() call, from an array of keyframes or a property-indexed object, written as inline style
+		private void ApplyFinalKeyframe(Element element, JsValue keyframes)
+		{
+			if (keyframes.IsNullish || !keyframes.IsObject)
+				return;
+			JsObject frames = keyframes.Object;
+			JsObject last = frames;
+			if (frames is JsArray)
+			{
+				int length = (int)frames.Get("length", Interpreter).ToNumber();
+				if (length == 0)
+					return;
+				JsValue final = frames.Get((length - 1).ToString(System.Globalization.CultureInfo.InvariantCulture), Interpreter);
+				if (!final.IsObject)
+					return;
+				last = final.Object;
+			}
+			JsStyle style = StyleOf(element);
+			foreach (string key in new List<string>(last.OwnKeys))
+			{
+				if (key is "offset" or "easing" or "composite")
+					continue;
+				JsValue value = last.Get(key, Interpreter);
+				if (value.IsObject && value.Object is JsArray values)
+				{
+					int count = (int)values.Get("length", Interpreter).ToNumber();
+					if (count == 0)
+						continue;
+					value = values.Get((count - 1).ToString(System.Globalization.CultureInfo.InvariantCulture), Interpreter);
+				}
+				if (value.IsNullish)
+					continue;
+				string property = key == "cssFloat" ? "float" : key.StartsWith("--", StringComparison.Ordinal) ? key : Kebab(key);
+				style.Set(property, value.ToJsString());
+			}
+		}
+
 		private void ElementGetter(JsObject prototype, string name, ElementReader getter, ElementWriter setter = null)
 		{
 			Interpreter.DefineGetter(prototype, name, (i, t, a) =>
@@ -1118,14 +1155,46 @@ namespace Alloy.Sdk.Web.Dom
 			});
 			Interpreter.DefineMethod(proto, "animate", 2, (i, t, a) =>
 			{
+				// Nothing here moves over time: the final keyframe becomes the element's inline style at once and the animation reports itself finished
+				Element element = ThisElement(t);
+				ApplyFinalKeyframe(element, Interpreter.Arg(a, 0));
 				JsObject animation = Interpreter.NewObject();
-				animation.Put("finished", Interpreter.PromiseResolve(JsValue.Undefined));
+				animation.Class = "Animation";
+				animation.Put("finished", Interpreter.PromiseResolve(animation));
+				animation.Put("ready", Interpreter.PromiseResolve(animation));
 				animation.Put("playState", "finished");
+				animation.Put("currentTime", 0);
+				animation.Put("startTime", 0);
+				animation.Put("playbackRate", 1);
+				animation.Put("onfinish", JsValue.Null);
+				animation.Put("oncancel", JsValue.Null);
 				Interpreter.DefineMethod(animation, "cancel", 0, (ii, tt, aa) => JsValue.Undefined);
 				Interpreter.DefineMethod(animation, "finish", 0, (ii, tt, aa) => JsValue.Undefined);
 				Interpreter.DefineMethod(animation, "play", 0, (ii, tt, aa) => JsValue.Undefined);
 				Interpreter.DefineMethod(animation, "pause", 0, (ii, tt, aa) => JsValue.Undefined);
-				Interpreter.DefineMethod(animation, "addEventListener", 2, (ii, tt, aa) => JsValue.Undefined);
+				Interpreter.DefineMethod(animation, "reverse", 0, (ii, tt, aa) => JsValue.Undefined);
+				Interpreter.DefineMethod(animation, "commitStyles", 0, (ii, tt, aa) => JsValue.Undefined);
+				Interpreter.DefineMethod(animation, "persist", 0, (ii, tt, aa) => JsValue.Undefined);
+				Interpreter.DefineMethod(animation, "addEventListener", 2, (ii, tt, aa) =>
+				{
+					if (Interpreter.Arg(aa, 0).ToJsString() == "finish" && Interpreter.Arg(aa, 1).IsCallable)
+						animation.Put("@@onfinish", Interpreter.Arg(aa, 1));
+					return JsValue.Undefined;
+				});
+				Interpreter.DefineMethod(animation, "removeEventListener", 2, (ii, tt, aa) => JsValue.Undefined);
+				// The finish handlers run once the calling script has had a chance to attach them
+				Interpreter.EnqueueJob(() =>
+				{
+					JsObject finishEvent = Interpreter.NewObject();
+					finishEvent.Put("type", "finish");
+					finishEvent.Put("target", animation);
+					foreach (string key in new[] { "onfinish", "@@onfinish" })
+					{
+						JsValue handler = animation.Get(key, Interpreter);
+						if (handler.IsCallable)
+							Interpreter.Call(handler.Function, animation, new JsValue[] { finishEvent });
+					}
+				});
 				return animation;
 			});
 			Interpreter.DefineMethod(proto, "getAnimations", 0, (i, t, a) => Interpreter.NewArray());
